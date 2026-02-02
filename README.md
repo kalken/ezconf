@@ -7,7 +7,7 @@ This is a small configuration wrapped in nvim to make it easier to edit nix file
 Looks through the file and checks for comments starting with #!. This indicates a headline that should be presented. The number of # decides the headline level, just like markdown. Press Enter on a selected headline to go there.
 
 ## Button bar
-Looks through the file and checks for comments starting with #!. This indicates that a button should be created. the syntax of buttons is: #!button <name>: <command>. buttonDisplay a button bar where you can choose to run commands. the syntax. Press Enter on a selected option to run the command specified.
+Looks through the file and checks for comments starting with #!button. This indicates that a button should be created. the syntax of buttons is: #!button <name>: <command>. buttonDisplay a button bar where you can choose to run commands. the syntax. Press Enter on a selected option to run the command specified.
 
 ## Navigation
 Switch between Side panel, Button Bar and Main window by pressing TAB (while not in edit mode).
