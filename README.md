@@ -38,5 +38,5 @@ Automatic configuration of nixd (lsp) autocomplete functionality.
 Automatic formatting on save.
 
 ## Screenshots
-![sidebar](blob/main/screenshots/sidebar.png)
-![buttonbar](blob/main/screenshots/buttonbar.png)
+![sidebar](screenshots/sidebar.png)
+![buttonbar](screenshots/buttonbar.png)
