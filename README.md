@@ -3,7 +3,7 @@ This is a small configuration wrapped in nvim to make it easier to edit nix file
 
 
 
-## Side panel
+## Sidebar
 Looks through the file and checks for comments starting with #!. 
 
 ```
@@ -15,7 +15,7 @@ Looks through the file and checks for comments starting with #!.
 
 This indicates a headline that should be presented. The number of # decides the headline level, just like markdown. Press Enter on a selected headline to go there.
 
-## Button bar
+## Buttonbar
 Looks through the file and checks for comments starting with #!button. This indicates that a button should be created. the syntax of buttons is: 
 
 ```
@@ -38,5 +38,7 @@ Automatic configuration of nixd (lsp) autocomplete functionality.
 Automatic formatting on save.
 
 ## Screenshots
+### Sidebar
 ![sidebar](screenshots/sidebar.png)
+## Buttonbar
 ![buttonbar](screenshots/buttonbar.png)
