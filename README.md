@@ -7,7 +7,7 @@ This is a small configuration wrapped in nvim to make it easier to edit nix file
 git clone https://github.com/kalken/ezconf.git
 cd ezconf
 nix develop
-ezconf some/file.nix
+ezconf-dev some/file.nix (or) ezconf some/file.nix
 ```
 
 ## Sidebar
