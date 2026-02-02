@@ -1,7 +1,14 @@
 # Ezconf
 This is a small configuration wrapped in nvim to make it easier to edit nix files.
 
+## Flake usage
 
+```
+git clone https://github.com/kalken/ezconf.git
+cd ezconf
+nix develop
+ezconf some/file.nix
+```
 
 ## Sidebar
 Looks through the file and checks for comments starting with #!. 
