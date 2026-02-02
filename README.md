@@ -10,7 +10,7 @@ Looks through the file and checks for comments starting with #!.
 #! Heading 1
 ##! Heading 2
 ###! Heading 3
-####! Heading 2
+####! Heading 4
 ```
 
 This indicates a headline that should be presented. The number of # decides the headline level, just like markdown. Press Enter on a selected headline to go there.
