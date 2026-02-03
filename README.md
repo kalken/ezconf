@@ -22,6 +22,9 @@ Looks through the file and checks for comments starting with #!.
 
 This indicates a headline that should be presented. The number of # decides the headline level, just like markdown. Press Enter on a selected headline to go there.
 
+![sidebar](screenshots/sidebar.png)
+
+
 ## Buttonbar
 Looks through the file and checks for comments starting with #!button. This indicates that a button should be created. the syntax of buttons is: 
 
@@ -33,6 +36,8 @@ Looks through the file and checks for comments starting with #!button. This indi
 
 Display a button bar where you can choose to run commands. the syntax. Press Enter on a selected option to run the command specified.
 
+![buttonbar](screenshots/buttonbar.png)
+
 ## Navigation
 Switch between Side panel, Button Bar and Main window by pressing TAB (while not in edit mode).
 
@@ -43,9 +48,3 @@ Automatic configuration of nixd (lsp) autocomplete functionality.
 
 ### alejandra
 Automatic formatting on save.
-
-## Screenshots
-### Sidebar
-![sidebar](screenshots/sidebar.png)
-## Buttonbar
-![buttonbar](screenshots/buttonbar.png)
