@@ -125,9 +125,9 @@ Key constraints:
 - `fit()` is the only call that triggers a PTY resize — it fires `_term.onResize` → sends `{"type":"resize",...}` → server calls `TIOCSWINSZ`.
 - Do not use a continuous `requestAnimationFrame` loop for terminal rendering — on Linux without GPU acceleration this causes CPU usage proportional to canvas size.
 
-**CSS file roles**: `style.css` = app layout, `theme-nixos.css` / `theme-dark.css` / `theme-light.css` = per-theme variables (colors, radii, xterm palette), `theme.css` = legacy base palette (still present), `addons/xterm.css` = vendor file (unmodified).
+**CSS file roles**: `style.css` = app layout, `theme-nixos.css` / `theme-dark.css` / `theme-light.css` = per-theme variables (colors, radii, xterm palette), `addons/xterm.css` = vendor file (unmodified).
 
-**Theming rule**: Any new CSS values that a user might want to customize (colors, radii, sizes, spacing) must be exposed as CSS variables defined in `theme.css`. Hard-coded values in `style.css` are only acceptable for structural/layout properties that should never vary. When adding new UI elements, always check whether their visual properties belong in `theme.css`.
+**Theming rule**: Any new CSS values that a user might want to customize (colors, radii, sizes, spacing) must be exposed as CSS variables defined in all three per-theme files (`theme-nixos.css`, `theme-dark.css`, `theme-light.css`). Hard-coded values in `style.css` are only acceptable for structural/layout properties that should never vary. When adding new UI elements, always check whether their visual properties belong in the theme files.
 
 ## Nix flake
 
