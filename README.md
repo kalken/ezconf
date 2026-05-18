@@ -1,6 +1,6 @@
 # ezconf
 
-A zero-dependency web editor for NixOS `configuration.json` files. No build step, no framework — just Python and a browser.
+Graphical editor for nix configurations. Zero dependencies, no build step, no framework — just Python and a browser.
 
 ## ✨ Features
 
