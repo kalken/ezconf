@@ -117,6 +117,10 @@ services.ezconf = {
 };
 ```
 
+> **Note:** The username must be set in your NixOS config. For the password, prefer `auth.passwordFile` over `auth.password` — the latter is stored in the Nix store and world-readable. The runtime config at `/run/ezconf/ezconf.toml` is regenerated on every service start, so editing it directly has no effect.
+>
+> For **standalone use**, you can set `username` and `password` directly in `ezconf.toml` and they will be picked up on the next start.
+
 ## 🖱️ Terminal Panel
 
 The terminal panel runs as a separate service (`ezconf-terminal.service`) and is enabled by default. Configure shortcut buttons to run common commands:
