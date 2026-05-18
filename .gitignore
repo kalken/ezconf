@@ -1,0 +1,7 @@
+*.lock
+.env
+*.pem
+*.swp
+autocomplete/
+__pycache__/
+.claude

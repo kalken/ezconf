@@ -1,0 +1,303 @@
+{
+  "hardware": {
+    "enableRedistributableFirmware": true,
+    "amdgpu": {
+      "overdrive": {
+        "enable": true
+      }
+    },
+    "graphics": {
+      "enable": true,
+      "enable32Bit": true
+    },
+    "bluetooth": {
+      "enable": true,
+      "powerOnBoot": true
+    }
+  },
+  "boot": {
+    "loader": {
+      "systemd-boot": {
+        "enable": true
+      },
+      "efi": {
+        "canTouchEfiVariables": true
+      }
+    },
+    "kernelPackages": {
+      "_expr": "pkgs.linuxPackages_latest"
+    },
+    "kernelModules": [
+      "ntsync"
+    ],
+    "initrd": {
+      "systemd": {
+        "enable": true
+      },
+      "luks": {
+        "devices": {
+          "rootfs": {
+            "device": "/dev/disk/by-label/rootfs_luks",
+            "allowDiscards": true
+          }
+        }
+      }
+    },
+    "binfmt": {
+      "emulatedSystems": [
+        "aarch64-linux"
+      ]
+    }
+  },
+  "fileSystems": {
+    "/": {
+      "device": "/dev/mapper/rootfs",
+      "fsType": "ext4"
+    },
+    "/boot": {
+      "device": "/dev/disk/by-label/bootfs",
+      "fsType": "vfat"
+    }
+  },
+  "swapDevices": [
+    {
+      "device": "/swapfile",
+      "size": 8192
+    }
+  ],
+  "nix": {
+    "settings": {
+      "experimental-features": [
+        "nix-command",
+        "flakes"
+      ],
+      "auto-optimise-store": true
+    },
+    "optimise": {
+      "automatic": true,
+      "dates": [
+        "daily"
+      ]
+    },
+    "gc": {
+      "automatic": true,
+      "dates": "daily",
+      "options": "--delete-older-than 7d"
+    }
+  },
+  "system": {
+    "stateVersion": "25.11",
+    "autoUpgrade": {
+      "enable": true,
+      "dates": "06:00",
+      "flake": "/etc/nixos"
+    }
+  },
+  "systemd": {
+    "services": {
+      "nixos-upgrade": {
+        "preStart": {
+          "_expr": "''\n  ${pkgs.coreutils}/bin/sleep 30\n  ${pkgs.nix}/bin/nix flake update --flake /etc/nixos --commit-lock-file\n''"
+        }
+      }
+    },
+    "tmpfiles": {
+      "rules": [
+        "w /sys/bus/usb/devices/5-1/power/wakeup - - - - disabled"
+      ]
+    }
+  },
+  "nixpkgs": {
+    "config": {
+      "allowUnfree": true
+    }
+  },
+  "networking": {
+    "hostName": "ezgaming",
+    "networkmanager": {
+      "enable": true
+    }
+  },
+  "console": {
+    "keyMap": "sv-latin1"
+  },
+  "time": {
+    "timeZone": "Europe/Stockholm"
+  },
+  "i18n": {
+    "defaultLocale": "en_US.UTF-8"
+  },
+  "services": {
+    "displayManager": {
+      "sddm": {
+        "enable": true,
+        "wayland": {
+          "enable": true
+        }
+      }
+    },
+    "desktopManager": {
+      "plasma6": {
+        "enable": true
+      }
+    },
+    "xserver": {
+      "enable": true,
+      "xkb": {
+        "layout": "se"
+      }
+    },
+    "pipewire": {
+      "enable": true,
+      "alsa": {
+        "enable": true
+      },
+      "pulse": {
+        "enable": true
+      }
+    },
+    "openssh": {
+      "enable": true,
+      "settings": {
+        "PasswordAuthentication": false
+      }
+    },
+    "fstrim": {
+      "enable": true
+    },
+    "lact": {
+      "enable": true
+    },
+    "ezprotonge-steam": {
+      "enable": true,
+      "user": "default",
+      "afterAutoUpgrade": true
+    },
+    "ezconf": {
+      "enable": true,
+      "auth": {
+        "allowedUsers": [
+          "default"
+        ]
+      },
+      "buttons": [
+        {
+          "command": "nixos-rebuild list-generations",
+          "label": "List Configurations"
+        },
+        {
+          "command": "nixos-rebuild switch",
+          "label": "Activate configuration"
+        },
+        {
+          "command": "cd /etc/nixos && git commit -am \"update\"; git push",
+          "label": "Commit Configuration"
+        },
+        {
+          "command": "nix flake update --flake /etc/nixos --commit-lock-file",
+          "label": "Update Flake"
+        },
+        {
+          "command": "nix-collect-garbage -d && nixos-rebuild switch",
+          "label": "Cleanup versions"
+        }
+      ]
+    }
+  },
+  "security": {
+    "rtkit": {
+      "enable": true
+    }
+  },
+  "programs": {
+    "ezconf": {
+      "enable": true,
+      "nerdFonts": true,
+      "extraConfig": "vim.opt.guicursor = \"a:ver25\""
+    },
+    "ezsh": {
+      "enable": true,
+      "defaultUserShell": true
+    },
+    "steam": {
+      "enable": true
+    },
+    "virt-manager": {
+      "enable": true
+    }
+  },
+  "fonts": {
+    "packages": [
+      {
+        "_expr": "pkgs.nerd-fonts.iosevka"
+      }
+    ]
+  },
+  "environment": {
+    "systemPackages": [
+      {
+        "_expr": "pkgs.claude-code"
+      },
+      {
+        "_expr": "pkgs.ghostty"
+      },
+      {
+        "_expr": "pkgs.git"
+      },
+      {
+        "_expr": "pkgs.htop"
+      },
+      {
+        "_expr": "pkgs.osc"
+      },
+      {
+        "_expr": "pkgs.psmisc"
+      }
+    ]
+  },
+  "users": {
+    "users": {
+      "default": {
+        "isNormalUser": true,
+        "extraGroups": [
+          "wheel",
+          "libvirtd"
+        ],
+        "packages": [
+          {
+            "_expr": "pkgs.brave"
+          },
+          {
+            "_expr": "pkgs.ezprotonge-steam"
+          },
+          {
+            "_expr": "pkgs.git"
+          },
+          {
+            "_expr": "pkgs.heroic"
+          },
+          {
+            "_expr": "pkgs.mangohud"
+          },
+          {
+            "_expr": "pkgs.protonup-qt"
+          },
+          {
+            "_expr": "pkgs.vesktop"
+          },
+          {
+            "_expr": "pkgs.vulkan-tools"
+          }
+        ]
+      }
+    }
+  },
+  "virtualisation": {
+    "libvirtd": {
+      "enable": true
+    },
+    "spiceUSBRedirection": {
+      "enable": true
+    }
+  }
+}

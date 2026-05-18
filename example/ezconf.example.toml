@@ -1,0 +1,52 @@
+# ezconf-web configuration
+# Copy to ezconf.toml and edit as needed.
+# Command-line arguments always override values set here.
+
+# Path to the NixOS configuration JSON file to edit (required)
+file = "example/configuration.json"
+
+# Directory to serve static files from (default: ./webroot)
+# webroot = "webroot"
+
+# Authentication mode: auto, custom, pam
+#   auto    — PAM if available, else custom (default)
+#   custom  — username/password defined below
+#   pam     — system username + password via PAM
+# auth = "auto"
+
+# Custom login credentials (required for auth = "custom")
+# username = "admin"
+# password = "changeme"
+
+# UI theme: nixos, dark, light (default: nixos)
+# theme = "nixos"
+
+# Port the terminal.py WebSocket service is running on (enables terminal panel)
+# terminal_port = 9091
+
+# Shell to launch in the terminal panel (default: login shell or $SHELL)
+# shell = "/bin/bash"
+
+# Path to ezconf-mkoptions binary. When set, enables the "↻ Autocomplete"
+# button in the GUI to regenerate autocomplete data on demand.
+# mkoptions = "/path/to/ezconf-mkoptions"
+
+# Flake path passed as TARGET to mkoptions (default: /etc/nixos)
+# nixos_target = "/etc/nixos"
+
+# Directory to serve /autocomplete/ from (overrides WEBROOT/autocomplete/)
+# autocomplete_dir = "/var/lib/ezconf/autocomplete"
+
+# File to persist the session key across service restarts
+# session_key_file = "/run/ezconf/session.key"
+
+# TLS certificate and key (leave commented out for plain HTTP)
+# cert = "localhost.pem"
+# key  = "localhost-key.pem"
+
+# Restrict logins to these users (PAM mode only).
+# Defaults to the user who started the server if not set.
+# allowed_users = ["alice", "bob"]
+
+# [ports]
+# web = 9090

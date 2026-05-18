@@ -1,0 +1,2783 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NixOS Config Editor</title>
+<script>
+const _DEFAULT_THEME = '%%EZCONF_THEME%%';
+(function(){
+  const t = localStorage.getItem('ezconf-theme') || _DEFAULT_THEME;
+  const l = document.createElement('link');
+  l.id = 'theme-link'; l.rel = 'stylesheet';
+  l.href = 'theme-' + t + '.css';
+  document.currentScript.parentNode.insertBefore(l, document.currentScript.nextSibling);
+})();
+</script>
+<link rel="stylesheet" href="style.css">
+%%EZCONF_TERMINAL_SCRIPTS%%
+</head>
+<body>
+
+<div class="header">
+<div class="btn-group">
+    <button class="btn" onclick="undo()" title="Undo (Ctrl+Z)">↩</button>
+    <button class="btn" onclick="redo()" title="Redo (Ctrl+Y)">↪</button>
+    <button class="btn" onclick="reloadConfig()" title="Reload saved file">↺</button>
+    <button class="btn" onclick="clearConfig()" title="Clear all configuration">✕</button>
+  </div>
+  <span class="header-file" id="filename-label">loading…</span>
+  <div class="header-actions">
+    <input type="file" id="import-file-input" accept=".json,.nix" style="display:none">
+    <button class="btn" onclick="showImportModal()">⬆ Import</button>
+    <button class="btn" onclick="exportJSON()">⬇ Export</button>
+    <button class="btn" onclick="saveToServer()">⬆ Save</button>
+    <button class="btn" onclick="location.href='/logout'" title="Log out">⏻</button>
+  </div>
+</div>
+
+<div class="layout">
+  <div class="sidebar">
+    <div class="sidebar-header">Configuration tree</div>
+    <div class="tree" id="tree-root"></div>
+  </div>
+
+  <div class="main">
+    <div class="topbar">
+      <div class="autocomplete-wrap">
+        <input type="text" id="add-input" placeholder="Add option path… (e.g. services.openssh.enable)" autocomplete="off">
+        <div class="autocomplete-list hidden" id="add-ac-list"></div>
+      </div>
+      <button class="btn" onclick="doAdd()">Add</button>
+      <button class="btn" id="flat-mode-btn" onclick="toggleFlatMode()" title="Toggle flat / nested view">≡</button>
+    </div>
+    <div class="force-type-bar hidden" id="force-type-bar">
+      <span class="force-type-label">Pick type to force add:</span>
+      <button class="type-btn" onclick="doForceAddWithType('string')">string</button>
+      <button class="type-btn" onclick="doForceAddWithType('boolean')">boolean</button>
+      <button class="type-btn" onclick="doForceAddWithType('number')">number</button>
+      <button class="type-btn" onclick="doForceAddWithType('array')">array</button>
+      <button class="type-btn" onclick="doForceAddWithType('object')">object</button>
+      <button class="type-btn" onclick="doForceAddWithType('expr')">expr</button>
+      <button class="type-btn cancel" onclick="hideForcebar()">cancel</button>
+    </div>
+    <div class="editor-area" id="editor-area">
+      <div class="editor-placeholder">Loading…</div>
+    </div>
+  </div>
+</div>
+
+<div class="terminal-panel collapsed" id="terminal-panel">
+  <div class="terminal-header">
+    <div class="terminal-cmd-btns" id="terminal-cmd-btns"></div>
+    <div class="terminal-header-actions">
+      <button class="btn btn-sm" title="Quarter screen" onclick="setTerminalSize('quarter')">◲</button>
+      <button class="btn btn-sm" title="Half screen" onclick="setTerminalSize('half')">⬓</button>
+      <button class="btn btn-sm" title="Full screen" onclick="setTerminalSize('full')">⬒</button>
+      <button class="btn btn-sm" id="term-toggle" title="Show" onclick="toggleTerminal()">▲</button>
+    </div>
+  </div>
+  <div class="terminal-body">
+    <div id="term-output"></div>
+  </div>
+</div>
+
+<div class="statusbar">
+  <span><span class="status-dot"></span><span class="status-ready">Ready</span></span>
+  <span id="status-path" title="Click to copy" onclick="navigator.clipboard.writeText(this.textContent).then(()=>setStatus('Copied',1200))">root</span>
+  <span id="status-info"></span>
+  <span class="theme-switcher">
+    <button class="theme-swatch theme-swatch-nixos" onclick="setTheme('nixos')" title="NixOS theme"></button>
+    <button class="theme-swatch theme-swatch-dark"  onclick="setTheme('dark')"  title="Dark theme"></button>
+    <button class="theme-swatch theme-swatch-light" onclick="setTheme('light')" title="Light theme"></button>
+  </span>
+</div>
+
+<div class="modal-overlay hidden" id="import-modal">
+  <div class="modal">
+    <div class="modal-title-row">
+      <h2>Import and merge configuration</h2>
+      <button class="btn" onclick="document.getElementById('import-file-input').click()" title="Load a .json or .nix file">⬆ Load file</button>
+    </div>
+    <textarea id="import-textarea" placeholder="Paste a Nix expression or JSON object…" oninput="_validateImportInput(this)"></textarea>
+    <p class="import-hint">Try pasting the contents of your <code>configuration.nix</code> — options will be merged into the current config.</p>
+    <div class="import-examples">
+      <div class="import-example-label">Nix</div>
+      <pre class="import-example-code" onclick="setImportExample(this)">services.nginx.enable = true;
+networking.hostName = "myhost";</pre>
+      <div class="import-example-label">JSON</div>
+      <pre class="import-example-code" onclick="setImportExample(this)">{
+  "services": { "nginx": { "enable": true } },
+  "networking": { "hostName": "myhost" }
+}</pre>
+    </div>
+    <div class="import-error hidden" id="import-error"></div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeImportModal()">Cancel</button>
+      <button class="btn primary" onclick="doImport()">Import</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── Theme ─────────────────────────────────────────────────────────────────────
+function _buildTermTheme() {
+  const css = getComputedStyle(document.documentElement);
+  const tv = k => css.getPropertyValue(k).trim();
+  const theme = {};
+  for (const [v, k] of [
+    ['--term-bg','background'], ['--term-fg','foreground'],
+    ['--term-cursor','cursor'], ['--term-selection','selectionBackground'],
+    ['--term-black','black'], ['--term-red','red'],
+    ['--term-green','green'], ['--term-yellow','yellow'],
+    ['--term-blue','blue'], ['--term-magenta','magenta'],
+    ['--term-cyan','cyan'], ['--term-white','white'],
+    ['--term-bright-black','brightBlack'], ['--term-bright-red','brightRed'],
+    ['--term-bright-green','brightGreen'], ['--term-bright-yellow','brightYellow'],
+    ['--term-bright-blue','brightBlue'], ['--term-bright-magenta','brightMagenta'],
+    ['--term-bright-cyan','brightCyan'], ['--term-bright-white','brightWhite'],
+  ]) { const val = tv(v); if (val) theme[k] = val; }
+  return theme;
+}
+
+function setTheme(name) {
+  localStorage.setItem('ezconf-theme', name);
+  const link = document.getElementById('theme-link');
+  link.href = 'theme-' + name + '.css';
+  document.querySelectorAll('.theme-swatch').forEach(b =>
+    b.classList.toggle('active', b.classList.contains('theme-swatch-' + name))
+  );
+  link.addEventListener('load', () => {
+    if (_term) _term.options.theme = _buildTermTheme();
+  }, { once: true });
+}
+function _applyInitialTheme() {
+  const t = localStorage.getItem('ezconf-theme') || _DEFAULT_THEME;
+  document.querySelectorAll('.theme-swatch').forEach(b =>
+    b.classList.toggle('active', b.classList.contains('theme-swatch-' + t))
+  );
+}
+
+// ── State ─────────────────────────────────────────────────────────────────────
+let config = {};
+let packages = [];
+let kernels = [];
+let options = [];
+let customOptions = [];
+
+// ── Input auto-sizer ──────────────────────────────────────────────────────────
+function bindAutosize(_inp) { /* no-op: inputs fill their container */ }
+// ── Utilities ─────────────────────────────────────────────────────────────────
+function getAtPath(obj, path) {
+  let cur = obj;
+  for (const k of path) {
+    if (cur == null || typeof cur !== 'object') return undefined;
+    cur = Array.isArray(cur) ? cur[parseInt(k)] : cur[k];
+  }
+  return cur;
+}
+function setAtPath(obj, path, val) {
+  let cur = obj;
+  for (let i = 0; i < path.length - 1; i++)
+    cur = Array.isArray(cur) ? cur[parseInt(path[i])] : cur[path[i]];
+  const last = path[path.length - 1];
+  if (Array.isArray(cur)) cur[parseInt(last)] = val;
+  else cur[last] = val;
+}
+function deleteAtPath(obj, path) {
+  let cur = obj;
+  for (let i = 0; i < path.length - 1; i++)
+    cur = Array.isArray(cur) ? cur[parseInt(path[i])] : cur[path[i]];
+  const last = path[path.length - 1];
+  if (Array.isArray(cur)) cur.splice(parseInt(last), 1);
+  else delete cur[last];
+}
+function typeOf(val) {
+  if (val === null) return 'null';
+  if (Array.isArray(val)) return 'array';
+  return typeof val;
+}
+function isExprPkg(v) { return v && typeof v === 'object' && '_expr' in v; }
+function pathStr(path) { return path.length ? path.join('.') : 'root'; }
+function preview(val, maxlen = 48) {
+  if (val === null) return 'null';
+  if (typeof val === 'boolean') return val ? 'true' : 'false';
+  if (typeof val === 'number') return String(val);
+  if (typeof val === 'string') return val.length > maxlen ? val.slice(0, maxlen) + '…' : val;
+  if (Array.isArray(val)) {
+    if (!val.length) return '[]';
+    if (val.every(v => isExprPkg(v))) return `[${val.length} package${val.length !== 1 ? 's' : ''}]`;
+    if (val.every(v => typeof v === 'string')) return '[' + val.slice(0, 3).map(v => `"${v}"`).join(', ') + (val.length > 3 ? ', …' : '') + ']';
+    return `[${val.length} items]`;
+  }
+  if (typeof val === 'object') {
+    const keys = Object.keys(val);
+    return `{ ${keys.slice(0, 3).join(', ')}${keys.length > 3 ? ', …' : ''} }`;
+  }
+  return String(val);
+}
+function getTypeLabel(val) {
+  if (val === null) return 'null';
+  if (Array.isArray(val)) {
+    if (val.every(v => isExprPkg(v))) return `list of package (${val.length})`;
+    return `list (${val.length})`;
+  }
+  return typeof val;
+}
+function isFreeformType(t) {
+  if (!t) return false;
+  const tl = t.toLowerCase();
+  // open submodule is freeform; plain submodule is structured
+  if (tl.startsWith('open submodule') || tl.includes('open submodule of')) return true;
+  // lazy attribute sets are freeform (e.g. "lazy attribute set of raw value")
+  if (tl.startsWith('lazy attribute set')) return true;
+  // lists of non-serializable things (overlays, functions, etc)
+  if (tl.startsWith('list of (nixpkgs ') || tl.startsWith('list of (') && tl.includes('overlay')) return true;
+  // catch-all freeform type names
+  const FREEFORM = ['nixpkgs config', 'anything', 'json value', 'toml value', 'yaml 1.1 value', 'yaml 1.2 value', 'raw', 'unspecified'];
+  if (FREEFORM.some(f => tl === f || tl.startsWith(f + ' '))) return true;
+  // types that describe Nix-level evaluations / functions
+  if (tl.startsWith('an evaluation of') || tl.includes('nixpkgs overlay')) return true;
+  return false;
+}
+// Returns true for "null or string", "null or absolute path", etc. (not enum, not list, not object)
+function isNullableString(nixType) {
+  if (!nixType) return false;
+  if (!nixType.startsWith('null or ')) return false;
+  const rest = nixType.slice('null or '.length);
+  // Exclude things handled elsewhere
+  if (rest === 'boolean') return false; // handled as nullable toggle
+  if (rest.startsWith('list') || rest.includes('attribute set') || rest.includes('submodule')) return false;
+  if (nixType.includes('one of')) return false; // enum — handled by parseEnumOptions
+  return true;
+}
+
+function typeFromNix(t) {
+  if (!t) return 'string';
+  if (t === 'boolean') return 'boolean';
+  if (t === 'null or boolean') return 'boolean'; // handled as nullable toggle in renderField
+  // package types — render as expr so user can type a Nix expression
+  if (t === 'package' || t.startsWith('package ') || t === 'null or package') return 'expr';
+  // Check freeform/expr before anything else
+  if (isFreeformType(t)) return 'expr';
+  // Plain list types
+  if (t.startsWith('list') || t.startsWith('null or list')) return 'array';
+  // "(attribute set of X) or (list of Y) convertible to it" — prefer the list form
+  if (t.includes('or (list of') || t.includes('or (list of')) return 'array';
+  // "list of X or Y convertible to it" patterns that don't start with "list"
+  if (t.includes('convertible to it') && t.includes('list')) return 'array';
+  // Pure attribute set / submodule → object
+  if (t.includes('attribute set') || t.includes('submodule')) return 'object';
+  // Pure integer types (not mixed with string/boolean)
+  const hasInt = t.includes('integer') || t.includes('number') || t.includes('float');
+  const hasMix = t.includes(' or string') || t.includes('string or ') || t.includes(' or boolean') || t.includes('boolean or ') || t.includes(' or value "') || t.includes('value "');
+  if (hasInt && !hasMix) return 'number';
+  return 'string';
+}
+// Recursively sort all object keys alphabetically
+function sortKeysDeep(obj) {
+  if (Array.isArray(obj)) return obj.map(sortKeysDeep);
+  if (obj !== null && typeof obj === 'object') {
+    return Object.fromEntries(
+      Object.keys(obj).sort().map(k => [k, sortKeysDeep(obj[k])])
+    );
+  }
+  return obj;
+}
+
+function defaultForType(type) {
+  return ({ string: '', boolean: false, number: 0, array: [], object: {}, null: null, expr: { _expr: '' } })[type] ?? '';
+}
+
+// Parse the subset of Nix that jsonToNix produces back to a JS value.
+// Returns undefined if unparseable.
+function nixToJs(src) {
+  src = (src || '').trim();
+  try { return _nixParse(src); } catch(e) { return undefined; }
+}
+function _nixSkipStr(s, i) {
+  // i points at opening "; returns index after closing "
+  i++;
+  while (i < s.length && s[i] !== '"') { if (s[i] === '\\') i++; i++; }
+  return i + 1;
+}
+function _nixSkipIndentedStr(s, i) {
+  // i points at first ' of opening ''; returns index after closing ''
+  i += 2;
+  while (i < s.length) {
+    if (s[i] === "'" && s[i + 1] === "'") {
+      if (s[i + 2] === "'") { i += 3; continue; } // ''' = escaped '
+      return i + 2;
+    }
+    i++;
+  }
+  throw new Error('unterminated indented string');
+}
+function _nixSkipAnyStr(s, i) {
+  if (s[i] === '"') return _nixSkipStr(s, i);
+  if (s[i] === "'" && s[i + 1] === "'") return _nixSkipIndentedStr(s, i);
+  return i + 1;
+}
+function _nixMatchBracket(s, openIdx) {
+  const open = s[openIdx], close = open === '{' ? '}' : ']';
+  let depth = 1, i = openIdx + 1;
+  while (i < s.length) {
+    if (s[i] === '"') { i = _nixSkipStr(s, i); continue; }
+    if (s[i] === "'" && s[i + 1] === "'") { i = _nixSkipIndentedStr(s, i); continue; }
+    if (s[i] === open) depth++;
+    else if (s[i] === close) { if (--depth === 0) return i; }
+    i++;
+  }
+  throw new Error('unmatched ' + open);
+}
+function _nixSplitListItems(s) {
+  // Split whitespace-separated items at depth 0, respecting brackets and strings.
+  const items = [];
+  let i = 0;
+  while (i < s.length) {
+    while (i < s.length && /\s/.test(s[i])) i++;
+    if (i >= s.length) break;
+    const start = i;
+    if (s[i] === '{' || s[i] === '[') { const end = _nixMatchBracket(s, i); items.push(s.slice(start, end + 1)); i = end + 1; }
+    else if (s[i] === '"') { const end = _nixSkipStr(s, i); items.push(s.slice(start, end)); i = end; }
+    else if (s[i] === "'" && s[i + 1] === "'") { const end = _nixSkipIndentedStr(s, i); items.push(s.slice(start, end)); i = end; }
+    else { while (i < s.length && !/\s/.test(s[i])) i++; items.push(s.slice(start, i)); }
+  }
+  return items;
+}
+function _nixParseAttrs(s) {
+  const obj = {};
+  let i = 0;
+  while (i < s.length) {
+    while (i < s.length && /\s/.test(s[i])) i++;
+    if (i >= s.length) break;
+    // Skip 'inherit' and 'inherit (...)' statements
+    if (s.slice(i).match(/^inherit[\s(;]/)) {
+      while (i < s.length && s[i] !== ';') i++;
+      if (i < s.length) i++; continue;
+    }
+    // Key path: one or more segments (identifiers or quoted strings) separated by dots
+    const keyParts = [];
+    while (i < s.length) {
+      let part;
+      if (s[i] === '"') {
+        const end = _nixSkipStr(s, i);
+        part = JSON.parse(s.slice(i, end)); i = end;
+      } else {
+        const km = s.slice(i).match(/^[a-zA-Z_][a-zA-Z0-9_'-]*/);
+        if (!km) {
+          const snippet = s.slice(i, i + 40).split('\n')[0].trim();
+          const err = new Error('unexpected token' + (snippet ? ': ' + snippet : ''));
+          err.nixSnippet = s.slice(Math.max(0, i - 10), i + 40).trim();
+          throw err;
+        }
+        part = km[0]; i += km[0].length;
+      }
+      keyParts.push(part);
+      const dot = s.slice(i).match(/^\s*\.\s*/);
+      if (dot) { i += dot[0].length; } else { break; }
+    }
+    const eq = s.slice(i).match(/^\s*=\s*/);
+    if (!eq) throw new Error('expected = after key');
+    i += eq[0].length;
+    // read value until ; at depth 0, respecting 'with expr;' which owns its semicolon
+    let j = i, depth = 0, withDepth = 0;
+    while (j < s.length) {
+      if (s[j] === '"') { j = _nixSkipStr(s, j); continue; }
+      if (s[j] === "'" && s[j + 1] === "'") { j = _nixSkipIndentedStr(s, j); continue; }
+      if (s[j] === '{' || s[j] === '[') depth++;
+      else if (s[j] === '}' || s[j] === ']') depth--;
+      else if (s[j] === ';' && depth === 0) {
+        // A 'with expr;' inside a value owns its semicolon — don't stop there
+        if (withDepth > 0) { withDepth--; }
+        else break;
+      } else if (depth === 0 && s.slice(j, j + 5) === 'with ' && !/[a-zA-Z0-9_]/.test(s[j - 1] || '')) {
+        withDepth++;
+      }
+      j++;
+    }
+    let val;
+    try {
+      val = _nixParse(s.slice(i, j).trim());
+    } catch (e) {
+      const err = new Error(`at key "${keyParts.join('.')}": ${e.message}`);
+      err.nixKey = keyParts.join('.');
+      if (e.nixSnippet) err.nixSnippet = e.nixSnippet;
+      throw err;
+    }
+    i = j + 1;
+    // Set value at dotted key path, merging objects
+    let target = obj;
+    for (let k = 0; k < keyParts.length - 1; k++) {
+      if (!(keyParts[k] in target) || typeof target[keyParts[k]] !== 'object' || Array.isArray(target[keyParts[k]])) target[keyParts[k]] = {};
+      target = target[keyParts[k]];
+    }
+    const last = keyParts[keyParts.length - 1];
+    if (last in target && _isPlainObj(target[last]) && _isPlainObj(val)) {
+      target[last] = _nixDeepMerge(target[last], val);
+    } else {
+      target[last] = val;
+    }
+  }
+  return obj;
+}
+function _isPlainObj(v) { return v !== null && typeof v === 'object' && !Array.isArray(v) && !('_expr' in v); }
+
+// Recursively convert any plain string containing ${ to a Nix _expr object.
+// Called whenever config is loaded or imported.
+function normalizeConfig(val) {
+  if (typeof val === 'string') {
+    return val.includes('${') ? { _expr: '"' + val + '"' } : val;
+  }
+  if (Array.isArray(val)) return val.map(normalizeConfig);
+  if (_isPlainObj(val)) {
+    const out = {};
+    for (const k of Object.keys(val)) out[k] = normalizeConfig(val[k]);
+    return out;
+  }
+  return val;
+}
+function _nixDeepMerge(base, overlay) {
+  const result = Object.assign({}, base);
+  for (const k of Object.keys(overlay)) {
+    result[k] = (_isPlainObj(result[k]) && _isPlainObj(overlay[k])) ? _nixDeepMerge(result[k], overlay[k]) : overlay[k];
+  }
+  return result;
+}
+function _nixStripComments(src) {
+  let out = '', i = 0;
+  while (i < src.length) {
+    if (src[i] === '"') { const e = _nixSkipStr(src, i); out += src.slice(i, e); i = e; }
+    else if (src[i] === "'" && src[i+1] === "'") { const e = _nixSkipIndentedStr(src, i); out += src.slice(i, e); i = e; }
+    else if (src[i] === '#') { while (i < src.length && src[i] !== '\n') i++; }
+    else if (src[i] === '/' && src[i+1] === '*') { i += 2; while (i < src.length && !(src[i] === '*' && src[i+1] === '/')) i++; i += 2; }
+    else out += src[i++];
+  }
+  return out;
+}
+function nixImportParse(src) {
+  src = _nixStripComments(src).trim();
+  // Strip NixOS module function prefix: { args... }:
+  const modPrefix = src.match(/^\{[^}]*\}\s*:/);
+  if (modPrefix) src = src.slice(modPrefix[0].length).trim();
+  // Strip let...in block
+  if (src.startsWith('let')) {
+    const inIdx = src.search(/\bin\b/);
+    if (inIdx >= 0) src = src.slice(inIdx + 2).trim();
+  }
+  // Auto-wrap bare attribute assignments (no surrounding {}) in an attrset
+  if (!src.startsWith('{')) src = '{\n' + src + '\n}';
+  return _nixParse(src);
+}
+function _nixParseIndentedStr(s) {
+  // s is the full ''...'' string including delimiters
+  const closeIdx = s.lastIndexOf("''");
+  const inner = s.slice(2, closeIdx);
+  // Strip leading newline (Nix convention)
+  const content = inner.startsWith('\n') ? inner.slice(1) : inner;
+  // Strip common indentation
+  const lines = content.split('\n');
+  const minIndent = lines.filter(l => l.trim().length > 0)
+    .reduce((min, l) => Math.min(min, l.match(/^(\s*)/)[1].length), Infinity);
+  const stripped = minIndent > 0 && isFinite(minIndent)
+    ? lines.map(l => l.slice(minIndent)).join('\n')
+    : content;
+  // Remove trailing newline before closing ''
+  return stripped.endsWith('\n') ? stripped.slice(0, -1) : stripped;
+}
+function _nixParse(s) {
+  s = s.trim();
+  if (s === 'null') return null;
+  if (s === 'true') return true;
+  if (s === 'false') return false;
+  if (/^-?\d+(\.\d+)?$/.test(s)) return Number(s);
+  if (s[0] === '"') {
+    if (s.includes('${')) return { _expr: s }; // Nix string interpolation
+    return JSON.parse(s);
+  }
+  if (s.startsWith("''")) {
+    if (s.includes('${')) return { _expr: s }; // Nix string interpolation in indented string
+    return _nixParseIndentedStr(s);
+  }
+  if (s[0] === '[') { const inner = s.slice(1, _nixMatchBracket(s, 0)).trim(); return inner ? _nixSplitListItems(inner).map(_nixParse) : []; }
+  if (s[0] === '{') { const inner = s.slice(1, _nixMatchBracket(s, 0)).trim(); return inner ? _nixParseAttrs(inner) : {}; }
+  // 'with pkgs; [ name1 name2 ]' — convert to structured package array
+  const withPkgs = s.match(/^with\s+pkgs\s*;\s*(\[[\s\S]*\])$/);
+  if (withPkgs) {
+    const inner = withPkgs[1].slice(1, _nixMatchBracket(withPkgs[1], 0)).trim();
+    if (!inner) return [];
+    return _nixSplitListItems(inner).map(item => {
+      item = item.trim();
+      // Simple dotted identifier like 'vim' or 'ghostty.terminfo' — prefix with pkgs.
+      if (/^[a-zA-Z_][a-zA-Z0-9_'."-]*$/.test(item)) return { _expr: 'pkgs.' + item };
+      // Complex expression — keep as-is
+      return { _expr: item };
+    });
+  }
+  // Unrecognized token (e.g. pkgs.foo, lib.mkForce x) — keep as raw expression
+  return { _expr: s };
+}
+
+// Convert a JS value to a Nix expression string.
+function jsonToNix(val, indent) {
+  indent = indent || 0;
+  const pad = '  '.repeat(indent);
+  const inner = '  '.repeat(indent + 1);
+  if (val === null) return 'null';
+  if (typeof val === 'boolean') return val ? 'true' : 'false';
+  if (typeof val === 'number') return String(val);
+  if (typeof val === 'string') {
+    if (val.includes('\n')) {
+      const lines = val.split('\n').map(l => inner + l).join('\n');
+      return `''\n${lines}\n${pad}''`;
+    }
+    return JSON.stringify(val);
+  }
+  if (isExprPkg(val)) return val._expr;
+  if (Array.isArray(val)) {
+    if (val.length === 0) return '[ ]';
+    const items = val.map(v => inner + jsonToNix(v, indent + 1)).join('\n');
+    return `[\n${items}\n${pad}]`;
+  }
+  if (typeof val === 'object') {
+    const keys = Object.keys(val);
+    if (keys.length === 0) return '{ }';
+    const nixId = /^[a-zA-Z_][a-zA-Z0-9_'-]*$/;
+    const lines = keys.map(k => `${inner}${nixId.test(k) ? k : JSON.stringify(k)} = ${jsonToNix(val[k], indent + 1)};`).join('\n');
+    return `{\n${lines}\n${pad}}`;
+  }
+  return String(val);
+}
+
+// Try to extract a usable JS value from a NixOS default string.
+// Returns undefined if unparseable (caller falls back to defaultForType).
+function parseNixDefault(nixDefault, jsType) {
+  if (nixDefault === undefined || nixDefault === null) return undefined;
+  const s = typeof nixDefault === 'string' ? nixDefault.trim() : String(nixDefault);
+  if (s === 'null') return null;
+  if (s === 'true') return true;
+  if (s === 'false') return false;
+  // Plain number
+  if (/^-?\d+(\.\d+)?$/.test(s)) return Number(s);
+  // Quoted string: "foo" — but if it contains ${} it's Nix interpolation, keep as expr
+  if (s.startsWith('"') && s.endsWith('"')) {
+    if (s.includes('${')) return { _expr: s };
+    try { return JSON.parse(s); } catch (_) { return { _expr: s }; }
+  }
+  // Freeform/expr type always becomes _expr
+  if (jsType === 'expr') return { _expr: s };
+  // Empty list / attrset — if jsType is array, treat empty attrset as empty list too
+  if (s === '[ ]' || s === '[]') return [];
+  if (s === '{ }' || s === '{}') return jsType === 'array' ? [] : {};
+  // For lists/objects that are complex Nix expressions, use _expr so user sees it
+  if (jsType === 'array' || jsType === 'object') {
+    if (s.length > 0 && s !== 'null') return { _expr: s };
+  }
+  // Plain unquoted string that looks like an enum value (no spaces/special chars)
+  if (jsType === 'string' && /^[\w./-]+$/.test(s)) return s;
+  return undefined;
+}
+
+// ── Option matching ───────────────────────────────────────────────────────────
+
+// Wildcard segments in options.json that can match any concrete segment
+const WILDCARDS = new Set(['<name>', '<n>', '*']);
+
+// Check if a concrete path array matches an option path string (which may have wildcards)
+function concreteMatchesOption(concreteParts, optionPath) {
+  const optParts = optionPath.split('.');
+  if (optParts.length !== concreteParts.length) return false;
+  return optParts.every((p, i) => WILDCARDS.has(p) || p === concreteParts[i]);
+}
+
+function findOption(concretePath) {
+  const exact = concretePath.join('.');
+  let found = options.find(o => o.path === exact);
+  if (found) return found;
+  for (const o of options) {
+    if (concreteMatchesOption(concretePath, o.path)) return o;
+  }
+  return null;
+}
+
+// Returns true if path segment starts with _ (internal NixOS module options)
+function isInternalSegment(seg) { return seg.startsWith('_'); }
+
+// Return all options whose path starts with exactly what the user typed.
+// Wildcards (<n>, <n>, *) in option paths match any concrete segment.
+// No dedup — every matching option is shown individually.
+function optionSearch(query) {
+  const q = query.trim();
+  if (!q) return [];
+
+  const parts = q.split('.');
+  const partial = parts[parts.length - 1].toLowerCase();
+  const confirmed = parts.slice(0, -1);
+
+  const results = [];
+
+  for (const o of options) {
+    const op = o.path.split('.');
+    if (!o.custom && op.some(isInternalSegment)) continue;
+    if (op.length < confirmed.length + 1) continue;
+
+    // Confirmed segments must match exactly (wildcards in option path match anything)
+    let ok = true;
+    for (let i = 0; i < confirmed.length; i++) {
+      if (!WILDCARDS.has(op[i]) && op[i].toLowerCase() !== confirmed[i].toLowerCase()) {
+        ok = false; break;
+      }
+    }
+    if (!ok) continue;
+
+    // Next segment must start with the partial (wildcards always pass when partial is non-empty)
+    const nextSeg = op[confirmed.length];
+    const isWild = WILDCARDS.has(nextSeg);
+    if (!isWild && !nextSeg.toLowerCase().startsWith(partial)) continue;
+    if (isWild && !partial) continue; // let getWildcardBoundary handle the empty-partial case
+
+    // Resolve wildcards to what the user typed so the display path looks concrete
+    const displayParts = op.map((seg, i) => {
+      if (!WILDCARDS.has(seg)) return seg;
+      if (i < confirmed.length) return confirmed[i];
+      if (i === confirmed.length) return partial;
+      return seg; // remaining wildcards stay as-is (user hasn't typed that far yet)
+    });
+    const displayPath = displayParts.join('.');
+
+    results.push({ ...o, displayPath });
+  }
+
+  results.sort((a, b) => a.displayPath.localeCompare(b.displayPath));
+  return results.slice(0, 50);
+}
+
+// True if the NixOS type string describes an array whose elements are objects/submodules.
+function isObjectArrayNixType(nixType) {
+  if (!nixType) return false;
+  return nixType.includes('submodule') || nixType.includes('attribute set of');
+}
+
+// Build a blank object from options schema for array-of-objects paths.
+// Looks for options like path.<wildcard>.<field> and returns { field: default, ... }.
+// Returns null if no such options exist (array holds scalars).
+function blankObjectFromOptions(path) {
+  const fields = {};
+  for (const o of options) {
+    const op = o.path.split('.');
+    if (op.length !== path.length + 2) continue;
+    let ok = true;
+    for (let i = 0; i < path.length; i++) {
+      if (!WILDCARDS.has(op[i]) && op[i] !== String(path[i])) { ok = false; break; }
+    }
+    if (!ok) continue;
+    if (!WILDCARDS.has(op[path.length])) continue;
+    const key = op[path.length + 1];
+    if (isInternalSegment(key)) continue;
+    if (!(key in fields) && o.required) {
+      // Only include fields the user must provide — skip optional fields (they have defaults)
+      fields[key] = defaultForType(typeFromNix(o.type));
+    }
+  }
+  return Object.keys(fields).length ? fields : null;
+}
+
+// Build an object pre-populated with required direct children for a concrete path.
+// Used when adding an object-type option directly (not as an array item).
+// Returns {} if no required children found.
+function requiredChildDefaults(parts) {
+  const fields = {};
+  for (const o of options) {
+    if (!o.required) continue;
+    const op = o.path.split('.');
+    if (op.length !== parts.length + 1) continue;
+    let ok = true;
+    for (let i = 0; i < parts.length; i++) {
+      if (!WILDCARDS.has(op[i]) && op[i] !== String(parts[i])) { ok = false; break; }
+    }
+    if (!ok) continue;
+    const key = op[parts.length];
+    if (isInternalSegment(key) || WILDCARDS.has(key)) continue;
+    if (!(key in fields)) {
+      const jsType = typeFromNix(o.type);
+      const parsed = parseNixDefault(o.default, jsType);
+      fields[key] = (parsed !== undefined && parsed !== null) ? parsed : defaultForType(jsType);
+    }
+  }
+  return fields;
+}
+
+// Validate that a concrete path string matches at least one option
+function isValidOptionPath(raw) {
+  const parts = raw.split('.');
+  // Exact match
+  if (options.some(o => o.path === raw)) return true;
+  // Wildcard match
+  return options.some(o => concreteMatchesOption(parts, o.path));
+}
+
+// Detect if the query is at a wildcard segment boundary
+function getWildcardBoundary(query) {
+  const q = query.trim();
+  if (!q) return null;
+  const typedParts = q.split('.');
+  const lastPartial = typedParts[typedParts.length - 1];
+  const confirmedParts = typedParts.slice(0, -1);
+
+  for (const o of options) {
+    const optParts = o.path.split('.');
+    if (optParts.some(isInternalSegment)) continue;
+    if (optParts.length < confirmedParts.length + 1) continue;
+
+    let match = true;
+    for (let i = 0; i < confirmedParts.length; i++) {
+      const op = optParts[i];
+      const cp = confirmedParts[i];
+      if (!WILDCARDS.has(op) && op.toLowerCase() !== cp.toLowerCase()) { match = false; break; }
+    }
+    if (!match) continue;
+
+    const nextSeg = optParts[confirmedParts.length];
+    if (!WILDCARDS.has(nextSeg)) continue;
+
+    const prefix = confirmedParts.join('.');
+    let cur = config;
+    let valid = true;
+    for (const p of confirmedParts) {
+      if (cur && typeof cur === 'object' && !Array.isArray(cur) && p in cur) cur = cur[p];
+      else { valid = false; break; }
+    }
+    const existingKeys = valid && cur && typeof cur === 'object' && !Array.isArray(cur)
+      ? Object.keys(cur).filter(k => k.toLowerCase().startsWith(lastPartial.toLowerCase()))
+      : [];
+
+    return { prefix, typedSoFar: lastPartial, existingKeys };
+  }
+  return null;
+}
+
+// ── Add panel ─────────────────────────────────────────────────────────────────
+let addSelectedType = 'string';
+let addSelectedOption = null; // the matched option entry
+
+function initAddPanel() {
+  const inp = document.getElementById('add-input');
+  const acList = document.getElementById('add-ac-list');
+  let acIdx = -1;
+  let acSaved = null;
+
+  function showAC() {
+    const hits = optionSearch(inp.value);
+    acList.innerHTML = '';
+    acIdx = -1;
+    acSaved = null;
+    const wildcard = getWildcardBoundary(inp.value);
+    if (!hits.length && !wildcard) {
+      acList.classList.add('hidden');
+      if (inp.value.trim()) doForceAdd();
+      return;
+    }
+
+    if (wildcard) {
+      const hint = document.createElement('div');
+      hint.className = 'autocomplete-item ac-wildcard-hint';
+      const prefix = wildcard.prefix ? wildcard.prefix + '.' : '';
+      hint.innerHTML = `<span class="ac-name"><span class="ac-wildcard-prefix">${prefix}</span><span class="ac-wildcard-name">&lt;name&gt;</span></span><span class="ac-desc ac-wildcard-desc">Any name — type it and continue</span>`;
+      hint.addEventListener('mousedown', e => { e.preventDefault(); inp.value = prefix; inp.focus(); });
+      acList.appendChild(hint);
+      wildcard.existingKeys.forEach(k => {
+        const item = document.createElement('div');
+        item.className = 'autocomplete-item';
+        item.innerHTML = `<span class="ac-name ac-existing-path">${prefix}${k}.</span><span class="ac-desc">existing — continue path</span>`;
+        item.addEventListener('mousedown', e => {
+          e.preventDefault();
+          inp.value = prefix + k + '.';
+          addSelectedOption = null;
+          acList.classList.add('hidden');
+          inp.focus();
+          showAC();
+        });
+        acList.appendChild(item);
+      });
+    }
+
+    hits.forEach(o => {
+      const item = document.createElement('div');
+      item.className = 'autocomplete-item';
+      const desc = (o.description || '').split('\n')[0];
+      const reqBadge = o.required ? `<span class="ac-required">required</span>` : '';
+      item.innerHTML = `<span class="ac-name">${o.displayPath}</span><span class="ac-desc">${desc}</span>${reqBadge}<span class="ac-type">${o.type || ''}</span>`;
+      item.addEventListener('mousedown', e => {
+        e.preventDefault();
+        // If the displayPath is not a valid leaf option (e.g. a fuzzy match like
+        // "programs.steam"), treat it as a prefix and re-open autocomplete for children.
+        const isLeaf = isValidOptionPath(o.displayPath);
+        if (isLeaf) {
+          inp.value = o.displayPath;
+          addSelectedType = typeFromNix(o.type);
+          addSelectedOption = o;
+          acList.classList.add('hidden');
+          inp.focus();
+        } else {
+          inp.value = o.displayPath + '.';
+          addSelectedOption = null;
+          inp.focus();
+          showAC();
+        }
+      });
+      acList.appendChild(item);
+    });
+    acList.classList.remove('hidden');
+  }
+
+  let acHideTimer = null;
+
+  inp.addEventListener('focus', showAC);
+  inp.addEventListener('input', () => {
+    if (acHideTimer) { clearTimeout(acHideTimer); acHideTimer = null; }
+    acSaved = null;
+    addSelectedType = 'string'; addSelectedOption = null; hideForcebar(); showAC();
+  });
+  inp.addEventListener('keydown', e => {
+    const items = acList.querySelectorAll('.autocomplete-item');
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      if (acSaved === null) acSaved = inp.value;
+      if (e.key === 'ArrowDown') acIdx = Math.min(acIdx + 1, items.length - 1);
+      else acIdx = Math.max(acIdx - 1, -1);
+      items.forEach((el, i) => el.classList.toggle('active', i === acIdx));
+      if (acIdx >= 0) {
+        items[acIdx].scrollIntoView({ block: 'nearest' });
+        if (!items[acIdx].classList.contains('ac-wildcard-hint'))
+          inp.value = items[acIdx].querySelector('.ac-name').textContent;
+      } else {
+        inp.value = acSaved;
+      }
+      e.preventDefault();
+    } else if (e.key === 'Enter') {
+      const active = acList.querySelector('.autocomplete-item.active');
+      if (active) {
+        active.dispatchEvent(new MouseEvent('mousedown'));
+        // If the item was a leaf, the input now holds a valid path — add it immediately
+        if (isValidOptionPath(inp.value.trim())) doAdd();
+      } else {
+        acList.classList.add('hidden');
+        doAdd();
+      }
+      e.preventDefault();
+    } else if (e.key === 'Tab') {
+      e.preventDefault();
+      const hits = optionSearch(inp.value);
+      if (!hits.length) return;
+      // Complete to longest common prefix up to next dot
+      let common = hits[0].displayPath;
+      for (let i = 1; i < hits.length; i++) {
+        let j = 0;
+        while (j < common.length && j < hits[i].displayPath.length && common[j] === hits[i].displayPath[j]) j++;
+        common = common.slice(0, j);
+      }
+      if (common.length > inp.value.length) {
+        const dotIdx = common.indexOf('.', inp.value.length);
+        inp.value = dotIdx !== -1 ? common.slice(0, dotIdx + 1) : common;
+        addSelectedOption = null;
+      }
+      // Build deduplicated next-segment list
+      const curVal = inp.value;
+      const nextHits = optionSearch(curVal);
+      if (!nextHits.length) { inp.dispatchEvent(new Event('input')); return; }
+      const seen = new Set();
+      const segs = [];
+      for (const h of nextHits) {
+        const rest = h.displayPath.slice(curVal.length);
+        const dot = rest.indexOf('.');
+        const segPath = dot !== -1 ? curVal + rest.slice(0, dot + 1) : h.displayPath;
+        if (!seen.has(segPath)) { seen.add(segPath); segs.push({ segPath, isLeaf: dot === -1, hit: h }); }
+      }
+      segs.sort((a, b) => a.isLeaf - b.isLeaf || a.segPath.localeCompare(b.segPath));
+      if (segs.length === 1 && segs[0].isLeaf) {
+        inp.value = segs[0].segPath;
+        addSelectedType = typeFromNix(segs[0].hit.type);
+        addSelectedOption = segs[0].hit;
+        inp.dispatchEvent(new Event('input'));
+        return;
+      }
+      acList.innerHTML = '';
+      acIdx = -1;
+      segs.forEach(({ segPath, isLeaf, hit }) => {
+        const item = document.createElement('div');
+        item.className = 'autocomplete-item';
+        const desc = isLeaf ? (hit.description || '').split('\n')[0] : '';
+        item.innerHTML = `<span class="ac-name">${segPath}</span><span class="ac-desc">${desc}</span><span class="ac-type">${isLeaf ? (hit.type || '') : ''}</span>`;
+        item.addEventListener('mousedown', ev => {
+          ev.preventDefault();
+          inp.value = segPath;
+          if (isLeaf) { addSelectedType = typeFromNix(hit.type); addSelectedOption = hit; acList.classList.add('hidden'); }
+          else { addSelectedOption = null; inp.dispatchEvent(new Event('input')); }
+          inp.focus();
+        });
+        acList.appendChild(item);
+      });
+      acList.classList.remove('hidden');
+    } else if (e.key === 'Escape') {
+      if (acSaved !== null) { inp.value = acSaved; acSaved = null; }
+      acList.classList.add('hidden');
+      hideForcebar();
+    }
+  });
+  inp.addEventListener('blur', () => { acHideTimer = setTimeout(() => { acList.classList.add('hidden'); acHideTimer = null; hideForcebar(); }, 150); });
+}
+
+// Return the default empty container for a path segment based on option type, falling back
+// to a numeric-next-segment heuristic if options aren't loaded or don't cover this path.
+function emptyContainerFor(parts, upTo) {
+  const opt = findOption(parts.slice(0, upTo + 1));
+  if (opt) return typeFromNix(opt.type) === 'array' ? [] : {};
+  return /^\d+$/.test(parts[upTo + 1] ?? '') ? [] : {};
+}
+
+// Traverse path segments, creating objects/arrays as needed but preserving existing containers.
+// Returns the parent container ready for final key assignment, or null on bad path.
+function traverseForSet(root, parts) {
+  let cur = root;
+  for (let i = 0; i < parts.length - 1; i++) {
+    const k = parts[i];
+    if (Array.isArray(cur)) {
+      const idx = parseInt(k);
+      if (isNaN(idx)) return null;
+      if (cur[idx] == null || typeof cur[idx] !== 'object') cur[idx] = emptyContainerFor(parts, i + 1);
+      cur = cur[idx];
+    } else {
+      if (cur[k] == null || typeof cur[k] !== 'object') cur[k] = emptyContainerFor(parts, i);
+      cur = cur[k];
+    }
+  }
+  return cur;
+}
+
+function doForceAdd() {
+  const raw = document.getElementById('add-input').value.trim();
+  if (!raw) return;
+  if (isValidOptionPath(raw)) { doAdd(); return; }
+  document.getElementById('force-type-bar').classList.remove('hidden');
+}
+
+function hideForcebar() {
+  document.getElementById('force-type-bar').classList.add('hidden');
+}
+
+function doForceAddWithType(type) {
+  hideForcebar();
+  const inp = document.getElementById('add-input');
+  const raw = inp.value.trim();
+  if (!raw) return;
+  const parts = raw.split('.');
+  const cur = traverseForSet(config, parts);
+  if (!cur) return;
+  const key = parts[parts.length - 1];
+  if (!(key in cur)) cur[key] = defaultForType(type);
+  inp.value = '';
+  renderAll();
+  setTimeout(() => {
+    const pathKey = raw;
+    const row = document.querySelector(`.field-row[data-path="${pathKey}"]`);
+    if (row) {
+      scrollThenFlash(row, 'center');
+      const focusable = row.querySelector('input, textarea');
+      if (focusable) { focusable.focus(); if (focusable.select) focusable.select(); }
+    } else {
+      const sectionEl = document.querySelector(`.section[data-path="${pathKey}"]`);
+      if (sectionEl) { scrollThenFlash(sectionEl, 'start'); }
+    }
+  }, 80);
+}
+
+function flashAdded(el) {
+  el.classList.remove('flash-added');
+  void el.offsetWidth;
+  el.classList.add('flash-added');
+  el.addEventListener('animationend', () => el.classList.remove('flash-added'), { once: true });
+}
+
+function scrollThenFlash(el, block) {
+  el.scrollIntoView({ behavior: 'instant', block: block || 'center' });
+  setTimeout(() => flashAdded(el), 50);
+}
+
+function doAdd() {
+  const inp = document.getElementById('add-input');
+  const raw = inp.value.trim();
+  if (!raw) return;
+
+  // Validate: must match a known option path
+  if (!isValidOptionPath(raw)) {
+    setStatus('Unknown option path: ' + raw, 3000, 'err');
+    inp.classList.add('input-error');
+    setTimeout(() => inp.classList.remove('input-error'), 1500);
+    return;
+  }
+
+  // Find matched option and determine type + default
+  const rawParts = raw.split('.');
+  let matchedOpt = addSelectedOption;
+  if (!matchedOpt) {
+    matchedOpt = options.find(o => o.path === raw) || options.find(o => concreteMatchesOption(rawParts, o.path));
+  }
+  if (matchedOpt) addSelectedType = typeFromNix(matchedOpt.type);
+
+  const parts = raw.split('.');
+  const cur = traverseForSet(config, parts);
+  if (!cur) return;
+  const key = parts[parts.length - 1];
+  const isNew = !(key in cur);
+  if (isNew) {
+    let initialVal;
+    // For objects/submodules skip the nix default — it often contains derivations or
+    // complex expressions that don't round-trip. Seed with required children instead.
+    if (addSelectedType !== 'object') {
+      const nixDef = matchedOpt ? matchedOpt.default : undefined;
+      if (nixDef !== undefined && nixDef !== null) {
+        const defStr = String(nixDef);
+        if (addSelectedType === 'expr') {
+          initialVal = { _expr: defStr };
+        } else {
+          initialVal = nixToJs(defStr);
+        }
+      }
+    }
+    if (initialVal === undefined) initialVal = defaultForType(addSelectedType);
+    // For plain empty objects, seed with required direct children
+    if (initialVal && typeof initialVal === 'object' && !Array.isArray(initialVal) && !isExprPkg(initialVal) && Object.keys(initialVal).length === 0) {
+      const required = requiredChildDefaults(parts);
+      if (Object.keys(required).length) initialVal = required;
+    }
+    // For empty arrays, always add one blank item so the user can start filling in immediately
+    if (Array.isArray(initialVal) && initialVal.length === 0) {
+      const blank = blankObjectFromOptions(parts);
+      if (blank !== null) {
+        initialVal = [blank];
+      } else if (matchedOpt && isObjectArrayNixType(matchedOpt.type)) {
+        initialVal = [{}];
+      } else {
+        initialVal = [''];
+      }
+    }
+    cur[key] = initialVal;
+  }
+
+  inp.value = '';
+  addSelectedType = 'string';
+  addSelectedOption = null;
+  renderAll();
+
+  // Focus and highlight the newly added field
+  setTimeout(() => {
+    const pathKey = raw;
+    const row = document.querySelector(`.field-row[data-path="${pathKey}"]`);
+    if (row) {
+      scrollThenFlash(row, 'center');
+      const focusable = row.querySelector('input, textarea');
+      if (focusable) {
+        focusable.focus();
+        if (focusable.select) focusable.select();
+      }
+    } else {
+      const sectionEl = document.querySelector(`.section[data-path="${pathKey}"]`);
+      if (sectionEl) { scrollThenFlash(sectionEl, 'start'); }
+    }
+  }, 80);
+}
+
+
+
+// ── Tree ──────────────────────────────────────────────────────────────────────
+function findEditorEl(pathKey) {
+  return document.querySelector(`.section[data-path="${pathKey}"]`)
+      || document.querySelector(`.field-row[data-path="${pathKey}"]`)
+      || document.querySelector(`.flat-group[data-path="${pathKey}"]`)
+      || document.querySelector(`.flat-sublevel[data-path="${pathKey}"]`);
+}
+
+function renderTree() {
+  const container = document.getElementById('tree-root');
+  container.innerHTML = '';
+  renderTreeLevel(container, config, []);
+}
+
+let treeExpanded = new Set();
+
+function renderTreeLevel(container, obj, path) {
+  if (typeof obj !== 'object' || obj === null || Array.isArray(obj)) return;
+  for (const [k, v] of Object.entries(obj)) {
+    const childPath = [...path, k];
+    const pathKey = childPath.join('.');
+    const isSection = v !== null && typeof v === 'object' && !Array.isArray(v) && !isExprPkg(v);
+
+    const nodeEl = document.createElement('div');
+    const row = document.createElement('div');
+    row.className = 'tree-row' + (isSection ? '' : ' tree-leaf');
+    row.style.setProperty('--depth', path.length);
+
+    if (isSection) {
+      const isOpen = treeExpanded.has(pathKey);
+      const toggle = document.createElement('span');
+      toggle.className = 'tree-toggle' + (isOpen ? ' open' : '');
+      toggle.textContent = '▶';
+      row.appendChild(toggle);
+
+      const lbl = document.createElement('span');
+      lbl.className = 'tree-label';
+      lbl.textContent = k;
+      row.appendChild(lbl);
+
+      toggle.addEventListener('click', e => {
+        e.stopPropagation();
+        if (treeExpanded.has(pathKey)) treeExpanded.delete(pathKey);
+        else treeExpanded.add(pathKey);
+        renderTree();
+      });
+
+      lbl.addEventListener('click', () => {
+        setStatusPath(pathKey);
+        const target = findEditorEl(pathKey);
+        if (target) { scrollThenFlash(target, 'start'); }
+      });
+
+      nodeEl.appendChild(row);
+
+      if (isOpen) {
+        const children = document.createElement('div');
+        children.className = 'tree-children';
+        renderTreeLevel(children, v, childPath);
+        nodeEl.appendChild(children);
+      }
+    } else {
+      const spacer = document.createElement('span');
+      spacer.className = 'tree-toggle';
+      spacer.style.visibility = 'hidden';
+      row.appendChild(spacer);
+      const lbl = document.createElement('span');
+      lbl.className = 'tree-label';
+      lbl.textContent = k;
+      row.appendChild(lbl);
+
+      row.addEventListener('click', () => {
+        setStatusPath(pathKey);
+        const target = findEditorEl(pathKey);
+        if (target) { scrollThenFlash(target, 'center'); }
+      });
+
+      nodeEl.appendChild(row);
+    }
+
+    container.appendChild(nodeEl);
+  }
+}
+
+// ── Status path ───────────────────────────────────────────────────────────────
+function setStatusPath(pathStr) {
+  document.getElementById('status-path').textContent = pathStr || 'root';
+}
+
+// ── Editor ────────────────────────────────────────────────────────────────────
+// Always expanded — isExpanded always true
+
+// ── Drag-and-drop reorder ────────────────────────────────────────────────────
+let dragState = null;
+let dragGhost = null;
+
+function reorderKey(parentPath, fromKey, toKey) {
+  const parent = parentPath.length ? getAtPath(config, parentPath) : config;
+  if (!parent || typeof parent !== 'object') return;
+  if (Array.isArray(parent)) {
+    const fromIdx = parseInt(fromKey, 10);
+    const toIdx   = parseInt(toKey,   10);
+    if (isNaN(fromIdx) || isNaN(toIdx) || fromIdx === toIdx) return;
+    parent.splice(toIdx, 0, parent.splice(fromIdx, 1)[0]);
+  } else {
+    const keys = Object.keys(parent);
+    const fromIdx = keys.indexOf(fromKey);
+    const toIdx   = keys.indexOf(toKey);
+    if (fromIdx === -1 || toIdx === -1 || fromIdx === toIdx) return;
+    keys.splice(fromIdx, 1);
+    keys.splice(toIdx, 0, fromKey);
+    const reordered = Object.fromEntries(keys.map(k => [k, parent[k]]));
+    if (parentPath.length) setAtPath(config, parentPath, reordered);
+    else { Object.keys(config).forEach(k => delete config[k]); Object.assign(config, reordered); }
+  }
+  renderAll();
+}
+
+function makeFlatColHandle() {
+  const handle = document.createElement('div');
+  handle.className = 'flat-col-handle';
+  handle.addEventListener('mousedown', e => {
+    e.preventDefault();
+    const area = document.getElementById('editor-area');
+    const startX = e.clientX;
+    const startW = handle.previousElementSibling.getBoundingClientRect().width;
+    const containerW = area.getBoundingClientRect().width;
+    function onMove(e) {
+      const pct = Math.max(10, Math.min(90, (startW + e.clientX - startX) / containerW * 100));
+      area.style.setProperty('--flat-key-width', pct + '%');
+    }
+    function onUp() {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    }
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  });
+  return handle;
+}
+
+function makeDraggable(el, key, parentPath) {
+  const parentKey = parentPath.join('\x00');
+  el.dataset.dragKey = key;
+  el.dataset.dragParent = parentKey;
+
+  let handle;
+  if (el.classList.contains('field-row')) {
+    handle = el.querySelector(':scope > .field-actions > .drag-handle');
+  } else if (el.classList.contains('flat-group')) {
+    handle = el.querySelector('.flat-group-header > .drag-handle');
+  } else if (el.classList.contains('flat-sublevel')) {
+    handle = el.querySelector('.flat-sublevel-header > .drag-handle');
+  } else if (el.classList.contains('array-obj-item')) {
+    handle = el.querySelector(':scope > .array-obj-side-btns > .drag-handle');
+  } else {
+    handle = el.querySelector('.drag-handle');
+  }
+
+  if (!handle) return;
+
+  handle.addEventListener('mousedown', e => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+
+    const rect = el.getBoundingClientRect();
+    const offsetY = e.clientY - rect.top;
+    const offsetX = e.clientX - rect.left;
+
+    // Create ghost
+    dragGhost = el.cloneNode(true);
+    dragGhost.className += ' drag-ghost';
+    dragGhost.style.width = rect.width + 'px';
+    dragGhost.style.left = rect.left + 'px';
+    dragGhost.style.top = rect.top + 'px';
+    document.body.appendChild(dragGhost);
+
+    el.classList.add('is-dragging');
+    dragState = { key, parentPath, parentKey, el, offsetX, offsetY };
+
+    const onMove = e => {
+      if (!dragState) return;
+      dragGhost.style.left = (e.clientX - offsetX) + 'px';
+      dragGhost.style.top  = (e.clientY - offsetY) + 'px';
+
+      // Find what we're hovering over
+      dragGhost.style.display = 'none';
+      const under = document.elementFromPoint(e.clientX, e.clientY);
+      dragGhost.style.display = '';
+
+      document.querySelectorAll('.drag-over').forEach(x => x.classList.remove('drag-over'));
+
+      if (!under) return;
+      // Walk up to find a sibling draggable with same parent
+      let target = under;
+      while (target && target !== document.body) {
+        if (target.dataset.dragParent === parentKey && target.dataset.dragKey && target.dataset.dragKey !== key) {
+          target.classList.add('drag-over');
+          dragState.overKey = target.dataset.dragKey;
+          return;
+        }
+        target = target.parentElement;
+      }
+      dragState.overKey = null;
+    };
+
+    const onUp = () => {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+
+      if (dragGhost) { dragGhost.remove(); dragGhost = null; }
+      document.querySelectorAll('.drag-over').forEach(x => x.classList.remove('drag-over'));
+
+      if (dragState && dragState.overKey) {
+        reorderKey(parentPath, key, dragState.overKey);
+      } else {
+        el.classList.remove('is-dragging');
+      }
+      dragState = null;
+    };
+
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  });
+}
+
+let flatMode = new URLSearchParams(location.search).get('mode') === 'flat';
+
+function toggleFlatMode() {
+  const prevPath = document.getElementById('status-path').textContent;
+  flatMode = !flatMode;
+  const url = new URL(location);
+  if (flatMode) url.searchParams.set('mode', 'flat');
+  else url.searchParams.delete('mode');
+  history.replaceState(null, '', url);
+  document.getElementById('flat-mode-btn').classList.toggle('active', flatMode);
+  renderEditor();
+  if (prevPath && prevPath !== 'root') {
+    const el = findEditorEl(prevPath);
+    if (el) scrollThenFlash(el, 'center');
+  }
+}
+
+// Recursively collect leaf fields, grouping second-level objects as sub-groups.
+function makeFlatDragHandle() {
+  const h = document.createElement('span');
+  h.className = 'drag-handle';
+  h.innerHTML = '⠿';
+  h.title = 'Drag to reorder';
+  return h;
+}
+
+function makeFlatSubHeader(k, childPath, depth) {
+  const wrap = document.createElement('div');
+  wrap.className = 'flat-sublevel-header';
+  wrap.dataset.depth = depth;
+  wrap.style.setProperty('--depth', depth);
+
+  wrap.appendChild(makeFlatDragHandle());
+  const lbl = document.createElement('span');
+  lbl.className = 'flat-sublevel-label';
+  lbl.textContent = k;
+  lbl.onclick = () => { const inp = document.getElementById('add-input'); inp.value = childPath.join('.') + '.'; inp.focus(); inp.dispatchEvent(new Event('input')); };
+  wrap.appendChild(lbl);
+
+  const actions = document.createElement('div');
+  actions.className = 'flat-sublevel-actions';
+
+  const exprBtn = document.createElement('button');
+  exprBtn.className = 'icon-btn expr-wrap-btn'; exprBtn.textContent = '{ }'; exprBtn.title = 'Convert to Nix expression';
+  exprBtn.onclick = () => { const cur = getAtPath(config, childPath); setAtPath(config, childPath, { _expr: jsonToNix(cur) }); renderAll(); };
+  actions.appendChild(exprBtn);
+
+  const delBtn = document.createElement('button');
+  delBtn.className = 'icon-btn del'; delBtn.textContent = '✕'; delBtn.title = 'Delete';
+  delBtn.onclick = () => { deleteAtPath(config, childPath); renderAll(); };
+  actions.appendChild(delBtn);
+
+  wrap.appendChild(actions);
+  return wrap;
+}
+
+function renderFlatLeaves(container, obj, path, depth) {
+  if (typeof obj !== 'object' || obj === null) return;
+  for (const [k, v] of Object.entries(obj)) {
+    const childPath = [...path, k];
+    const isSection = v !== null && typeof v === 'object' && !Array.isArray(v) && !isExprPkg(v);
+    if (isSection) {
+      const sub = document.createElement('div');
+      sub.className = 'flat-sublevel';
+      sub.dataset.path = childPath.join('.');
+      sub.dataset.depth = depth;
+
+      const content = document.createElement('div');
+      content.className = 'flat-sublevel-content';
+      content.appendChild(makeFlatSubHeader(k, childPath, depth));
+      renderFlatLeaves(content, v, childPath, depth + 1);
+      sub.appendChild(content);
+      container.appendChild(sub);
+      makeDraggable(sub, k, path);
+    } else if (Array.isArray(v)) {
+      renderFlatArray(container, v, childPath, depth + 1);
+    } else {
+      renderField(container, childPath.join('.'), v, childPath);
+    }
+  }
+}
+
+function renderFlatArray(container, arr, path, depth) {
+  const hasObjects = arr.some(item => item !== null && typeof item === 'object' && !Array.isArray(item) && !isExprPkg(item));
+  if (hasObjects) {
+    arr.forEach((item, i) => {
+      const itemPath = [...path, i];
+      if (item !== null && typeof item === 'object' && !Array.isArray(item) && !isExprPkg(item)) {
+        renderFlatLeaves(container, item, itemPath, depth);
+      } else {
+        renderField(container, itemPath.join('.'), item, itemPath);
+      }
+    });
+  } else {
+    renderArrayField(container, path.join('.'), arr, path);
+  }
+}
+
+function makeFlatGroupHeader(k, childPath) {
+  const row = document.createElement('div');
+  row.className = 'flat-group-header';
+  row.appendChild(makeFlatDragHandle());
+  const lbl = document.createElement('span');
+  lbl.className = 'flat-group-label'; lbl.textContent = k;
+  lbl.onclick = () => { const inp = document.getElementById('add-input'); inp.value = childPath.join('.') + '.'; inp.focus(); inp.dispatchEvent(new Event('input')); };
+  row.appendChild(lbl);
+  const actions = document.createElement('div');
+  actions.className = 'flat-sublevel-actions';
+  const exprBtn = document.createElement('button');
+  exprBtn.className = 'icon-btn expr-wrap-btn'; exprBtn.textContent = '{ }'; exprBtn.title = 'Convert to Nix expression';
+  exprBtn.onclick = () => { const cur = getAtPath(config, childPath); setAtPath(config, childPath, { _expr: jsonToNix(cur) }); renderAll(); };
+  actions.appendChild(exprBtn);
+  const delBtn = document.createElement('button');
+  delBtn.className = 'icon-btn del'; delBtn.textContent = '✕'; delBtn.title = 'Delete';
+  delBtn.onclick = () => { deleteAtPath(config, childPath); renderAll(); };
+  actions.appendChild(delBtn);
+  row.appendChild(actions);
+  return row;
+}
+
+// Flat mode: show top-level sections as headers, leaves listed under each with full paths.
+function renderFlat(container, obj, path) {
+  for (const [k, v] of Object.entries(obj)) {
+    const childPath = [...path, k];
+    const isSection = v !== null && typeof v === 'object' && !Array.isArray(v) && !isExprPkg(v);
+    if (isSection) {
+      const group = document.createElement('div');
+      group.className = 'flat-group';
+      group.dataset.path = childPath.join('.');
+
+      const content = document.createElement('div');
+      content.className = 'flat-group-content';
+      content.appendChild(makeFlatGroupHeader(k, childPath));
+      renderFlatLeaves(content, v, childPath, 0);
+      group.appendChild(content);
+      container.appendChild(group);
+      makeDraggable(group, k, path);
+    } else if (Array.isArray(v)) {
+      const hasObjects = v.some(item => item !== null && typeof item === 'object' && !Array.isArray(item) && !isExprPkg(item));
+      if (hasObjects) {
+        const group = document.createElement('div');
+        group.className = 'flat-group';
+        group.dataset.path = childPath.join('.');
+  
+        const content = document.createElement('div');
+        content.className = 'flat-group-content';
+        content.appendChild(makeFlatGroupHeader(k, childPath));
+        renderFlatArray(content, v, childPath, 0);
+        group.appendChild(content);
+        container.appendChild(group);
+        makeDraggable(group, k, path);
+      } else {
+        renderArrayField(container, k, v, childPath);
+      }
+    } else {
+      renderField(container, k, v, childPath);
+    }
+  }
+}
+
+function renderEditor() {
+  const area = document.getElementById('editor-area');
+  const scroll = area.scrollTop;
+  area.innerHTML = '';
+  area.classList.toggle('flat-mode', flatMode);
+  if (flatMode) renderFlat(area, config, []);
+  else renderObj(area, config, []);
+  area.scrollTop = scroll;
+}
+
+function renderObj(container, obj, path) {
+  for (const [k, v] of Object.entries(obj)) {
+    const childPath = [...path, k];
+    if (typeof v === 'object' && v !== null && !Array.isArray(v)) {
+      renderSection(container, k, v, childPath);
+    } else if (Array.isArray(v)) {
+      renderArrayField(container, k, v, childPath);
+    } else {
+      renderField(container, k, v, childPath);
+    }
+  }
+}
+
+function _escHtml(s) {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+function mdToHtml(md) {
+  if (!md) return '';
+  md = md.trim();
+  // Protect fenced code blocks
+  const blocks = [];
+  md = md.replace(/```(?:[^\n]*)?\n([\s\S]*?)```/g, (_, c) => `\x01${blocks.push(c.trimEnd()) - 1}\x01`);
+  // Protect inline code
+  const codes = [];
+  md = md.replace(/`([^`]+)`/g, (_, c) => `\x02${codes.push(c) - 1}\x02`);
+  // Escape HTML in remaining text
+  md = _escHtml(md);
+  // Bold / italic
+  md = md.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+  md = md.replace(/\*(.+?)\*/g, '<em>$1</em>');
+  // Links → text only
+  md = md.replace(/\[([^\]]+)\]\([^)]*\)/g, '$1');
+  // List items
+  const lines = md.split('\n');
+  const out = []; let inList = false;
+  for (const ln of lines) {
+    const li = ln.match(/^[ \t]*[-*+] (.*)/);
+    if (li) { if (!inList) { out.push('<ul class="tt-list">'); inList = true; } out.push('<li>' + li[1] + '</li>'); }
+    else { if (inList) { out.push('</ul>'); inList = false; } out.push(ln); }
+  }
+  if (inList) out.push('</ul>');
+  // Paragraphs & line breaks
+  md = out.join('\n').replace(/\n{2,}/g, '\x03').replace(/\n/g, '<br>').replace(/\x03/g, '</p><p>');
+  md = '<p>' + md + '</p>';
+  // Restore inline code and code blocks
+  md = md.replace(/\x02(\d+)\x02/g, (_, i) => `<code class="tt-inline">${_escHtml(codes[+i])}</code>`);
+  md = md.replace(/\x01(\d+)\x01/g, (_, i) => `<pre class="tt-block">${_escHtml(blocks[+i])}</pre>`);
+  return md;
+}
+
+function buildTooltip(opt, typeLabel) {
+  const tt = document.createElement('div');
+  tt.className = 'tooltip';
+  let html = '';
+  if (opt && opt.required) {
+    html += '<div class="tt-required">required</div>';
+  }
+  if (opt && opt.description) {
+    html += `<div class="tt-desc">${mdToHtml(opt.description)}</div>`;
+  }
+  if (opt) {
+    const hasDefault = opt.default !== undefined && opt.default !== null && opt.default !== 'null';
+    const hasExample = opt.example !== undefined && opt.example !== null;
+    if (hasDefault || hasExample) {
+      html += '<div class="tt-meta">';
+      if (hasDefault) html += `<span class="tt-label">default</span><span class="tt-val">${opt.default}</span>`;
+      if (hasExample) html += `<span class="tt-label">example</span><span class="tt-val">${typeof opt.example === 'object' ? JSON.stringify(opt.example) : opt.example}</span>`;
+      html += '</div>';
+    }
+  }
+  const type = (opt && opt.type) || typeLabel;
+  if (type) {
+    html += `<div class="tt-meta tt-type"><span class="tt-label">type</span><span class="tt-val">${type}</span></div>`;
+  }
+  tt.innerHTML = html;
+  return tt;
+}
+
+function makeSectionHeader(key, path, extraType) {
+  const header = document.createElement('div');
+  header.className = 'section-header';
+
+  const keyEl = document.createElement('span');
+  keyEl.className = 'section-key';
+
+  const keyText = document.createElement('span');
+  keyText.className = 'section-key-text';
+  keyText.textContent = key;
+  keyEl.appendChild(keyText);
+
+  const typeEl = document.createElement('span');
+  typeEl.className = 'section-type';
+  typeEl.textContent = extraType;
+
+  const delBtn = document.createElement('button');
+  delBtn.className = 'icon-btn del'; delBtn.textContent = '✕'; delBtn.title = 'Delete';
+
+  const opt = findOption(path);
+  keyText.appendChild(buildTooltip(opt, extraType));
+
+  const dragHandle = document.createElement('span');
+  dragHandle.className = 'drag-handle';
+  dragHandle.innerHTML = '⠿';
+  dragHandle.title = 'Drag to reorder';
+
+  function triggerAdd(e) {
+    e.stopPropagation();
+    const inp = document.getElementById('add-input');
+    inp.value = path.join('.') + '.';
+    inp.focus();
+    inp.dispatchEvent(new Event('input'));
+    inp.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+
+  const sub = document.createElement('span');
+  sub.className = 'section-key-sub';
+  sub.appendChild(typeEl);
+
+  const keyInner = document.createElement('span');
+  keyInner.className = 'section-key-inner';
+  keyInner.appendChild(keyText);
+  keyInner.appendChild(sub);
+
+  keyEl.appendChild(keyInner);
+
+  keyEl.title = 'Click to add option under this section';
+  keyEl.onclick = triggerAdd;
+
+  header.appendChild(dragHandle);
+  header.appendChild(keyEl);
+  header.appendChild(delBtn);
+  return { header, delBtn };
+}
+
+function renderSection(container, key, obj, path) {
+  const pathKey = path.join('.');
+
+  // If the object is an _expr, render as an expr field row instead of a section
+  if (isExprPkg(obj)) {
+    renderField(container, key, obj, path);
+    return;
+  }
+
+  const section = document.createElement('div');
+  section.className = 'section';
+  section.dataset.path = pathKey;
+
+  const { header, delBtn } = makeSectionHeader(key, path, 'object');
+  delBtn.onclick = e => {
+    e.stopPropagation();
+    deleteAtPath(config, path); renderAll();
+  };
+
+  // { } button to convert whole object to a Nix expression
+  const exprBtn = document.createElement('button');
+  exprBtn.className = 'icon-btn expr-wrap-btn'; exprBtn.title = 'Convert to Nix expression';
+  exprBtn.textContent = '{ }';
+  exprBtn.onclick = e => {
+    e.stopPropagation();
+    const cur = getAtPath(config, path);
+    setAtPath(config, path, { _expr: jsonToNix(cur) });
+    renderAll();
+  };
+  // Insert before delBtn
+  header.insertBefore(exprBtn, delBtn);
+
+  section.appendChild(header);
+
+  const body = document.createElement('div');
+  body.className = 'section-body';
+  renderObj(body, obj, path);
+  section.appendChild(body);
+  makeDraggable(section, key, path.slice(0, -1));
+  container.appendChild(section);
+}
+
+function renderArrayField(container, key, arr, path) {
+  const row = document.createElement('div');
+  row.className = 'field-row array-field-row';
+  row.dataset.path = path.join('.');
+
+  const opt = findOption(path);
+  const keyEl = document.createElement('div');
+  keyEl.className = 'field-key';
+  const keyText = document.createElement('span');
+  keyText.className = 'field-key-text';
+  const keyLabel = document.createElement('span');
+  keyLabel.className = 'key-label'; keyLabel.textContent = key;
+  keyText.appendChild(keyLabel);
+  keyText.appendChild(buildTooltip(opt, getTypeLabel(arr)));
+  const keyInner = document.createElement('span');
+  keyInner.className = 'field-key-inner';
+  keyInner.appendChild(keyText);
+  keyEl.appendChild(keyInner);
+
+  const valEl = document.createElement('div');
+  valEl.className = 'field-value';
+  if (isPkgArrayPath(path)) renderPkgArray(valEl, arr, path);
+  else renderArray(valEl, arr, path);
+
+  const actions = document.createElement('div');
+  actions.className = 'field-actions';
+  if (!isPkgArrayPath(path)) {
+    const addBtn = document.createElement('button');
+    addBtn.className = 'icon-btn add-btn'; addBtn.textContent = '+'; addBtn.title = 'Add item';
+    addBtn.onclick = () => {
+      const existing = arr[0];
+      if (existing !== undefined && typeof existing !== 'object') {
+        // Scalar array — just push an empty string
+        arr.push('');
+      } else {
+        // Object array (or empty) — always use schema-derived blank with required fields
+        const blank = blankObjectFromOptions(path);
+        if (blank !== null) {
+          arr.push(blank);
+        } else {
+          const opt = findOption(path);
+          const isObjArray = (existing !== undefined && existing !== null && typeof existing === 'object' && !isExprPkg(existing))
+                          || (opt && isObjectArrayNixType(opt.type));
+          arr.push(isObjArray ? {} : '');
+        }
+      }
+      renderAll();
+    };
+    actions.appendChild(addBtn);
+  }
+  const exprBtn = document.createElement('button');
+  exprBtn.className = 'icon-btn expr-wrap-btn'; exprBtn.textContent = '{ }'; exprBtn.title = 'Convert to Nix expression';
+  exprBtn.onclick = () => { const cur = getAtPath(config, path); setAtPath(config, path, { _expr: jsonToNix(cur) }); renderAll(); };
+  actions.appendChild(exprBtn);
+  const del = document.createElement('button');
+  del.className = 'icon-btn del'; del.textContent = '✕'; del.title = 'Delete';
+  del.onclick = () => { deleteAtPath(config, path); renderAll(); };
+  actions.appendChild(del);
+
+  const dragHandle = document.createElement('span');
+  dragHandle.className = 'drag-handle'; dragHandle.innerHTML = '⠿'; dragHandle.title = 'Drag to reorder';
+  actions.appendChild(dragHandle);
+
+  row.appendChild(keyEl);
+  if (flatMode) row.appendChild(makeFlatColHandle());
+  row.appendChild(valEl);
+  row.appendChild(actions);
+  makeDraggable(row, path[path.length - 1], path.slice(0, -1));
+  container.appendChild(row);
+}
+
+// Parse enum values from NixOS type strings like:
+// "null or one of \"a\", \"b\", \"c\""
+// "one of \"a\", \"b\""
+// "boolean or one of \"a\""
+function parseEnumOptions(nixType) {
+  if (!nixType) return null;
+  const matches = [...nixType.matchAll(/"([^"]+)"/g)].map(m => m[1]);
+  if (!matches.length) return null;
+  // Must actually contain "one of" to be a real enum
+  if (!nixType.includes('one of')) return null;
+  const hasNull = nixType.startsWith('null or') || nixType.includes('null or');
+  return { values: matches, nullable: hasNull };
+}
+
+function makeCustomSelect(items, curValue, onChange, { search = true } = {}) {
+  const wrap = document.createElement('div');
+  wrap.className = 'custom-select-wrap';
+  const btn = document.createElement('div');
+  btn.className = 'custom-select-btn'; btn.tabIndex = 0;
+  const dropdown = document.createElement('div');
+  dropdown.className = 'custom-select-dropdown hidden';
+  let searchInp = null;
+  if (search && items.length > 8) {
+    searchInp = document.createElement('input');
+    searchInp.type = 'text'; searchInp.className = 'custom-select-search'; searchInp.placeholder = 'Search…';
+    dropdown.appendChild(searchInp);
+  }
+  const list = document.createElement('div');
+  list.className = 'custom-select-list';
+  dropdown.appendChild(list);
+
+  function renderLabel(v) {
+    const item = items.find(i => i.value === v);
+    btn.textContent = item ? item.label : (v || '— select —');
+  }
+  function renderList(filter) {
+    list.innerHTML = '';
+    const f = (filter || '').toLowerCase();
+    (f ? items.filter(i => i.label.toLowerCase().includes(f)) : items).forEach(item => {
+      const el = document.createElement('div');
+      el.className = 'custom-select-option' + (item.value === curValue ? ' selected' : '');
+      el.textContent = item.label;
+      if (item.title) el.title = item.title;
+      el.addEventListener('mousedown', e => {
+        e.preventDefault();
+        curValue = item.value;
+        renderLabel(curValue);
+        close();
+        onChange(item.value);
+        wrap.dispatchEvent(new Event('change', { bubbles: true }));
+      });
+      list.appendChild(el);
+    });
+  }
+  function open() {
+    dropdown.classList.remove('hidden');
+    renderList(searchInp ? searchInp.value : '');
+    const sel = list.querySelector('.selected');
+    if (sel) sel.scrollIntoView({ block: 'nearest' });
+    if (searchInp) searchInp.focus(); else btn.focus();
+  }
+  function close() {
+    dropdown.classList.add('hidden');
+  }
+  function toggle() { dropdown.classList.contains('hidden') ? open() : close(); }
+
+  renderLabel(curValue);
+  renderList('');
+
+  btn.addEventListener('click', toggle);
+  btn.addEventListener('keydown', e => {
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); }
+    if (e.key === 'Escape') close();
+  });
+  if (searchInp) searchInp.addEventListener('input', () => renderList(searchInp.value));
+
+  document.addEventListener('mousedown', e => { if (!wrap.contains(e.target)) close(); }, true);
+
+  wrap.appendChild(btn);
+  wrap.appendChild(dropdown);
+  return wrap;
+}
+
+function renderField(container, key, val, path) {
+  const row = document.createElement('div');
+  row.className = 'field-row';
+  row.dataset.path = path.join('.');
+
+  const opt = findOption(path);
+
+  const keyEl = document.createElement('div');
+  keyEl.className = 'field-key';
+  const keyText = document.createElement('span');
+  keyText.className = 'field-key-text';
+  const keyLabel = document.createElement('span');
+  keyLabel.className = 'key-label'; keyLabel.textContent = key;
+  keyText.appendChild(keyLabel);
+  keyText.appendChild(buildTooltip(opt, getTypeLabel(val)));
+  const keyInner = document.createElement('span');
+  keyInner.className = 'field-key-inner';
+  keyInner.appendChild(keyText);
+  keyEl.appendChild(keyInner);
+
+  const valEl = document.createElement('div');
+  valEl.className = 'field-value';
+  const type = typeOf(val);
+  let unwrapBtn = null;
+
+  const pathKey = path.join('.');
+  const kernelExprStr = isExprPkg(val) && /^pkgs\./.test(val._expr) ? val._expr : null;
+  if (isKernelPath(path) && kernels.length && (!isExprPkg(val) || kernelExprStr)) {
+    const curVal = kernelExprStr ?? (typeof val === 'string' ? val : '');
+    const items = [];
+    if (!curVal || !kernels.some(k => 'pkgs.' + k.name === curVal))
+      items.push({ value: curVal, label: curVal || '— select kernel —' });
+    kernels.forEach(k => items.push({ value: 'pkgs.' + k.name, label: 'pkgs.' + k.name, title: k.description }));
+    valEl.appendChild(makeCustomSelect(items, curVal, v => setAtPath(config, path, { _expr: v }), { search: false }));
+  } else if (isExprPkg(val)) {
+    const wrap = document.createElement('div');
+    wrap.className = 'expr-field-wrap';
+    const inp = document.createElement('textarea');
+    inp.value = val._expr;
+    inp.className = 'expr-input';
+    inp.rows = Math.max(1, val._expr.split('\n').length);
+    inp.addEventListener('change', () => setAtPath(config, path, { _expr: inp.value }));
+    inp.addEventListener('input', () => { inp.rows = Math.max(1, inp.value.split('\n').length); });
+    unwrapBtn = document.createElement('button');
+    unwrapBtn.className = 'icon-btn unwrap-btn'; unwrapBtn.textContent = '\u232b'; unwrapBtn.title = 'Convert back to native type';
+    unwrapBtn.onclick = () => {
+      // Kernel path: remove from expr set and store raw string to return to autocomplete mode.
+      if (isKernelPath(path)) {
+        setAtPath(config, path, inp.value.trim());
+        renderAll();
+        return;
+      }
+      // Try to parse the Nix expression back to a JS value.
+      const parsed = nixToJs(inp.value);
+      if (parsed !== undefined) {
+        setAtPath(config, path, parsed);
+        renderAll();
+        return;
+      }
+      // Fall back to option default or type zero value.
+      const jsType = opt ? typeFromNix(opt.type) : 'string';
+      const fromDefault = opt ? parseNixDefault(opt.default, jsType) : undefined;
+      const native = (fromDefault !== undefined && !isExprPkg(fromDefault))
+        ? fromDefault
+        : defaultForType(jsType);
+      setAtPath(config, path, native);
+      renderAll();
+    };
+    wrap.appendChild(inp);
+    valEl.appendChild(wrap);
+  } else if (type === 'boolean') {
+    const isNullable = opt && opt.type === 'null or boolean';
+    if (isNullable) {
+      const curV = val === null ? '__null__' : val ? 'true' : 'false';
+      valEl.appendChild(makeCustomSelect(
+        [{ value: '__null__', label: 'null' }, { value: 'false', label: 'false' }, { value: 'true', label: 'true' }],
+        curV, v => setAtPath(config, path, v === '__null__' ? null : v === 'true')
+      ));
+    } else {
+      const wrap = document.createElement('div'); wrap.className = 'toggle-wrap';
+      const tog = document.createElement('div'); tog.className = 'toggle' + (val ? ' on' : '');
+      const lbl = document.createElement('span'); lbl.className = 'toggle-label'; lbl.textContent = val ? 'true' : 'false';
+      tog.onclick = () => {
+        const cur = !getAtPath(config, path);
+        setAtPath(config, path, cur);
+        tog.className = 'toggle' + (cur ? ' on' : '');
+        lbl.textContent = cur ? 'true' : 'false';
+        tog.dispatchEvent(new Event('change', { bubbles: true }));
+      };
+      wrap.appendChild(tog); wrap.appendChild(lbl); valEl.appendChild(wrap);
+    }
+  } else if (type === 'string') {
+    const enumOpts = opt ? parseEnumOptions(opt.type) : null;
+    if (enumOpts) {
+      const items = [];
+      if (enumOpts.nullable) items.push({ value: '__null__', label: 'null' });
+      enumOpts.values.forEach(v => items.push({ value: v, label: v }));
+      const curV = val === null ? '__null__' : val;
+      valEl.appendChild(makeCustomSelect(items, curV, v => setAtPath(config, path, v === '__null__' ? null : v)));
+    } else {
+      if (val.includes('\n') || (opt && opt.type && opt.type.includes('concatenated with'))) {
+        const ta = document.createElement('textarea');
+        ta.value = val;
+        ta.rows = Math.max(1, (val.match(/\n/g) || []).length + 1);
+        ta.addEventListener('input', () => { ta.rows = Math.max(1, (ta.value.match(/\n/g) || []).length + 1); });
+        ta.addEventListener('change', () => setAtPath(config, path, ta.value));
+        valEl.appendChild(ta);
+      } else {
+        const inp = document.createElement('input');
+        inp.type = 'text'; inp.value = val;
+        inp.addEventListener('change', () => {
+          const newVal = (inp.value === '' && opt && isNullableString(opt.type)) ? null : inp.value;
+          setAtPath(config, path, newVal);
+          if (newVal === null) renderAll();
+        });
+        valEl.appendChild(inp);
+      }
+    }
+  } else if (type === 'number') {
+    const inp = document.createElement('input');
+    inp.type = 'text'; inp.inputMode = 'numeric'; inp.value = val;
+    inp.addEventListener('change', () => setAtPath(config, path, Number(inp.value)));
+    bindAutosize(inp);
+    valEl.appendChild(inp);
+  } else if (type === 'null') {
+    const enumOpts = opt ? parseEnumOptions(opt.type) : null;
+    if (opt && opt.type === 'null or boolean') {
+      valEl.appendChild(makeCustomSelect(
+        [{ value: '__null__', label: 'null' }, { value: 'false', label: 'false' }, { value: 'true', label: 'true' }],
+        '__null__', v => { setAtPath(config, path, v === '__null__' ? null : v === 'true'); renderAll(); }
+      ));
+    } else if (enumOpts && enumOpts.nullable) {
+      const items = [{ value: '__null__', label: 'null' }];
+      enumOpts.values.forEach(v => items.push({ value: v, label: v }));
+      valEl.appendChild(makeCustomSelect(items, '__null__', v => {
+        setAtPath(config, path, v === '__null__' ? null : v); renderAll();
+      }));
+    } else if (opt && isNullableString(opt.type)) {
+      // "null or string / path / etc." — render a clearable text input
+      const wrap = document.createElement('div');
+      wrap.className = 'nullable-string-wrap';
+      const inp = document.createElement('input');
+      inp.type = 'text'; inp.value = ''; inp.placeholder = 'null — type to set a value';
+      inp.addEventListener('change', () => {
+        setAtPath(config, path, inp.value === '' ? null : inp.value);
+        renderAll();
+      });
+      bindAutosize(inp);
+      wrap.appendChild(inp);
+      valEl.appendChild(wrap);
+    } else {
+      const s = document.createElement('span');
+      s.className = 'null-value';
+      s.textContent = 'null'; valEl.appendChild(s);
+    }
+  }
+
+  const actions = document.createElement('div');
+  actions.className = 'field-actions';
+  if (!isExprPkg(val) && (isKernelPath(path) || type === 'string' || type === 'number' || type === 'null')) {
+    const exprBtn = document.createElement('button');
+    exprBtn.className = 'icon-btn expr-wrap-btn'; exprBtn.textContent = '{ }'; exprBtn.title = 'Convert to Nix expression';
+    exprBtn.onclick = () => {
+      const cur = getAtPath(config, path);
+      if (isKernelPath(path)) { setAtPath(config, path, { _expr: typeof cur === 'string' ? cur : '' }); }
+      else {
+        let expr;
+        if (cur === null || cur === undefined) {
+          expr = (opt && opt.default != null && opt.default !== 'null') ? String(opt.default) : '';
+        } else {
+          expr = jsonToNix(cur);
+        }
+        setAtPath(config, path, { _expr: expr });
+      }
+      renderAll();
+    };
+    actions.appendChild(exprBtn);
+  }
+  if (unwrapBtn) actions.appendChild(unwrapBtn);
+  const del = document.createElement('button');
+  del.className = 'icon-btn del'; del.textContent = '\u2715'; del.title = 'Delete';
+  del.onclick = () => { deleteAtPath(config, path); renderAll(); };
+  actions.appendChild(del);
+
+  const dragHandle = document.createElement('span');
+  dragHandle.className = 'drag-handle';
+  dragHandle.innerHTML = '⠿';
+  dragHandle.title = 'Drag to reorder';
+  actions.appendChild(dragHandle);
+
+  row.appendChild(keyEl);
+  if (flatMode) row.appendChild(makeFlatColHandle());
+  row.appendChild(valEl); row.appendChild(actions);
+  makeDraggable(row, path[path.length - 1], path.slice(0, -1));
+  container.appendChild(row);
+}
+
+// ── Array rendering ───────────────────────────────────────────────────────────
+function isPkgArrayPath(path) {
+  const last = path[path.length - 1];
+  const PKG_PATHS = new Set(['systemPackages', 'extraPackages', 'extraPlugins']);
+  if (PKG_PATHS.has(last)) return true;
+  // users.users.<name>.packages
+  if (last === 'packages' && path.length >= 4 && path[0] === 'users' && path[1] === 'users') return true;
+  return false;
+}
+
+function isKernelPath(path) {
+  return path.length === 2 && path[0] === 'boot' && path[1] === 'kernelPackages';
+}
+
+function renderArray(container, arr, path) {
+  arr.forEach((v, i) => {
+    const itemPath = [...path, i];
+
+    // Object items: render as a mini inline section with their own fields
+    if (v !== null && typeof v === 'object' && !Array.isArray(v) && !isExprPkg(v)) {
+      const wrap = document.createElement('div');
+      wrap.className = 'array-obj-item';
+      const triggerAdd = () => {
+        const inp = document.getElementById('add-input');
+        inp.value = itemPath.join('.') + '.';
+        inp.focus();
+        inp.dispatchEvent(new Event('input'));
+        inp.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      };
+      const fields = document.createElement('div');
+      fields.className = 'array-obj-fields';
+      renderObj(fields, v, itemPath);
+      const sideBtns = document.createElement('div');
+      sideBtns.className = 'array-obj-side-btns';
+      const dragHandle = document.createElement('span');
+      dragHandle.className = 'drag-handle'; dragHandle.innerHTML = '⠿'; dragHandle.title = 'Drag to reorder';
+      const addBtn = document.createElement('button');
+      addBtn.className = 'icon-btn array-add-btn'; addBtn.textContent = '+'; addBtn.title = 'Add field';
+      addBtn.onclick = triggerAdd;
+      const del = document.createElement('button');
+      del.className = 'icon-btn del'; del.textContent = '✕';
+      del.onclick = () => { deleteAtPath(config, itemPath); renderAll(); };
+      sideBtns.appendChild(dragHandle);
+      sideBtns.appendChild(addBtn);
+      sideBtns.appendChild(del);
+      wrap.appendChild(fields);
+      wrap.appendChild(sideBtns);
+      container.appendChild(wrap);
+      makeDraggable(wrap, String(i), path);
+      return;
+    }
+
+    const item = document.createElement('div');
+    item.className = 'array-item';
+    const isExpr = isExprPkg(v);
+    const strVal = isExpr ? v._expr : (typeof v === 'string' || typeof v === 'number') ? String(v) : preview(v);
+    let editor;
+    if (strVal.includes('\n')) {
+      editor = document.createElement('textarea');
+      editor.value = strVal;
+      editor.rows = Math.max(1, (strVal.match(/\n/g) || []).length + 1);
+      editor.addEventListener('input', () => { editor.rows = Math.max(1, (editor.value.match(/\n/g) || []).length + 1); });
+      editor.addEventListener('change', () => setAtPath(config, itemPath, isExpr ? { _expr: editor.value } : editor.value));
+    } else {
+      editor = document.createElement('input');
+      editor.type = 'text'; editor.value = strVal;
+      editor.addEventListener('change', () => setAtPath(config, itemPath, isExpr ? { _expr: editor.value } : editor.value));
+      if (!isExpr) editor.addEventListener('contextmenu', e => { e.preventDefault(); setAtPath(config, itemPath, { _expr: strVal }); renderAll(); });
+    }
+    if (isExpr) editor.classList.add('expr-value');
+    const del = document.createElement('button');
+    del.className = 'icon-btn del'; del.textContent = '✕';
+    del.onclick = () => { deleteAtPath(config, itemPath); renderAll(); };
+    item.appendChild(editor); item.appendChild(del);
+    container.appendChild(item);
+  });
+}
+
+function renderPkgArray(container, arr, path) {
+  const items = document.createElement('div');
+  items.className = 'pkg-items';
+
+  function makePkgRow(pkg) {
+    const item = document.createElement('div');
+    item.className = 'array-item';
+    const label = document.createElement('span');
+    label.className = 'pkg-label';
+    label.textContent = pkg._expr;
+    const pkgInfo = packages.find(p => p.name === pkg._expr.replace(/^pkgs\./, ''));
+    if (pkgInfo && pkgInfo.description) {
+      const tt = document.createElement('div');
+      tt.className = 'tooltip'; tt.textContent = pkgInfo.description;
+      label.appendChild(tt);
+    }
+    const del = document.createElement('button');
+    del.className = 'icon-btn del'; del.textContent = '✕';
+    del.onclick = () => {
+      const cur = getAtPath(config, path);
+      const liveIdx = Array.isArray(cur) ? cur.findIndex(p => p._expr === pkg._expr) : -1;
+      if (liveIdx !== -1) deleteAtPath(config, [...path, liveIdx]);
+      item.remove();
+      _pushHistory();
+      _updateDirty();
+    };
+    item.appendChild(label); item.appendChild(del);
+    return item;
+  }
+
+  const acWrap = document.createElement('div');
+  acWrap.className = 'autocomplete-wrap';
+  const inp = document.createElement('input');
+  inp.type = 'text'; inp.placeholder = 'Add package…';
+  const acList = document.createElement('div');
+  acList.className = 'autocomplete-list hidden';
+  let acIdx = -1;
+
+  function showPkgAC() {
+    const q = inp.value.trim().toLowerCase();
+    acList.innerHTML = ''; acIdx = -1;
+    if (!q) { acList.classList.add('hidden'); return; }
+    const q2 = q.startsWith('pkgs.') ? q.slice(5) : q;
+    const hits = packages.filter(p => p.name.toLowerCase().startsWith(q2)).slice(0, 12);
+    if (!hits.length) { acList.classList.add('hidden'); return; }
+    hits.forEach(p => {
+      const it = document.createElement('div');
+      it.className = 'autocomplete-item';
+      it.innerHTML = `<span class="ac-name">pkgs.${p.name}</span><span class="ac-desc">${p.description || ''}</span>`;
+      it.addEventListener('mousedown', e => { e.preventDefault(); addPkg(p.name); });
+      acList.appendChild(it);
+    });
+    acList.classList.remove('hidden');
+  }
+
+  function addPkg(name) {
+    const expr = name.startsWith('pkgs.') ? name : 'pkgs.' + name;
+    const cur = getAtPath(config, path);
+    if (!Array.isArray(cur)) return;
+    if (cur.some(p => p._expr === expr)) {
+      inp.value = ''; acList.classList.add('hidden');
+      inp.placeholder = expr + ' already added';
+      setTimeout(() => inp.placeholder = 'Add package…', 2000);
+      inp.focus(); return;
+    }
+    cur.push({ _expr: expr });
+    cur.sort((a, b) => a._expr.localeCompare(b._expr));
+    items.innerHTML = '';
+    cur.forEach(pkg => {
+      const row = makePkgRow(pkg);
+      if (pkg._expr === expr) row.classList.add('flash-added');
+      items.appendChild(row);
+    });
+    inp.value = ''; acList.classList.add('hidden'); inp.focus();
+    _pushHistory();
+    _updateDirty();
+  }
+
+  inp.addEventListener('input', showPkgAC);
+  inp.addEventListener('keydown', e => {
+    const its = acList.querySelectorAll('.autocomplete-item');
+    if (e.key === 'ArrowDown') { acIdx = Math.min(acIdx + 1, its.length - 1); its.forEach((el, i) => el.classList.toggle('active', i === acIdx)); its[acIdx]?.scrollIntoView({ block: 'nearest' }); e.preventDefault(); }
+    else if (e.key === 'ArrowUp') { acIdx = Math.max(acIdx - 1, -1); its.forEach((el, i) => el.classList.toggle('active', i === acIdx)); if (acIdx >= 0) its[acIdx].scrollIntoView({ block: 'nearest' }); e.preventDefault(); }
+    else if (e.key === 'Enter') { if (acIdx >= 0) its[acIdx].dispatchEvent(new MouseEvent('mousedown')); else if (inp.value.trim()) addPkg(inp.value.trim()); e.preventDefault(); }
+    else if (e.key === 'Escape') acList.classList.add('hidden');
+  });
+  inp.addEventListener('blur', () => setTimeout(() => acList.classList.add('hidden'), 150));
+  arr.forEach(pkg => items.appendChild(makePkgRow(pkg)));
+  container.appendChild(items);
+  acWrap.appendChild(inp); acWrap.appendChild(acList);
+  container.appendChild(acWrap);
+}
+
+// ── Undo / Redo ───────────────────────────────────────────────────────────────
+let _configHistory = [];
+let _historyIndex = -1;
+let _savedConfigJson = '';
+let _lastConfigJson = '';
+let _skipHistory = false;
+
+function _pushHistory() {
+  if (_skipHistory) return;
+  const curr = JSON.stringify(config);
+  if (curr === _lastConfigJson) return;
+  _configHistory = _configHistory.slice(0, _historyIndex + 1);
+  _configHistory.push(curr);
+  if (_configHistory.length > 200) _configHistory.shift();
+  _historyIndex = _configHistory.length - 1;
+  _lastConfigJson = curr;
+}
+
+function markSaved() {
+  _savedConfigJson = JSON.stringify(config);
+  _updateDirty();
+}
+
+function _updateDirty() {
+  const dirty = JSON.stringify(config) !== _savedConfigJson;
+  document.querySelector('.status-dot').classList.toggle('dirty', dirty);
+  document.querySelector('.status-ready').textContent = dirty ? 'Modified' : 'Ready';
+  document.querySelectorAll('.term-run-btn[data-save-first]').forEach(b => { b.disabled = dirty; });
+}
+
+function undo() {
+  if (_historyIndex <= 0) return;
+  _historyIndex--;
+  _restoreHistory();
+}
+
+function redo() {
+  if (_historyIndex >= _configHistory.length - 1) return;
+  _historyIndex++;
+  _restoreHistory();
+}
+
+function clearConfig() {
+  if (!confirm('Clear all configuration?')) return;
+  Object.keys(config).forEach(k => delete config[k]);
+  renderAll();
+}
+
+async function reloadConfig() {
+  try {
+    const r = await fetch('configuration.json', { cache: 'no-cache' });
+    if (!r.ok) throw r.status;
+    const data = await r.json();
+    config = normalizeConfig(data);
+    renderAll();
+    markSaved();
+    setStatus('Reloaded', 2000, 'ok');
+  } catch (e) {
+    setStatus('Reload failed', 3000, 'err');
+  }
+}
+
+function _restoreHistory() {
+  _skipHistory = true;
+  const snap = JSON.parse(_configHistory[_historyIndex]);
+  Object.keys(config).forEach(k => delete config[k]);
+  Object.assign(config, snap);
+  _lastConfigJson = _configHistory[_historyIndex];
+  renderAll();
+  _skipHistory = false;
+  _updateDirty();
+}
+
+// ── Render all ────────────────────────────────────────────────────────────────
+function renderAll() {
+  _pushHistory();
+  _updateDirty();
+  renderTree();
+  renderEditor();
+  renderButtons();
+}
+
+// ── Import / Export ───────────────────────────────────────────────────────────
+function setStatus(msg, duration = 0, type = '') {
+  const el = document.getElementById('status-info');
+  el.textContent = msg;
+  el.dataset.type = type;
+  if (duration) setTimeout(() => { if (el.textContent === msg) { el.textContent = ''; el.dataset.type = ''; } }, duration);
+}
+function setImportExample(el) {
+  const ta = document.getElementById('import-textarea');
+  ta.value = el.textContent;
+  _validateImportInput(ta);
+}
+function showImportModal() {
+  const ta = document.getElementById('import-textarea');
+  ta.value = '';
+  _importClearError();
+  document.getElementById('import-modal').classList.remove('hidden');
+}
+function closeImportModal() { document.getElementById('import-modal').classList.add('hidden'); }
+
+function _importClearError() {
+  const el = document.getElementById('import-error');
+  el.textContent = ''; el.classList.add('hidden'); el.classList.remove('import-valid');
+}
+function _validateImportInput(ta) {
+  const src = ta.value.trim();
+  const el = document.getElementById('import-error');
+  if (!src) { _importClearError(); return; }
+  let parsed, kind;
+  try { parsed = JSON.parse(src); kind = 'JSON'; }
+  catch (_) {
+    try { parsed = nixImportParse(src); kind = 'Nix'; }
+    catch (e) {
+      el.textContent = 'Parse error: ' + e.message;
+      el.classList.remove('hidden', 'import-valid');
+      return;
+    }
+  }
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    el.textContent = 'Expected an attribute set or JSON object at the top level.';
+    el.classList.remove('hidden', 'import-valid');
+    return;
+  }
+  const unsupported = _checkUnsupportedKeys(parsed);
+  if (unsupported.length) {
+    const keys = unsupported.map(k => `"${k}"`).join(', ');
+    el.textContent = `Cannot import: ${keys} ${unsupported.length === 1 ? 'is a' : 'are'} NixOS module-level directive${unsupported.length > 1 ? 's' : ''}, not config options.`;
+    el.classList.remove('hidden', 'import-valid');
+    return;
+  }
+  el.textContent = '✓ Valid ' + kind;
+  el.classList.remove('hidden'); el.classList.add('import-valid');
+}
+function _importShowError(msg, ta, highlightLine) {
+  const el = document.getElementById('import-error');
+  el.textContent = msg; el.classList.remove('hidden');
+  if (ta && highlightLine !== undefined) {
+    // Select the failing line in the textarea
+    const lines = ta.value.split('\n');
+    let start = 0;
+    for (let i = 0; i < highlightLine && i < lines.length; i++) start += lines[i].length + 1;
+    const end = start + (lines[highlightLine] || '').length;
+    ta.focus();
+    ta.setSelectionRange(start, end);
+    // Scroll line into view
+    const lineHeight = parseInt(getComputedStyle(ta).lineHeight) || 18;
+    ta.scrollTop = lineHeight * highlightLine - ta.clientHeight / 2;
+  }
+}
+
+function _findKeyLine(src, key) {
+  // Find the line index where a Nix key assignment appears (first segment is enough)
+  const firstSeg = key.split('.')[0];
+  const re = new RegExp('(?:^|\\n)[ \\t]*' + firstSeg.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '[ \\t]*[.=]');
+  const m = src.match(re);
+  if (!m) return undefined;
+  return src.slice(0, m.index + (m[0].startsWith('\n') ? 1 : 0)).split('\n').length - 1;
+}
+
+// NixOS module-level directives that cannot be represented as config options.
+const UNSUPPORTED_KEYS = ['imports', 'options', 'disabledModules'];
+
+function _checkUnsupportedKeys(obj) {
+  return UNSUPPORTED_KEYS.filter(k => k in obj);
+}
+
+function doImport() {
+  const ta = document.getElementById('import-textarea');
+  const src = ta.value.trim();
+  _importClearError();
+  let parsed;
+  try { parsed = JSON.parse(src); }
+  catch (_) {
+    try { parsed = nixImportParse(src); }
+    catch (e) {
+      let line;
+      if (e.nixKey) {
+        line = _findKeyLine(src, e.nixKey);
+      } else if (e.nixSnippet) {
+        const idx = src.indexOf(e.nixSnippet.slice(0, 20));
+        if (idx >= 0) line = src.slice(0, idx).split('\n').length - 1;
+      }
+      _importShowError('Parse error: ' + e.message, ta, line);
+      return;
+    }
+  }
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    _importShowError('Expected an attribute set or JSON object at the top level.', ta);
+    return;
+  }
+  const unsupported = _checkUnsupportedKeys(parsed);
+  if (unsupported.length) {
+    const keys = unsupported.map(k => `"${k}"`).join(', ');
+    const lines = unsupported.map(k => _findKeyLine(src, k)).filter(l => l !== undefined);
+    _importShowError(
+      `Cannot import: ${keys} ${unsupported.length === 1 ? 'is a' : 'are'} NixOS module-level directive${unsupported.length > 1 ? 's' : ''}, not config options.\nRemove ${unsupported.length === 1 ? 'it' : 'them'} before importing.`,
+      ta, lines[0]
+    );
+    return;
+  }
+  config = normalizeConfig(_nixDeepMerge(config, parsed));
+  closeImportModal();
+  renderAll();
+  setStatus('Imported and merged', 3000, 'ok');
+}
+function initLoadButton() {
+  document.getElementById('import-file-input').addEventListener('change', e => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = ev => {
+      const ta = document.getElementById('import-textarea');
+      ta.value = ev.target.result;
+      _validateImportInput(ta);
+    };
+    reader.readAsText(file);
+    e.target.value = '';
+  });
+}
+
+async function exportJSON() {
+  const { _gui, ...exportable } = config;
+  const json = JSON.stringify(exportable, null, 2);
+  if (window.showSaveFilePicker) {
+    try {
+      const handle = await window.showSaveFilePicker({
+        suggestedName: 'configuration.json',
+        types: [{ description: 'JSON', accept: { 'application/json': ['.json'] } }],
+      });
+      const writable = await handle.createWritable();
+      await writable.write(json);
+      await writable.close();
+      markSaved();
+    } catch (e) {
+      if (e.name !== 'AbortError') setStatus('Export failed', 3000, 'err');
+    }
+  } else {
+    const blob = new Blob([json], { type: 'application/json' });
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'configuration.json'; a.click();
+    markSaved();
+  }
+}
+
+// ── Terminal panel ─────────────────────────────────────────────────────────────
+let _term = null;
+let _termWs = null;
+let _termFit = null;
+let _termOnData = null;
+let _termReconnectTimer = null;
+let _termReconnectAttempts = 0;
+
+const _TERM_WS_BASE = (() => {
+  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  return `${proto}//${location.hostname}:%%EZCONF_TERMINAL_PORT%%/terminal`;
+})();
+
+async function initTerminal() {
+  if (_term) return;
+  const container = document.getElementById('term-output');
+  if (!container) return;
+  try {
+    const _termTheme = _buildTermTheme();
+    const _css = getComputedStyle(document.documentElement);
+    const _tv = k => _css.getPropertyValue(k).trim();
+    const _cursorStyle = _tv('--term-cursor-style');
+    const _cursorBlink = _tv('--term-cursor-blink');
+    const _cursorInactiveStyle = _tv('--term-cursor-inactive-style');
+    _term = new Terminal({
+      fontSize: 13,
+      fontFamily: "'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Hack', ui-monospace, monospace",
+      fontWeight: '400',
+      fontWeightBold: '600',
+      lineHeight: 1.2,
+      letterSpacing: 0.5,
+      cursorStyle: _cursorStyle || 'bar',
+      cursorInactiveStyle: _cursorInactiveStyle || 'none',
+      ...(_cursorBlink !== '' && { cursorBlink: _cursorBlink === '1' || _cursorBlink === 'true' }),
+      convertEol: true,
+      scrollback: 5000,
+      ...(Object.keys(_termTheme).length && { theme: _termTheme }),
+    });
+    _termFit = new FitAddon.FitAddon();
+    _term.loadAddon(_termFit);
+    try {
+      const webgl = new WebglAddon.WebglAddon();
+      webgl.onContextLoss(() => webgl.dispose());
+      _term.loadAddon(webgl);
+    } catch (_) {}
+    _term.open(container);
+    _termFit.fit();
+    let _fitTimer = null;
+    new ResizeObserver(() => {
+      clearTimeout(_fitTimer);
+      _fitTimer = setTimeout(() => {
+        if (_termFit) _termFit.fit();
+      }, 200);
+    }).observe(container);
+    _term.onResize(({ cols, rows }) => {
+      if (_termWs && _termWs.readyState === WebSocket.OPEN)
+        _termWs.send(JSON.stringify({ type: 'resize', cols, rows }));
+    });
+    connectTerminalWs();
+  } catch (e) {
+    console.error('Terminal init failed:', e);
+  }
+}
+
+function connectTerminalWs() {
+  if (_termWs) { _termWs.close(); _termWs = null; }
+  _termWs = new WebSocket(_TERM_WS_BASE);
+  _termWs.binaryType = 'arraybuffer';
+  _termWs.onopen = () => {
+    _termReconnectAttempts = 0;
+    if (_termReconnectTimer) { clearTimeout(_termReconnectTimer); _termReconnectTimer = null; }
+    if (_term && _termFit) {
+      const d = _termFit.proposeDimensions();
+      if (d) _termWs.send(JSON.stringify({ type: 'resize', cols: d.cols, rows: d.rows }));
+    }
+  };
+  _termWs.onmessage = (e) => {
+    if (!_term) return;
+    if (e.data instanceof ArrayBuffer) _term.write(new Uint8Array(e.data));
+    else _term.write(e.data);
+  };
+  _termWs.onerror = () => {
+    if (_term) _term.write('\r\n\x1b[31mTerminal: connection error — is the ezconf server running?\x1b[0m\r\n');
+  };
+  _termWs.onclose = (e) => {
+    if (e.wasClean) {
+      const panel = document.getElementById('terminal-panel');
+      if (!panel.classList.contains('collapsed')) toggleTerminal();
+    } else {
+      if (_term) _term.write('\r\n\x1b[33mReconnecting...\x1b[0m\r\n');
+      if (_termReconnectAttempts < 10) {
+        _termReconnectAttempts++;
+        const delay = Math.min(500 * _termReconnectAttempts, 5000);
+        _termReconnectTimer = setTimeout(() => connectTerminalWs(), delay);
+      } else if (_term) {
+        _term.write('\r\n\x1b[31mCould not reconnect to terminal service.\x1b[0m\r\n');
+      }
+    }
+  };
+  if (_termOnData) { _termOnData.dispose(); _termOnData = null; }
+  _term.reset();
+  _termOnData = _term.onData((data) => {
+    if (_termWs && _termWs.readyState === WebSocket.OPEN) _termWs.send(data);
+  });
+}
+
+function toggleTerminal() {
+  const panel = document.getElementById('terminal-panel');
+  const btn = document.getElementById('term-toggle');
+  const collapsed = panel.classList.contains('collapsed');
+  if (collapsed) {
+    panel.classList.remove('collapsed');
+    panel.style.height = panel._openHeight || '25vh';
+    btn.textContent = '▼';
+    btn.title = 'Hide';
+    initTerminal().then(() => {
+      if (_term) {
+        if (!_termWs || _termWs.readyState === WebSocket.CLOSED) connectTerminalWs();
+        _term.focus();
+      }
+    });
+  } else {
+    panel._openHeight = panel.style.height || '25vh';
+    panel.style.height = '33px';
+    panel.classList.add('collapsed');
+    btn.textContent = '▲';
+    btn.title = 'Show';
+  }
+}
+
+function setTerminalSize(size) {
+  const panel = document.getElementById('terminal-panel');
+  let h;
+  if (size === 'full') {
+    const taken = (document.querySelector('.header')?.offsetHeight || 0)
+                + (document.querySelector('.statusbar')?.offsetHeight || 0);
+    h = `calc(100vh - ${taken}px)`;
+  } else {
+    h = size === 'half' ? '50vh' : '25vh';
+  }
+  panel._openHeight = h;
+  panel.style.height = h;
+  panel.classList.remove('collapsed');
+  document.getElementById('term-toggle').textContent = '▼';
+  initTerminal().then(() => {
+    if (_term) {
+      if (!_termWs || _termWs.readyState === WebSocket.CLOSED) connectTerminalWs();
+      _term.focus();
+    }
+  });
+}
+
+function renderButtons() {
+  if (!TERMINAL_ENABLED) return;
+  const container = document.getElementById('terminal-cmd-btns');
+  if (!container) return;
+  container.innerHTML = '';
+  const buttons = config.services?.ezconf?.buttons || [];
+  const dirty = JSON.stringify(config) !== _savedConfigJson;
+  buttons.forEach((btn, idx) => {
+    const b = document.createElement('button');
+    b.className = 'btn term-run-btn';
+    b.textContent = btn.label || '(no label)';
+    b.title = btn.command;
+    if (btn.save_first) {
+      b.dataset.saveFirst = '1';
+      b.disabled = dirty;
+    }
+    b.onclick = () => runButton(idx);
+    container.appendChild(b);
+  });
+}
+
+// ── API auth ──────────────────────────────────────────────────────────────────
+const API_BASE = '/api/v1';
+const TERMINAL_ENABLED  = %%EZCONF_TERMINAL%%;
+const MKOPTIONS_ENABLED = %%EZCONF_MKOPTIONS%%;
+
+
+async function apiFetch(path, opts = {}) {
+  const headers = { 'Content-Type': 'application/json', ...opts.headers };
+  return fetch(API_BASE + path, { ...opts, headers });
+}
+
+function runButton(idx) {
+  const btn = (config.services?.ezconf?.buttons || [])[idx];
+  if (!btn) return;
+  const panel = document.getElementById('terminal-panel');
+  if (panel.classList.contains('collapsed')) toggleTerminal();
+  initTerminal().then(() => {
+    if (!_term) return;
+    const send = () => {
+      if (_termWs) _termWs.send('\x15');
+      if (_term) _term.clear();
+      if (_termWs) _termWs.send('clear\r' + btn.command + '\r');
+    };
+    const sendOnReady = () => {
+      const origMsg = _termWs.onmessage;
+      _termWs.onmessage = (e) => {
+        _termWs.onmessage = origMsg;
+        if (origMsg) origMsg.call(_termWs, e);
+        send();
+      };
+    };
+    if (_termWs && _termWs.readyState === WebSocket.OPEN) {
+      send();
+    } else if (_termWs && _termWs.readyState === WebSocket.CONNECTING) {
+      const prev = _termWs.onopen;
+      _termWs.onopen = (e) => { if (prev) prev.call(_termWs, e); sendOnReady(); };
+    } else {
+      connectTerminalWs();
+      const prev = _termWs.onopen;
+      _termWs.onopen = (e) => { if (prev) prev.call(_termWs, e); sendOnReady(); };
+    }
+  });
+}
+
+async function updateAutocomplete() {
+  const btn = document.getElementById('update-ac-btn');
+  btn.disabled = true;
+  btn.textContent = '↻ Updating…';
+  try {
+    const res = await apiFetch('/update-autocomplete', { method: 'POST' });
+    const data = await res.json().catch(() => ({}));
+    if (res.ok) {
+      const [pkgRes, optRes, kernelRes] = await Promise.all([
+        fetch('autocomplete/packages.json?' + Date.now()).then(r => r.json()),
+        fetch('autocomplete/options.json?' + Date.now()).then(r => r.json()),
+        fetch('autocomplete/kernels.json?' + Date.now()).then(r => r.json()).catch(() => null),
+      ]);
+      packages = pkgRes;
+      options = optRes;
+      if (kernelRes) kernels = kernelRes;
+      setStatus('Autocomplete updated', 3000, 'ok');
+    } else {
+      setStatus('Update failed: ' + (data.error || res.status), 6000, 'err');
+    }
+  } catch (e) {
+    setStatus('Update failed: ' + e.message, 6000, 'err');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '↻ Autocomplete';
+  }
+}
+
+async function saveToServer() {
+  try {
+    const res = await apiFetch('/save-config', {
+      method: 'POST',
+      body: JSON.stringify(config),
+    });
+    if (!res.ok) { setStatus('Save failed', 4000, 'err'); return; }
+    config = normalizeConfig(await fetch('configuration.json?' + Date.now()).then(r => r.json()));
+    renderAll();
+    markSaved();
+    setStatus('Saved', 2000, 'ok');
+  } catch (e) {
+    setStatus('Save failed: ' + e.message, 4000, 'err');
+  }
+}
+
+// ── Load files ────────────────────────────────────────────────────────────────
+async function loadSiblingFiles() {
+  const [cfgResult, pkgResult, optResult, kernelResult, customOptResult] = await Promise.allSettled([
+    fetch('configuration.json', { cache: 'no-cache' }).then(r => { if (!r.ok) throw r.status; return r.json(); }),
+    fetch('autocomplete/packages.json').then(r => { if (!r.ok) throw r.status; return r.json(); }),
+    fetch('autocomplete/options.json').then(r => { if (!r.ok) throw r.status; return r.json(); }),
+    fetch('autocomplete/kernels.json').then(r => { if (!r.ok) throw r.status; return r.json(); }),
+    fetch('custom-options.json').then(r => { if (!r.ok) throw r.status; return r.json(); }),
+  ]);
+
+  if (cfgResult.status === 'fulfilled') {
+    config = normalizeConfig(cfgResult.value);
+    document.getElementById('filename-label').textContent = 'configuration.json';
+    const unsupported = _checkUnsupportedKeys(config);
+    if (unsupported.length) {
+      const keys = unsupported.map(k => `"${k}"`).join(', ');
+      setStatus(`Warning: ${keys} in configuration.json cannot be edited here (NixOS module directive)`, 8000, 'err');
+    }
+  } else if (cfgResult.reason === 404) {
+    config = {};
+    document.getElementById('filename-label').textContent = 'configuration.json';
+    setStatus('configuration.json not found — starting empty', 5000, 'err');
+  } else {
+    document.getElementById('editor-area').innerHTML =
+      '<div class="editor-error">Could not load configuration.json<br>'
+      + '<span class="editor-error-hint">Serve with: <code class="editor-error-code">python3 -m http.server</code></span></div>';
+    return false;
+  }
+  if (pkgResult.status === 'fulfilled') packages = pkgResult.value;
+  else setStatus('packages.json not found', 4000, 'err');
+  if (optResult.status === 'fulfilled') options = optResult.value;
+  else setStatus('options.json not found', 4000, 'err');
+  if (kernelResult.status === 'fulfilled') kernels = kernelResult.value;
+  if (customOptResult.status === 'fulfilled') {
+    customOptions = customOptResult.value;
+    options = [...options, ...customOptions.map(o => ({ ...o, custom: true }))];
+  }
+  return true;
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+(async () => {
+  if (!TERMINAL_ENABLED) {
+    const tp = document.getElementById('terminal-panel');
+    if (tp) tp.style.display = 'none';
+  }
+  if (MKOPTIONS_ENABLED) {
+    const btn = document.createElement('button');
+    btn.className = 'btn'; btn.id = 'update-ac-btn';
+    btn.title = 'Regenerate autocomplete data from NixOS options';
+    btn.textContent = '↻ Autocomplete';
+    btn.onclick = updateAutocomplete;
+    const actions = document.querySelector('.header-actions');
+    actions.insertBefore(btn, actions.firstChild);
+  }
+  _applyInitialTheme();
+  const ok = await loadSiblingFiles();
+  if (!ok) return;
+  initAddPanel();
+  initLoadButton();
+  document.getElementById('flat-mode-btn').classList.toggle('active', flatMode);
+  markSaved();
+  renderAll();
+
+  document.addEventListener('keydown', e => {
+    if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key === 'z') { e.preventDefault(); undo(); }
+    if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.shiftKey && e.key === 'z'))) { e.preventDefault(); redo(); }
+  });
+
+  document.getElementById('editor-area').addEventListener('change', e => {
+    const row = e.target.closest('[data-path]');
+    if (row && row.dataset.path.startsWith('services.ezconf.buttons')) renderButtons();
+    _pushHistory();
+    _updateDirty();
+  });
+
+  document.getElementById('editor-area').addEventListener('focusin', e => {
+    const row = e.target.closest('[data-path]');
+    setStatusPath(row ? row.dataset.path : 'root');
+  });
+  document.getElementById('editor-area').addEventListener('pointerdown', e => {
+    const row = e.target.closest('[data-path]');
+    if (row) setStatusPath(row.dataset.path);
+  });
+})();
+</script>
+</body>
+</html>

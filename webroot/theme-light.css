@@ -1,0 +1,90 @@
+:root {
+  /* ── Base palette ── */
+  --bg:   #ffffff;
+  --bg2:  #f0f0f0;
+  --bg3:  #e4e4e4;
+  --bg4:  #d8d8d8;
+  --text:  #1a1a1a;
+  --text2: #555555;
+  --text3: #999999;
+  --accent:  #2563eb;
+  --accent2: #1d4ed8;
+  --green:  #059669;
+  --green2: #047857;
+  --red:    #dc2626;
+  --purple: #7c3aed;
+
+  /* ── Typography & shape ── */
+  --font: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', ui-monospace, monospace;
+  --radius:       5px;
+  --radius-sm:    3px;
+  --input-radius: 6px;
+
+  /* ── Borders ── */
+  --border:  #d0d0d0;
+  --border2: #b8b8b8;
+  --border3: #e0e0e0;
+  --input-border: #b8b8b8;
+  --select-option-bg:    #ffffff;
+  --select-option-color: #1a1a1a;
+  --select-option-hover: #e8e8e8;
+
+  /* ── Button states ── */
+  --btn-primary-bg:     #2563eb;
+  --btn-primary-border: #1d4ed8;
+  --btn-primary-hover:  #3b82f6;
+  --btn-active-bg:      #d8d8d8;
+  --btn-active-border:  #aaaaaa;
+
+  /* ── Selection / highlight ── */
+  --selected-bg:   #d8d8d8;
+  --toggle-on-bg:  #c8c8c8;
+
+  /* ── Semantic badges ── */
+  --required-bg:   #fad4d4;
+  --required-text: #b91c1c;
+  --error-bg:      #fce8e8;
+
+  /* ── Nix expression fields ── */
+  --expr-bg:     #e8e8e8;
+  --expr-border: #c8c8c8;
+
+  /* ── Editor fields ── */
+  --field-bg: rgba(0,0,0,0.03);
+
+  /* ── Misc UI ── */
+  --statusbar-bg:   #e4e4e4;
+  --dirty-color:    #d97706;
+  --wildcard-bg:    #e8e8e8;
+  --wildcard-hover: #dcdcdc;
+  --shadow:         #00000028;
+  --overlay:        #00000055;
+  --scrollbar:      #bbbbbb;
+  --scrollbar-hover:#999999;
+  --section-header-border: rgba(0,0,0,0.12);
+
+  /* ── Terminal theme (iTerm2 Light Background) ── */
+  --term-bg:             var(--bg);
+  --term-fg:             #000000;
+  --term-cursor:         #000000;
+  --term-cursor-style:          bar;
+  --term-cursor-inactive-style: none;
+  --term-cursor-blink:          0;
+  --term-selection:      #b2d7fe;
+  --term-black:          #000000;
+  --term-red:            #c23621;
+  --term-green:          #25bc24;
+  --term-yellow:         #adad27;
+  --term-blue:           #492ee1;
+  --term-magenta:        #d338d3;
+  --term-cyan:           #33bbc8;
+  --term-white:          #cbcccd;
+  --term-bright-black:   #818383;
+  --term-bright-red:     #fc391f;
+  --term-bright-green:   #31e722;
+  --term-bright-yellow:  #eaec23;
+  --term-bright-blue:    #5833ff;
+  --term-bright-magenta: #f935f8;
+  --term-bright-cyan:    #14f0f0;
+  --term-bright-white:   #e9ebeb;
+}

@@ -1,0 +1,91 @@
+:root {
+  /* ── Base palette ── */
+  --bg:   #060e1a;
+  --bg2:  #0d1a2e;
+  --bg3:  #071020;
+  --bg4:  #0e2040;
+  --text:  #dce6f4;
+  --text2: #5e7899;
+  --text3: #354560;
+  --accent:  #4a9edd;
+  --accent2: #2678c0;
+  --green:  #28d17a;
+  --green2: #18a858;
+  --red:    #f05060;
+  --purple: #8c66f0;
+
+  /* ── Typography & shape ── */
+  --font: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', ui-monospace, monospace;
+  --radius:       5px;
+  --radius-sm:    3px;
+  --input-radius: 6px;
+
+  /* ── Borders ── */
+  --border:  #141c2c;  /* structural dividers */
+  --border2: #1e2a3e;  /* element outlines */
+  --border3: #0d1e35;  /* subtle input border */
+  --input-border: #172030;       /* input field border */
+  --select-option-bg:    #0d1a2e; /* dropdown background */
+  --select-option-color: #dce6f4; /* dropdown option text */
+  --select-option-hover: #1a2c50; /* dropdown option hover */
+
+  /* ── Button states ── */
+  --btn-primary-bg:     #1a3a70;
+  --btn-primary-border: #2858b0;
+  --btn-primary-hover:  #1e4888;
+  --btn-active-bg:      #0e2818;
+  --btn-active-border:  #1a4828;
+
+  /* ── Selection / highlight ── */
+  --selected-bg:   #1a2c50;
+  --toggle-on-bg:  #1a3878;
+
+  /* ── Semantic badges ── */
+  --required-bg:   #5c1414;
+  --required-text: #fca5a5;
+  --error-bg:      #220808;
+
+  /* ── Nix expression fields ── */
+  --expr-bg:     #0c1e0c;
+  --expr-border: #162a16;
+
+  /* ── Editor fields ── */
+  --field-bg: rgba(0,0,0,0.12);
+
+  /* ── Misc UI ── */
+  --statusbar-bg:   #040508;
+  --dirty-color:    #e0a020;
+  --wildcard-bg:    #10102a;
+  --wildcard-hover: #181838;
+  --shadow:         #00000090;
+  --overlay:        #000000aa;
+  --scrollbar:      #1a2438;
+  --scrollbar-hover:#222e48;
+  --section-header-border: rgba(255,255,255,0.07);
+
+  /* ── Terminal theme (iTerm2 default) ── */
+  --term-bg:             var(--bg);
+  --term-fg:             #c7c7c7;
+  --term-cursor:         #d0d0d0;
+  --term-cursor-style:          bar;
+  --term-cursor-inactive-style: none;
+  --term-cursor-blink:          0;
+  --term-selection:      #414141;
+  --term-black:          #000000;
+  --term-red:            #c23621;
+  --term-green:          #25bc24;
+  --term-yellow:         #adad27;
+  --term-blue:           #492ee1;
+  --term-magenta:        #d338d3;
+  --term-cyan:           #33bbc8;
+  --term-white:          #cbcccd;
+  --term-bright-black:   #818383;
+  --term-bright-red:     #fc391f;
+  --term-bright-green:   #31e722;
+  --term-bright-yellow:  #eaec23;
+  --term-bright-blue:    #5833ff;
+  --term-bright-magenta: #f935f8;
+  --term-bright-cyan:    #14f0f0;
+  --term-bright-white:   #e9ebeb;
+}
+
