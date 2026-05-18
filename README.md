@@ -57,6 +57,8 @@ After `nixos-rebuild switch` the editor is at `https://localhost:9090`. A local 
 3. In your `flake.nix`, comment out `./configuration.nix` and add `./ezconf` instead
 4. Rebuild — your config is now managed through the editor
 
+> **Note:** Any `imports` you had in `configuration.nix` should be moved to your `flake.nix` after migrating — the JSON-based config does not support `imports`.
+
 ## 🖥️ Standalone
 
 ```sh
