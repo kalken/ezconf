@@ -2,6 +2,8 @@
 
 Graphical editor for nix configurations. Zero dependencies, no build step, no framework — just Python and a browser.
 
+**Blog post:** [https://kalken.github.io//ezblog/#ezconf](https://kalken.github.io//ezblog/#ezconf)
+
 ## ✨ Features
 
 - Edit NixOS configuration through a clean web UI with option autocomplete
