@@ -40,6 +40,10 @@ file = "example/configuration.json"
 # File to persist the session key across service restarts
 # session_key_file = "/run/ezconf/session.key"
 
+# Hostnames trusted for CSRF check — required when behind a reverse proxy such as nginx.
+# Add every public hostname nginx uses for this server.
+# trusted_hosts = ["myserver.example.com"]
+
 # TLS certificate and key (leave commented out for plain HTTP)
 # cert = "localhost.pem"
 # key  = "localhost-key.pem"

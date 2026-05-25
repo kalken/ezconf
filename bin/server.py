@@ -97,6 +97,7 @@ LOGIN_USER       = ''            # custom auth username
 LOGIN_PASS       = ''            # custom auth password
 MKOPTIONS_CMD    = None          # path to ezconf-mkoptions binary; enables /api/v1/update-autocomplete
 NIXOS_TARGET     = '/etc/nixos'  # flake path passed as TARGET to mkoptions
+TRUSTED_HOSTS    = set()         # extra hostnames allowed by _valid_host; set by trusted_hosts in TOML
 
 _SESSION_KEY = secrets.token_hex(32)
 
@@ -406,7 +407,7 @@ class StaticHandler(http.server.SimpleHTTPRequestHandler):
 
 def _valid_host(headers):
     host = headers.get('Host', '').split(':')[0].lower()
-    return host in ('localhost', '127.0.0.1', '')
+    return host in {'localhost', '127.0.0.1', ''} | TRUSTED_HOSTS
 
 
 if __name__ == '__main__':
@@ -474,6 +475,9 @@ if __name__ == '__main__':
             with open(_key_file, 'w') as f:
                 f.write(_SESSION_KEY)
             os.chmod(_key_file, 0o600)
+
+    _trusted = list(cfg.get('trusted_hosts') or [])
+    TRUSTED_HOSTS = {h.lower().strip() for h in _trusted if h.strip()}
 
     LOGIN_USER = cfg.get('username') or ''
     LOGIN_PASS = cfg.get('password') or ''

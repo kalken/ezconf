@@ -33,6 +33,7 @@ let
       (if cfg.generateCert then "key = ${str "/var/lib/ezconf/localhost-key.pem"}"
        else lib.optionalString (cfg.key != null) "key = ${str cfg.key}"))
     (lib.optional (cfg.shell             != null) "shell = ${str cfg.shell}")
+    (lib.optional (cfg.trustedHosts     != [])   "trusted_hosts = ${toml-list cfg.trustedHosts}")
     ""
     "[ports]"
     "web = ${toString cfg.ports.web}"
@@ -146,6 +147,12 @@ in
       type        = lib.types.nullOr lib.types.str;
       default     = null;
       description = "Path to TLS private key (PEM). Requires https = true. Ignored when generateCert = true.";
+    };
+
+    trustedHosts = lib.mkOption {
+      type        = lib.types.listOf lib.types.str;
+      default     = [];
+      description = "Hostnames trusted for CSRF check. Required when ezconf is behind a reverse proxy — add your nginx server_name here.";
     };
 
     shell = lib.mkOption {
