@@ -166,6 +166,43 @@ python3 bin/server.py --generate-ca
 python3 bin/server.py --generate-cert
 ```
 
+## 🌐 Reverse Proxy (nginx)
+
+To put ezconf behind nginx, disable its built-in HTTPS and add your public hostname to `trustedHosts` so the CSRF check accepts requests proxied through nginx:
+
+```nix
+services.ezconf = {
+  enable       = true;
+  https        = false;
+  trustedHosts = [ "myserver.example.com" ];
+};
+```
+
+```nginx
+server {
+    listen 443 ssl;
+    server_name myserver.example.com;
+
+    ssl_certificate     /path/to/cert.pem;
+    ssl_certificate_key /path/to/key.pem;
+
+    location / {
+        proxy_pass http://127.0.0.1:9090;
+        proxy_set_header Host $host;
+    }
+
+    location /terminal {
+        proxy_pass http://127.0.0.1:9091;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+    }
+}
+```
+
+The `/terminal` location is only needed if the terminal panel is enabled.
+
 ## 🔄 Autocomplete Data
 
 The editor loads NixOS option, package, and kernel data from `autocomplete_dir` if set in the config, otherwise `autocomplete/` under the webroot. The NixOS module sets `autocomplete_dir` to `/var/lib/ezconf/autocomplete/` and generates the data on first start. To regenerate from the UI, the `↻ Autocomplete` button appears automatically when `mkoptions` is configured (the module sets this up).
@@ -210,6 +247,7 @@ services.ezconf = {
 | `installCerts` | bool | `true` | Install generated CA into `~/.pki/nssdb` for each user in `allowedUsers` |
 | `cert` | str or null | `null` | Path to TLS certificate (PEM) |
 | `key` | str or null | `null` | Path to TLS private key (PEM) |
+| `trustedHosts` | list of str | `[]` | Hostnames trusted for CSRF check — required when behind a reverse proxy |
 | `nixosTarget` | str | `"/etc/nixos"` | Flake path passed to `ezconf-mkoptions` |
 | `ports.web` | port | `9090` | Web server port |
 | `ports.terminal` | port | `9091` | Terminal WebSocket port |
