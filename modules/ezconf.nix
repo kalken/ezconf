@@ -156,6 +156,12 @@ in
       description = "IP address to listen on (default: 127.0.0.1). Set to 0.0.0.0 to listen on all interfaces.";
     };
 
+    openFirewall = lib.mkOption {
+      type        = lib.types.bool;
+      default     = false;
+      description = "Open firewall ports for the web and terminal services. Enabled automatically when listen is set to a non-localhost address.";
+    };
+
     trustedHosts = lib.mkOption {
       type        = lib.types.listOf lib.types.str;
       default     = [];
@@ -188,6 +194,11 @@ in
 
   config = lib.mkIf cfg.enable {
       services.ezconf.generateCert = lib.mkDefault (cfg.https && cfg.cert == null && cfg.key == null);
+      services.ezconf.openFirewall  = lib.mkDefault (!builtins.elem cfg.listen [ null "127.0.0.1" "::1" ]);
+
+      networking.firewall.allowedTCPPorts = lib.mkIf cfg.openFirewall (
+        [ cfg.ports.web ] ++ lib.optional cfg.terminal cfg.ports.terminal
+      );
 
       assertions = [
         {
