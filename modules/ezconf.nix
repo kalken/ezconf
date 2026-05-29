@@ -33,6 +33,7 @@ let
       (if cfg.generateCert then "key = ${str "/var/lib/ezconf/localhost-key.pem"}"
        else lib.optionalString (cfg.key != null) "key = ${str cfg.key}"))
     (lib.optional (cfg.shell             != null) "shell = ${str cfg.shell}")
+    (lib.optional (cfg.bind             != null) "bind = ${str cfg.bind}")
     (lib.optional (cfg.trustedHosts     != [])   "trusted_hosts = ${toml-list cfg.trustedHosts}")
     ""
     "[ports]"
@@ -147,6 +148,12 @@ in
       type        = lib.types.nullOr lib.types.str;
       default     = null;
       description = "Path to TLS private key (PEM). Requires https = true. Ignored when generateCert = true.";
+    };
+
+    bind = lib.mkOption {
+      type        = lib.types.nullOr lib.types.str;
+      default     = null;
+      description = "IP address to bind to (default: 127.0.0.1). Set to 0.0.0.0 to listen on all interfaces.";
     };
 
     trustedHosts = lib.mkOption {

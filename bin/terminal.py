@@ -94,6 +94,7 @@ SHELL       = '/bin/sh'
 SESSION_KEY = ''
 PORT        = 9091
 WEBROOT     = '.'
+BIND_ADDR   = '127.0.0.1'
 
 
 def _terminal_ws(handler):
@@ -277,7 +278,8 @@ if __name__ == '__main__':
         pass
     SHELL = cfg.get('shell') or _passwd_shell or os.environ.get('SHELL') or '/bin/sh'
 
-    WEBROOT = cfg.get('webroot') or WEBROOT
+    WEBROOT   = cfg.get('webroot') or WEBROOT
+    BIND_ADDR = cfg.get('bind') or BIND_ADDR
 
     _key_file = args.session_key_file or cfg.get('session_key_file')
     if _key_file:
@@ -306,7 +308,7 @@ if __name__ == '__main__':
     else:
         ctx = None
 
-    srv = http.server.ThreadingHTTPServer(('127.0.0.1', PORT), TerminalHandler)
+    srv = http.server.ThreadingHTTPServer((BIND_ADDR, PORT), TerminalHandler)
     if ctx:
         srv.socket = ctx.wrap_socket(srv.socket, server_side=True)
 
