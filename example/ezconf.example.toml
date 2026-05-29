@@ -40,8 +40,8 @@ file = "example/configuration.json"
 # File to persist the session key across service restarts
 # session_key_file = "/run/ezconf/session.key"
 
-# IP address to bind to (default: 127.0.0.1; use 0.0.0.0 for all interfaces)
-# bind = "127.0.0.1"
+# IP address to listen on (default: 127.0.0.1; use 0.0.0.0 for all interfaces)
+# listen = "127.0.0.1"
 
 # Hostnames trusted for CSRF check — required when behind a reverse proxy such as nginx.
 # Add every public hostname nginx uses for this server.

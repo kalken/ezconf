@@ -98,7 +98,7 @@ LOGIN_PASS       = ''            # custom auth password
 MKOPTIONS_CMD    = None          # path to ezconf-mkoptions binary; enables /api/v1/update-autocomplete
 NIXOS_TARGET     = '/etc/nixos'  # flake path passed as TARGET to mkoptions
 TRUSTED_HOSTS    = set()         # extra hostnames allowed by _valid_host; set by trusted_hosts in TOML
-BIND_ADDR        = '127.0.0.1'   # IP address to listen on; set by --bind / bind in TOML
+BIND_ADDR        = '127.0.0.1'   # IP address to listen on; set by listen in TOML
 
 _SESSION_KEY = secrets.token_hex(32)
 
@@ -477,7 +477,7 @@ if __name__ == '__main__':
                 f.write(_SESSION_KEY)
             os.chmod(_key_file, 0o600)
 
-    BIND_ADDR = cfg.get('bind') or '127.0.0.1'
+    BIND_ADDR = cfg.get('listen') or '127.0.0.1'
 
     _trusted = list(cfg.get('trusted_hosts') or [])
     TRUSTED_HOSTS = {h.lower().strip() for h in _trusted if h.strip()}

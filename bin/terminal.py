@@ -279,7 +279,7 @@ if __name__ == '__main__':
     SHELL = cfg.get('shell') or _passwd_shell or os.environ.get('SHELL') or '/bin/sh'
 
     WEBROOT   = cfg.get('webroot') or WEBROOT
-    BIND_ADDR = cfg.get('bind') or BIND_ADDR
+    BIND_ADDR = cfg.get('listen') or BIND_ADDR
 
     _key_file = args.session_key_file or cfg.get('session_key_file')
     if _key_file:
