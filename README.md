@@ -247,6 +247,7 @@ services.ezconf = {
 | `installCerts` | bool | `true` | Install generated CA into `~/.pki/nssdb` for each user in `allowedUsers` |
 | `cert` | str or null | `null` | Path to TLS certificate (PEM) |
 | `key` | str or null | `null` | Path to TLS private key (PEM) |
+| `listen` | str or null | `null` | IP address to listen on (default: `127.0.0.1`; use `0.0.0.0` for all interfaces) |
 | `trustedHosts` | list of str | `[]` | Hostnames trusted for CSRF check — required when behind a reverse proxy |
 | `nixosTarget` | str | `"/etc/nixos"` | Flake path passed to `ezconf-mkoptions` |
 | `ports.web` | port | `9090` | Web server port |

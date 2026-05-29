@@ -60,7 +60,7 @@ The generated `autocomplete/` directory belongs inside the WEBROOT so the server
 
 ## Server architecture (`bin/server.py`)
 
-Single `ThreadingHTTPServer` bound to `127.0.0.1:9090` (or `WEB_PORT`). Serves static assets via `StaticHandler` (subclass of `SimpleHTTPRequestHandler`) and handles the API.
+Single `ThreadingHTTPServer` bound to `BIND_ADDR:WEB_PORT` (default `127.0.0.1:9090`). Serves static assets via `StaticHandler` (subclass of `SimpleHTTPRequestHandler`) and handles the API.
 
 **API endpoints** (all require auth):
 - `POST /api/v1/save-config` — writes `CONFIG_FILE`
@@ -75,6 +75,8 @@ Single `ThreadingHTTPServer` bound to `127.0.0.1:9090` (or `WEB_PORT`). Serves s
 - `MKOPTIONS_CMD` — path to mkoptions binary; enables the update-autocomplete endpoint
 - `TERMINAL_PORT` — when set, enables the terminal panel in the frontend and points it at this port
 - `THEME` — UI theme injected into `index.html`; set by `--theme` or `theme` in config (default `nixos`)
+- `BIND_ADDR` — IP address to listen on; set by `listen` in config (default `127.0.0.1`)
+- `TRUSTED_HOSTS` — extra hostnames accepted by `_valid_host` for CSRF check; set by `trusted_hosts` in config
 - `_SESSION_KEY` — random hex key generated at startup (or loaded from `--session-key-file`); used as the expected value of the `ezconf_session` cookie
 
 **Auth flow**: The login form POSTs to `/login`. On success the server sets `Set-Cookie: ezconf_session=<SESSION_KEY>; HttpOnly; SameSite=Strict; Path=/`. All subsequent requests (browser and API) are authenticated by that cookie. `check_auth()` reads the `ezconf_session` cookie from the `Cookie` header and compares it to `_SESSION_KEY`.
