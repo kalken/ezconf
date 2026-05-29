@@ -193,8 +193,9 @@ in
   };
 
   config = lib.mkIf cfg.enable {
-      services.ezconf.generateCert = lib.mkDefault (cfg.https && cfg.cert == null && cfg.key == null);
+      services.ezconf.generateCert  = lib.mkDefault (cfg.https && cfg.cert == null && cfg.key == null);
       services.ezconf.openFirewall  = lib.mkDefault (!builtins.elem cfg.listen [ null "127.0.0.1" "::1" ]);
+      services.ezconf.installCerts  = lib.mkDefault (builtins.elem cfg.listen [ null "127.0.0.1" "::1" ]);
 
       networking.firewall.allowedTCPPorts = lib.mkIf cfg.openFirewall (
         [ cfg.ports.web ] ++ lib.optional cfg.terminal cfg.ports.terminal
