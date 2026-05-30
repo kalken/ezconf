@@ -244,7 +244,7 @@ services.ezconf = {
 | `buttons` | list | `[]` | Shortcut buttons shown in the terminal panel |
 | `https` | bool | `true` | Enable HTTPS |
 | `generateCert` | bool | auto | Generate a local CA + cert in `/var/lib/ezconf/` (set automatically when `https = true` and no cert/key provided) |
-| `certSANs` | list of str | `[]` | Extra hostnames or IPs to include in the generated cert (e.g. `[ "myserver.local" ]`); `localhost`, `127.0.0.1`, and `listen` are always included |
+| `certDomains` | list of str | `[]` | Extra hostnames or IPs to include in the generated cert (e.g. `[ "myserver.local" ]`); `localhost`, `127.0.0.1`, and `listen` are always included |
 | `installCerts` | bool | `true` | Install generated CA into `~/.pki/nssdb` for each user in `allowedUsers` |
 | `cert` | str or null | `null` | Path to TLS certificate (PEM) |
 | `key` | str or null | `null` | Path to TLS private key (PEM) |
