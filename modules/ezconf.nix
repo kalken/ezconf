@@ -32,6 +32,7 @@ let
     (lib.optionalString cfg.https
       (if cfg.generateCert then "key = ${str "/var/lib/ezconf/localhost-key.pem"}"
        else lib.optionalString (cfg.key != null) "key = ${str cfg.key}"))
+    (lib.optional cfg.generateCert "ca_file = ${str "/var/lib/ezconf/ca.pem"}")
     (lib.optional (cfg.shell             != null) "shell = ${str cfg.shell}")
     (lib.optional (cfg.listen           != null) "listen = ${str cfg.listen}")
     (lib.optional (cfg.trustedHosts     != [])   "trusted_hosts = ${toml-list cfg.trustedHosts}")

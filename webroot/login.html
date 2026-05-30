@@ -17,6 +17,9 @@
   .login-card input, .login-card select { display: block; margin-bottom: 16px; padding: 7px 10px; }
   .login-card .btn { width: 100%; justify-content: center; margin-top: 4px; }
   .login-error { color: var(--red); font-size: 12px; margin-top: 14px; min-height: 18px; text-align: center; }
+  .login-ca-link { text-align: center; margin-top: 14px; font-size: 11px; }
+  .login-ca-link a { color: var(--text2); text-decoration: none; }
+  .login-ca-link a:hover { color: var(--accent); }
 </style>
 </head>
 <body>
@@ -30,6 +33,7 @@
     <button type="submit" class="btn primary">Sign in</button>
   </form>
   <div class="login-error">%%EZCONF_ERROR%%</div>
+  %%EZCONF_CA_LINK%%
 </div>
 </body>
 </html>

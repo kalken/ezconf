@@ -99,6 +99,7 @@ MKOPTIONS_CMD    = None          # path to ezconf-mkoptions binary; enables /api
 NIXOS_TARGET     = '/etc/nixos'  # flake path passed as TARGET to mkoptions
 TRUSTED_HOSTS    = set()         # extra hostnames allowed by _valid_host; set by trusted_hosts in TOML
 BIND_ADDR        = '127.0.0.1'   # IP address to listen on; set by listen in TOML
+CA_FILE          = None          # path to CA cert served at /download-ca; set by --generate-ca or ca_file in TOML
 
 _SESSION_KEY = secrets.token_hex(32)
 
@@ -294,12 +295,16 @@ def _read_login_page(error=''):
         username_field = f'<select id="u" name="username" class="enum-select">{options}</select>'
     else:
         username_field = '<input id="u" name="username" type="text" autocomplete="username" autofocus>'
+    ca_link = ''
+    if CA_FILE and os.path.exists(CA_FILE):
+        ca_link = '<div class="login-ca-link"><a href="/download-ca">Download CA certificate</a></div>'
     path = os.path.join(WEBROOT, 'login.html')
     try:
         return (open(path).read()
                 .replace('%%EZCONF_ERROR%%', error)
                 .replace('%%EZCONF_THEME%%', THEME)
-                .replace('%%EZCONF_USERNAME_FIELD%%', username_field))
+                .replace('%%EZCONF_USERNAME_FIELD%%', username_field)
+                .replace('%%EZCONF_CA_LINK%%', ca_link))
     except FileNotFoundError:
         return f'<html><body><form method="post" action="/login"><input name="username"><input name="password" type="password"><button>Sign in</button></form><p>{error}</p></body></html>'
 
@@ -409,6 +414,19 @@ class StaticHandler(http.server.SimpleHTTPRequestHandler):
             self.send_header('Set-Cookie', 'ezconf_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0')
             self.end_headers()
             return
+        if parsed.path == '/download-ca':
+            if CA_FILE and os.path.exists(CA_FILE):
+                with open(CA_FILE, 'rb') as f:
+                    data = f.read()
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/x-pem-file')
+                self.send_header('Content-Disposition', 'attachment; filename="ezconf-ca.pem"')
+                self.send_header('Content-Length', str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+            else:
+                self.send_error(404)
+            return
         if parsed.path in self._PUBLIC_PATHS or (
                 parsed.path.startswith('/theme-') and parsed.path.endswith('.css')):
             super().do_GET()
@@ -508,6 +526,8 @@ if __name__ == '__main__':
     ap.add_argument('--key',  metavar='FILE', default=None, help='TLS private key file (PEM)')
     ap.add_argument('--san', metavar='NAME', action='append',
                     help='extra IP or hostname to include in generated cert SANs (repeat for multiple)')
+    ap.add_argument('--ca-file', metavar='FILE', default=None,
+                    help='path to CA cert to serve at /download-ca (set automatically by --generate-ca)')
     ap.add_argument('--generate-cert', metavar='DIR', nargs='?', const='.',
                     help='generate a self-signed cert in DIR (default: current directory)')
     ap.add_argument('--generate-ca', metavar='DIR', nargs='?', const='.',
@@ -551,6 +571,10 @@ if __name__ == '__main__':
             os.chmod(_key_file, 0o600)
 
     BIND_ADDR = cfg.get('listen') or '127.0.0.1'
+
+    _ca = _resolve(args.ca_file, cfg.get('ca_file'), None, None)
+    if _ca:
+        CA_FILE = os.path.abspath(_ca)
 
     _trusted = list(cfg.get('trusted_hosts') or [])
     TRUSTED_HOSTS = {h.lower().strip() for h in _trusted if h.strip()}
@@ -616,6 +640,8 @@ if __name__ == '__main__':
             CERT_FILE = cert_path
         if not args.key:
             KEY_FILE = key_path
+        if not CA_FILE:
+            CA_FILE = ca_path
         if not args.file and not cfg.get('file'):
             sys.exit(0)  # cert-only mode
 
