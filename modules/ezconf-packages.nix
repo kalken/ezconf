@@ -58,15 +58,14 @@ rec {
     pkgs.writeShellScript "ezconf-prestart" ''
       ${pkgs.lib.optionalString cfg.generateCert ''
         _cert_new=0
-        if [ ! -f /var/lib/ezconf/localhost.pem ]; then
-          ${package}/bin/ezconf --generate-ca /var/lib/ezconf
-          chmod 600 /var/lib/ezconf/ca-key.pem /var/lib/ezconf/localhost-key.pem
-          chmod 644 /var/lib/ezconf/ca.pem /var/lib/ezconf/localhost.pem
-          chown ${cfg.user}:${cfg.group} /var/lib/ezconf/ca.pem \
-            /var/lib/ezconf/ca-key.pem /var/lib/ezconf/localhost.pem \
-            /var/lib/ezconf/localhost-key.pem
-          _cert_new=1
-        fi
+        [ -f /var/lib/ezconf/ca.pem ] || _cert_new=1
+        ${package}/bin/ezconf --generate-ca /var/lib/ezconf \
+          ${pkgs.lib.optionalString (cfg.listen != null && !builtins.elem cfg.listen ["0.0.0.0" "::"]) "--san ${cfg.listen}"}
+        chmod 600 /var/lib/ezconf/ca-key.pem /var/lib/ezconf/localhost-key.pem
+        chmod 644 /var/lib/ezconf/ca.pem /var/lib/ezconf/localhost.pem
+        chown ${cfg.user}:${cfg.group} /var/lib/ezconf/ca.pem \
+          /var/lib/ezconf/ca-key.pem /var/lib/ezconf/localhost.pem \
+          /var/lib/ezconf/localhost-key.pem
       ''}
       ${pkgs.lib.optionalString (cfg.generateCert && cfg.installCerts && cfg.auth.allowedUsers != []) ''
         if [ "$_cert_new" = "1" ] && [ -f /var/lib/ezconf/ca.pem ]; then

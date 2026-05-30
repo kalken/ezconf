@@ -109,50 +109,121 @@ def make_ssl_context():
     return ctx
 
 
-def generate_local_ca(out_dir):
-    """Generate a local CA and a server cert signed by it — trusted by Chrome via NSS."""
-    if not _CRYPTO:
-        sys.exit('error: --generate-ca requires the cryptography package (pip install cryptography)')
-    os.makedirs(out_dir, exist_ok=True)
-    ca_key = _rsa.generate_private_key(public_exponent=65537, key_size=2048)
-    ca_name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, 'ezconf Local CA')])
-    ca_cert = (x509.CertificateBuilder()
-        .subject_name(ca_name)
-        .issuer_name(ca_name)
-        .public_key(ca_key.public_key())
-        .serial_number(x509.random_serial_number())
-        .not_valid_before(datetime.datetime(2000, 1, 1, tzinfo=datetime.timezone.utc))
-        .not_valid_after(datetime.datetime(9999, 12, 31, 23, 59, 59, tzinfo=datetime.timezone.utc))
-        .add_extension(x509.BasicConstraints(ca=True, path_length=0), critical=True)
-        .add_extension(x509.KeyUsage(
-            key_cert_sign=True, crl_sign=True, digital_signature=False,
-            key_encipherment=False, data_encipherment=False, key_agreement=False,
-            content_commitment=False, encipher_only=False, decipher_only=False,
-        ), critical=True)
-        .sign(ca_key, hashes.SHA256())
-    )
+def _build_sans(extra_sans=None):
+    sans = [x509.DNSName('localhost'), x509.IPAddress(ipaddress.IPv4Address('127.0.0.1'))]
+    seen = {'localhost', '127.0.0.1'}
+    for san in (extra_sans or []):
+        san = san.strip()
+        if not san or san in seen or san in ('0.0.0.0', '::'):
+            continue
+        seen.add(san)
+        try:
+            sans.append(x509.IPAddress(ipaddress.ip_address(san)))
+        except ValueError:
+            sans.append(x509.DNSName(san))
+    return sans
+
+
+def _cert_san_strings(cert_path):
+    with open(cert_path, 'rb') as f:
+        cert = x509.load_pem_x509_certificate(f.read())
+    try:
+        ext = cert.extensions.get_extension_for_class(x509.SubjectAlternativeName)
+        result = set()
+        for name in ext.value:
+            if isinstance(name, x509.DNSName):
+                result.add(name.value)
+            elif isinstance(name, x509.IPAddress):
+                result.add(str(name.value))
+        return result
+    except x509.ExtensionNotFound:
+        return set()
+
+
+def _wanted_san_strings(extra_sans=None):
+    result = set()
+    for san in _build_sans(extra_sans):
+        if isinstance(san, x509.DNSName):
+            result.add(san.value)
+        elif isinstance(san, x509.IPAddress):
+            result.add(str(san.value))
+    return result
+
+
+def _generate_server_cert(out_dir, ca_key, ca_cert, extra_sans=None):
     srv_key = _rsa.generate_private_key(public_exponent=65537, key_size=2048)
     srv_cert = (x509.CertificateBuilder()
         .subject_name(x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, 'localhost')]))
-        .issuer_name(ca_name)
+        .issuer_name(ca_cert.subject)
         .public_key(srv_key.public_key())
         .serial_number(x509.random_serial_number())
         .not_valid_before(datetime.datetime(2000, 1, 1, tzinfo=datetime.timezone.utc))
         .not_valid_after(datetime.datetime(9999, 12, 31, 23, 59, 59, tzinfo=datetime.timezone.utc))
-        .add_extension(x509.SubjectAlternativeName([
-            x509.DNSName('localhost'),
-            x509.IPAddress(ipaddress.IPv4Address('127.0.0.1')),
-        ]), critical=False)
+        .add_extension(x509.SubjectAlternativeName(_build_sans(extra_sans)), critical=False)
         .sign(ca_key, hashes.SHA256())
     )
     for path, data in [
-        (os.path.join(out_dir, 'ca-key.pem'),        ca_key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.TraditionalOpenSSL, serialization.NoEncryption())),
-        (os.path.join(out_dir, 'ca.pem'),             ca_cert.public_bytes(serialization.Encoding.PEM)),
-        (os.path.join(out_dir, 'localhost-key.pem'),  srv_key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.TraditionalOpenSSL, serialization.NoEncryption())),
-        (os.path.join(out_dir, 'localhost.pem'),       srv_cert.public_bytes(serialization.Encoding.PEM)),
+        (os.path.join(out_dir, 'localhost-key.pem'), srv_key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.TraditionalOpenSSL, serialization.NoEncryption())),
+        (os.path.join(out_dir, 'localhost.pem'),      srv_cert.public_bytes(serialization.Encoding.PEM)),
     ]:
         with open(path, 'wb') as f:
             f.write(data)
+
+
+def generate_local_ca(out_dir, extra_sans=None):
+    """Ensure a local CA and server cert exist with the correct SANs.
+
+    The CA is only generated once. The server cert is regenerated whenever
+    the required SANs don't match the existing cert.
+    Returns (ca_generated, srv_generated).
+    """
+    if not _CRYPTO:
+        sys.exit('error: --generate-ca requires the cryptography package (pip install cryptography)')
+    os.makedirs(out_dir, exist_ok=True)
+
+    ca_key_path  = os.path.join(out_dir, 'ca-key.pem')
+    ca_cert_path = os.path.join(out_dir, 'ca.pem')
+    cert_path    = os.path.join(out_dir, 'localhost.pem')
+
+    ca_generated = False
+    if not os.path.exists(ca_key_path) or not os.path.exists(ca_cert_path):
+        ca_key = _rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        ca_name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, 'ezconf Local CA')])
+        ca_cert = (x509.CertificateBuilder()
+            .subject_name(ca_name)
+            .issuer_name(ca_name)
+            .public_key(ca_key.public_key())
+            .serial_number(x509.random_serial_number())
+            .not_valid_before(datetime.datetime(2000, 1, 1, tzinfo=datetime.timezone.utc))
+            .not_valid_after(datetime.datetime(9999, 12, 31, 23, 59, 59, tzinfo=datetime.timezone.utc))
+            .add_extension(x509.BasicConstraints(ca=True, path_length=0), critical=True)
+            .add_extension(x509.KeyUsage(
+                key_cert_sign=True, crl_sign=True, digital_signature=False,
+                key_encipherment=False, data_encipherment=False, key_agreement=False,
+                content_commitment=False, encipher_only=False, decipher_only=False,
+            ), critical=True)
+            .sign(ca_key, hashes.SHA256())
+        )
+        for path, data in [
+            (ca_key_path,  ca_key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.TraditionalOpenSSL, serialization.NoEncryption())),
+            (ca_cert_path, ca_cert.public_bytes(serialization.Encoding.PEM)),
+        ]:
+            with open(path, 'wb') as f:
+                f.write(data)
+        ca_generated = True
+    else:
+        with open(ca_key_path, 'rb') as f:
+            ca_key = serialization.load_pem_private_key(f.read(), password=None)
+        with open(ca_cert_path, 'rb') as f:
+            ca_cert = x509.load_pem_x509_certificate(f.read())
+
+    wanted = _wanted_san_strings(extra_sans)
+    srv_generated = False
+    if not os.path.exists(cert_path) or _cert_san_strings(cert_path) != wanted:
+        _generate_server_cert(out_dir, ca_key, ca_cert, extra_sans)
+        srv_generated = True
+
+    return ca_generated, srv_generated
 
 
 def generate_self_signed_cert(cert_path, key_path):
@@ -435,6 +506,8 @@ if __name__ == '__main__':
                     help='file to persist session key across service restarts')
     ap.add_argument('--cert', metavar='FILE', default=None, help='TLS certificate file (PEM)')
     ap.add_argument('--key',  metavar='FILE', default=None, help='TLS private key file (PEM)')
+    ap.add_argument('--san', metavar='NAME', action='append',
+                    help='extra IP or hostname to include in generated cert SANs (repeat for multiple)')
     ap.add_argument('--generate-cert', metavar='DIR', nargs='?', const='.',
                     help='generate a self-signed cert in DIR (default: current directory)')
     ap.add_argument('--generate-ca', metavar='DIR', nargs='?', const='.',
@@ -528,13 +601,17 @@ if __name__ == '__main__':
         ca_path   = os.path.join(ca_dir, 'ca.pem')
         cert_path = os.path.join(ca_dir, 'localhost.pem')
         key_path  = os.path.join(ca_dir, 'localhost-key.pem')
-        if os.path.exists(cert_path) and os.path.exists(key_path):
-            print(f'cert → {cert_path} (already exists, skipping)')
-        else:
-            generate_local_ca(ca_dir)
-            print(f'ca   → {ca_path}')
-            print(f'cert → {cert_path}')
+        extra_sans = list(args.san or [])
+        if BIND_ADDR not in ('0.0.0.0', '::'):
+            extra_sans.append(BIND_ADDR)
+        ca_new, srv_new = generate_local_ca(ca_dir, extra_sans=extra_sans)
+        if ca_new:
+            print(f'ca   → {ca_path} (new)')
+        if srv_new:
+            print(f'cert → {cert_path} ({"new" if ca_new else "regenerated — SANs changed"})')
             print(f'key  → {key_path}')
+        if not ca_new and not srv_new:
+            print(f'cert → {cert_path} (SANs unchanged, skipping)')
         if not args.cert:
             CERT_FILE = cert_path
         if not args.key:
