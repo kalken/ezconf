@@ -133,7 +133,7 @@ in
       description = "Generate a local CA and TLS certificate in /var/lib/ezconf/. Set automatically when https = true and no cert/key are provided; override to false to disable.";
     };
 
-    certDomains = lib.mkOption {
+    certNames = lib.mkOption {
       type        = lib.types.listOf lib.types.str;
       default     = [];
       description = "Extra hostnames or IP addresses to include in the generated TLS certificate SANs. Only applies when generateCert = true. localhost and 127.0.0.1 are always included; listen is included automatically.";
