@@ -1050,7 +1050,8 @@ function doAdd() {
       if (Object.keys(required).length) initialVal = required;
     }
     // For empty arrays, always add one blank item so the user can start filling in immediately
-    if (Array.isArray(initialVal) && initialVal.length === 0) {
+    // (skip for pkg arrays — they manage their own items via the package input)
+    if (Array.isArray(initialVal) && initialVal.length === 0 && !isPkgArrayPath(parts)) {
       const blank = blankObjectFromOptions(parts);
       if (blank !== null) {
         initialVal = [blank];
