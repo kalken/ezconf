@@ -60,7 +60,8 @@ rec {
         _cert_new=0
         [ -f /var/lib/ezconf/ca.pem ] || _cert_new=1
         ${package}/bin/ezconf --generate-ca /var/lib/ezconf \
-          ${pkgs.lib.optionalString (cfg.listen != null && !builtins.elem cfg.listen ["0.0.0.0" "::"]) "--san ${cfg.listen}"}
+          ${pkgs.lib.optionalString (cfg.listen != null && !builtins.elem cfg.listen ["0.0.0.0" "::"]) "--san ${cfg.listen}"} \
+          ${pkgs.lib.concatMapStringsSep " " (san: "--san ${pkgs.lib.escapeShellArg san}") cfg.certSANs}
         chmod 600 /var/lib/ezconf/ca-key.pem /var/lib/ezconf/localhost-key.pem
         chmod 644 /var/lib/ezconf/ca.pem /var/lib/ezconf/localhost.pem
         chown ${cfg.user}:${cfg.group} /var/lib/ezconf/ca.pem \
