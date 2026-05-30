@@ -2683,7 +2683,7 @@ async function saveToServer() {
       method: 'POST',
       body: JSON.stringify(config),
     });
-    if (!res.ok) { setStatus('Save failed', 4000, 'err'); return; }
+    if (!res.ok) { setStatus('Save failed (' + res.status + ')', 4000, 'err'); return; }
     config = normalizeConfig(await fetch('configuration.json?' + Date.now()).then(r => r.json()));
     renderAll();
     markSaved();
