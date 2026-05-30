@@ -1614,11 +1614,13 @@ function makeSectionHeader(key, path, extraType) {
 
   keyEl.appendChild(keyInner);
 
-  keyEl.title = 'Click to add option under this section';
-  keyEl.onclick = triggerAdd;
+  const addBtn = document.createElement('button');
+  addBtn.className = 'icon-btn add-btn'; addBtn.textContent = '+'; addBtn.title = 'Add option';
+  addBtn.onclick = triggerAdd;
 
   header.appendChild(dragHandle);
   header.appendChild(keyEl);
+  header.appendChild(addBtn);
   header.appendChild(delBtn);
   return { header, delBtn };
 }
