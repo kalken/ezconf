@@ -115,11 +115,18 @@ services.ezconf = {
   enable = true;
   auth.method       = "custom";
   auth.username     = "admin";
-  auth.passwordFile = "/run/secrets/ezconf-password";
+  auth.passwordFile = "/var/lib/ezconf/password";
 };
 ```
 
-> **Note:** The username must be set in your NixOS config. For the password, prefer `auth.passwordFile` over `auth.password` — the latter is stored in the Nix store and world-readable. The runtime config at `/run/ezconf/ezconf.toml` is regenerated on every service start, so editing it directly has no effect.
+Create the password file once:
+
+```sh
+echo -n "mypassword" > /var/lib/ezconf/password
+chmod 600 /var/lib/ezconf/password
+```
+
+> **Note:** The username must be set in your NixOS config. For the password, prefer `auth.passwordFile` over `auth.password` — the latter is stored in the Nix store and world-readable. If you use a secrets manager such as agenix or sops-nix, point `passwordFile` at the decrypted secret path (e.g. `/run/secrets/ezconf-password`). The runtime config at `/run/ezconf/ezconf.toml` is regenerated on every service start, so editing it directly has no effect.
 >
 > For **standalone use**, you can set `username` and `password` directly in `ezconf.toml` and they will be picked up on the next start.
 
@@ -168,42 +175,38 @@ python3 bin/server.py --generate-ca
 python3 bin/server.py --generate-cert
 ```
 
-## 🌐 Reverse Proxy (nginx)
+## 🌐 Accessing from other devices
 
-To put ezconf behind nginx, disable its built-in HTTPS and add your public hostname to `trustedHosts` so the CSRF check accepts requests proxied through nginx:
+To reach ezconf from other devices on your network, set `listen` to a LAN IP or `0.0.0.0` for all interfaces. The firewall is opened and a TLS certificate covering the listen address is generated automatically:
 
 ```nix
 services.ezconf = {
-  enable       = true;
-  https        = false;
-  trustedHosts = [ "myserver.example.com" ];
+  enable = true;
+  listen = "192.168.1.2";
+  auth.allowedUsers = [ "alice" ];
 };
 ```
 
-```nginx
-server {
-    listen 443 ssl;
-    server_name myserver.example.com;
+The editor is then reachable at `https://192.168.1.2:9090` from any device on the network.
 
-    ssl_certificate     /path/to/cert.pem;
-    ssl_certificate_key /path/to/key.pem;
+**Trusting the certificate on other devices**: the login page shows a **Download CA certificate** link. Download `ezconf-ca.pem` and import it once on each device:
 
-    location / {
-        proxy_pass http://127.0.0.1:9090;
-        proxy_set_header Host $host;
-    }
+- **macOS**: open the file in Keychain Access → set trust to *Always Trust*
+- **Windows**: double-click → *Install Certificate* → *Local Machine* → *Trusted Root Certification Authorities*
+- **Firefox (any OS)**: Settings → Privacy & Security → View Certificates → Authorities → Import
+- **Android**: Settings → Security → Install from storage
 
-    location /terminal {
-        proxy_pass http://127.0.0.1:9091;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
-        proxy_set_header Host $host;
-    }
-}
+The CA never changes, so this is a one-time step per device.
+
+If you access ezconf by hostname rather than IP, add the hostname to `certNames` so the certificate covers it:
+
+```nix
+services.ezconf = {
+  enable    = true;
+  listen    = "192.168.1.2";
+  certNames = [ "myserver.local" ];
+};
 ```
-
-The `/terminal` location is only needed if the terminal panel is enabled.
 
 ## 🔄 Autocomplete Data
 
