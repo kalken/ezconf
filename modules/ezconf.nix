@@ -35,7 +35,8 @@ let
     (lib.optional cfg.generateCert "ca_file = ${str "/var/lib/ezconf/ca.pem"}")
     (lib.optional (cfg.shell             != null) "shell = ${str cfg.shell}")
     (lib.optional (cfg.listen           != null) "listen = ${str cfg.listen}")
-    (lib.optional (cfg.trustedHosts     != [])   "trusted_hosts = ${toml-list cfg.trustedHosts}")
+    (let allTrusted = cfg.trustedHosts ++ cfg.certNames;
+     in lib.optional (allTrusted != []) "trusted_hosts = ${toml-list allTrusted}")
     ""
     "[ports]"
     "web = ${toString cfg.ports.web}"

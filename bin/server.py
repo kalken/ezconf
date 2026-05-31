@@ -580,6 +580,10 @@ if __name__ == '__main__':
     TRUSTED_HOSTS = {h.lower().strip() for h in _trusted if h.strip()}
     if BIND_ADDR not in ('0.0.0.0', '::'):
         TRUSTED_HOSTS.add(BIND_ADDR.lower())
+    for _san in (args.san or []):
+        _san = _san.strip().lower()
+        if _san and _san not in ('0.0.0.0', '::'):
+            TRUSTED_HOSTS.add(_san)
 
     LOGIN_USER = cfg.get('username') or ''
     LOGIN_PASS = cfg.get('password') or ''

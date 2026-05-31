@@ -77,7 +77,7 @@ Single `ThreadingHTTPServer` bound to `BIND_ADDR:WEB_PORT` (default `127.0.0.1:9
 - `TERMINAL_PORT` — when set, enables the terminal panel in the frontend and points it at this port
 - `THEME` — UI theme injected into `index.html`; set by `--theme` or `theme` in config (default `nixos`)
 - `BIND_ADDR` — IP address to listen on; set by `listen` in config (default `127.0.0.1`); automatically added to `TRUSTED_HOSTS`
-- `TRUSTED_HOSTS` — extra hostnames accepted by `_valid_host` for CSRF check; set by `trusted_hosts` in config; always includes `BIND_ADDR`
+- `TRUSTED_HOSTS` — extra hostnames accepted by `_valid_host` for CSRF check; set by `trusted_hosts` in config; always includes `BIND_ADDR` and any `--san` values
 - `CA_FILE` — path to the CA cert served at `/download-ca`; set automatically by `--generate-ca` or via `ca_file` in config
 - `_SESSION_KEY` — random hex key generated at startup (or loaded from `--session-key-file`); used as the expected value of the `ezconf_session` cookie
 
