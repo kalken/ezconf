@@ -1615,13 +1615,13 @@ function makeSectionHeader(key, path, extraType) {
 
   keyEl.appendChild(keyInner);
 
-  const addBtn = document.createElement('button');
-  addBtn.className = 'icon-btn add-btn'; addBtn.textContent = '+'; addBtn.title = 'Add option';
-  addBtn.onclick = triggerAdd;
+  header.title = 'Click to add option under this section';
+  header.style.cursor = 'pointer';
+  header.addEventListener('click', triggerAdd);
+  dragHandle.addEventListener('click', e => e.stopPropagation());
 
   header.appendChild(dragHandle);
   header.appendChild(keyEl);
-  header.appendChild(addBtn);
   header.appendChild(delBtn);
   return { header, delBtn };
 }
