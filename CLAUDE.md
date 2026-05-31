@@ -62,9 +62,10 @@ The generated `autocomplete/` directory belongs inside the WEBROOT so the server
 
 Single `ThreadingHTTPServer` bound to `BIND_ADDR:WEB_PORT` (default `127.0.0.1:9090`). Serves static assets via `StaticHandler` (subclass of `SimpleHTTPRequestHandler`) and handles the API.
 
-**API endpoints** (all require auth):
-- `POST /api/v1/save-config` — writes `CONFIG_FILE`
-- `POST /api/v1/update-autocomplete` — runs `MKOPTIONS_CMD` to regenerate autocomplete data; only available when `--mkoptions` is set
+**API endpoints**:
+- `GET /download-ca` — serves `CA_FILE` as a downloadable PEM (no auth required; only available when `CA_FILE` is set)
+- `POST /api/v1/save-config` — writes `CONFIG_FILE` (auth required)
+- `POST /api/v1/update-autocomplete` — runs `MKOPTIONS_CMD` to regenerate autocomplete data; only available when `--mkoptions` is set (auth required)
 
 **File routing**: `StaticHandler.translate_path` sets `self.directory = WEBROOT`. `/configuration.json` is served from `CONFIG_FILE` (not WEBROOT). `/autocomplete/*` is served from `AUTOCOMPLETE_DIR` when set.
 
@@ -75,8 +76,9 @@ Single `ThreadingHTTPServer` bound to `BIND_ADDR:WEB_PORT` (default `127.0.0.1:9
 - `MKOPTIONS_CMD` — path to mkoptions binary; enables the update-autocomplete endpoint
 - `TERMINAL_PORT` — when set, enables the terminal panel in the frontend and points it at this port
 - `THEME` — UI theme injected into `index.html`; set by `--theme` or `theme` in config (default `nixos`)
-- `BIND_ADDR` — IP address to listen on; set by `listen` in config (default `127.0.0.1`)
-- `TRUSTED_HOSTS` — extra hostnames accepted by `_valid_host` for CSRF check; set by `trusted_hosts` in config
+- `BIND_ADDR` — IP address to listen on; set by `listen` in config (default `127.0.0.1`); automatically added to `TRUSTED_HOSTS`
+- `TRUSTED_HOSTS` — extra hostnames accepted by `_valid_host` for CSRF check; set by `trusted_hosts` in config; always includes `BIND_ADDR`
+- `CA_FILE` — path to the CA cert served at `/download-ca`; set automatically by `--generate-ca` or via `ca_file` in config
 - `_SESSION_KEY` — random hex key generated at startup (or loaded from `--session-key-file`); used as the expected value of the `ezconf_session` cookie
 
 **Auth flow**: The login form POSTs to `/login`. On success the server sets `Set-Cookie: ezconf_session=<SESSION_KEY>; HttpOnly; SameSite=Strict; Path=/`. All subsequent requests (browser and API) are authenticated by that cookie. `check_auth()` reads the `ezconf_session` cookie from the `Cookie` header and compares it to `_SESSION_KEY`.

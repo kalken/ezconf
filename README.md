@@ -145,6 +145,8 @@ services.ezconf = {
 
 HTTPS is enabled by default. When no `cert` or `key` are provided a local CA and certificate are generated automatically in `/var/lib/ezconf/`. With `installCerts = true` (the default) the CA is installed into `~/.pki/nssdb` for each user in `auth.allowedUsers` so browsers trust it without a warning.
 
+The login page shows a **Download CA certificate** link when a generated CA is available — use this to import the CA into browsers or devices that aren't covered by `installCerts` (e.g. macOS or other machines on the network). The CA is stable and never regenerated unless deleted, so this is a one-time import. The server cert is regenerated automatically when `listen` or `certNames` change, with no browser action needed.
+
 To use your own certificate:
 
 ```nix
@@ -249,7 +251,7 @@ services.ezconf = {
 | `cert` | str or null | `null` | Path to TLS certificate (PEM) |
 | `key` | str or null | `null` | Path to TLS private key (PEM) |
 | `listen` | str or null | `null` | IP address to listen on (default: `127.0.0.1`; use `0.0.0.0` for all interfaces) |
-| `trustedHosts` | list of str | `[]` | Hostnames trusted for CSRF check — required when behind a reverse proxy |
+| `trustedHosts` | list of str | `[]` | Extra hostnames trusted for CSRF check — required when behind a reverse proxy; `listen` is trusted automatically |
 | `nixosTarget` | str | `"/etc/nixos"` | Flake path passed to `ezconf-mkoptions` |
 | `ports.web` | port | `9090` | Web server port |
 | `ports.terminal` | port | `9091` | Terminal WebSocket port |
