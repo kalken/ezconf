@@ -115,11 +115,18 @@ services.ezconf = {
   enable = true;
   auth.method       = "custom";
   auth.username     = "admin";
-  auth.passwordFile = "/run/secrets/ezconf-password";
+  auth.passwordFile = "/var/lib/ezconf/password";
 };
 ```
 
-> **Note:** The username must be set in your NixOS config. For the password, prefer `auth.passwordFile` over `auth.password` — the latter is stored in the Nix store and world-readable. The runtime config at `/run/ezconf/ezconf.toml` is regenerated on every service start, so editing it directly has no effect.
+Create the password file once:
+
+```sh
+echo -n "mypassword" > /var/lib/ezconf/password
+chmod 600 /var/lib/ezconf/password
+```
+
+> **Note:** The username must be set in your NixOS config. For the password, prefer `auth.passwordFile` over `auth.password` — the latter is stored in the Nix store and world-readable. If you use a secrets manager such as agenix or sops-nix, point `passwordFile` at the decrypted secret path (e.g. `/run/secrets/ezconf-password`). The runtime config at `/run/ezconf/ezconf.toml` is regenerated on every service start, so editing it directly has no effect.
 >
 > For **standalone use**, you can set `username` and `password` directly in `ezconf.toml` and they will be picked up on the next start.
 
