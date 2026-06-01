@@ -350,9 +350,21 @@ body {
 .icon-btn.disable-btn { color: var(--text2); opacity: 0.6; }
 .icon-btn.disable-btn:hover { opacity: 1; }
 .icon-btn.disable-btn.active { color: var(--accent); opacity: 1 !important; }
-.disabled-row { opacity: 0.45; }
-.disabled-row .key-label { text-decoration: line-through; }
-.disabled-preview { font-style: italic; font-size: 12px; color: var(--text2); }
+
+.is-disabled { opacity: 0.45; }
+.is-disabled input, .is-disabled textarea, .is-disabled .toggle,
+.is-disabled .custom-select-wrap, .is-disabled .pkg-items,
+.is-disabled .autocomplete-wrap { pointer-events: none; }
+.is-disabled .icon-btn { opacity: 0 !important; pointer-events: none; }
+.is-disabled > .field-actions > .disable-btn,
+.is-disabled > .field-actions > .del,
+.is-disabled > .section-header > .disable-btn,
+.is-disabled > .section-header > .del { opacity: 1 !important; pointer-events: auto; }
+.is-disabled.section > .section-header { pointer-events: none; cursor: default; }
+.is-disabled.section > .section-header > .disable-btn,
+.is-disabled.section > .section-header > .del { pointer-events: auto; }
+.is-disabled > .field-key .key-label,
+.is-disabled > .section-header .section-key-text { text-decoration: line-through; }
 
 /* ── Inputs ── */
 input[type=text], input[type=number], input[type=password], textarea, select.enum-select {

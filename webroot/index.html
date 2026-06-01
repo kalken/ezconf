@@ -1631,46 +1631,29 @@ function makeSectionHeader(key, path, extraType) {
 
 function renderDisabled(container, key, disabledObj, path) {
   const inner = disabledObj._value;
-  const row = document.createElement('div');
-  row.className = 'field-row disabled-row';
-  row.dataset.path = path.join('.');
+  const tempContainer = document.createElement('div');
 
-  const opt = findOption(path);
-  const keyEl = document.createElement('div');
-  keyEl.className = 'field-key';
-  const keyText = document.createElement('span');
-  keyText.className = 'field-key-text';
-  const keyLabel = document.createElement('span');
-  keyLabel.className = 'key-label'; keyLabel.textContent = key;
-  keyText.appendChild(keyLabel);
-  keyText.appendChild(buildTooltip(opt, getTypeLabel(inner)));
-  const keyInner = document.createElement('span');
-  keyInner.className = 'field-key-inner';
-  keyInner.appendChild(keyText);
-  keyEl.appendChild(keyInner);
+  if (inner !== null && typeof inner === 'object' && !Array.isArray(inner) && !isExprPkg(inner)) {
+    renderSection(tempContainer, key, inner, path);
+  } else if (Array.isArray(inner)) {
+    renderArrayField(tempContainer, key, inner, path);
+  } else {
+    renderField(tempContainer, key, inner, path);
+  }
 
-  const valEl = document.createElement('div');
-  valEl.className = 'field-value';
-  const prevSpan = document.createElement('span');
-  prevSpan.className = 'disabled-preview';
-  prevSpan.textContent = preview(inner);
-  valEl.appendChild(prevSpan);
+  const el = tempContainer.firstElementChild;
+  if (!el) return;
+  el.classList.add('is-disabled');
 
-  const actions = document.createElement('div');
-  actions.className = 'field-actions';
-  const enableBtn = document.createElement('button');
-  enableBtn.className = 'icon-btn disable-btn active'; enableBtn.textContent = '#'; enableBtn.title = 'Re-enable';
-  enableBtn.onclick = () => { setAtPath(config, path, inner); renderAll(); };
-  actions.appendChild(enableBtn);
-  const del = document.createElement('button');
-  del.className = 'icon-btn del'; del.textContent = '✕'; del.title = 'Delete';
-  del.onclick = () => { deleteAtPath(config, path); renderAll(); };
-  actions.appendChild(del);
+  // Replace # handler: should re-enable (unwrap), not double-wrap
+  const disableBtn = el.querySelector('.disable-btn');
+  if (disableBtn) {
+    disableBtn.classList.add('active');
+    disableBtn.title = 'Re-enable';
+    disableBtn.onclick = e => { if (e) e.stopPropagation(); setAtPath(config, path, inner); renderAll(); };
+  }
 
-  row.appendChild(keyEl);
-  row.appendChild(valEl);
-  row.appendChild(actions);
-  container.appendChild(row);
+  container.appendChild(el);
 }
 
 function renderSection(container, key, obj, path) {
