@@ -198,6 +198,7 @@ function typeOf(val) {
   return typeof val;
 }
 function isExprPkg(v) { return v && typeof v === 'object' && '_expr' in v; }
+function isDisabled(v) { return v !== null && typeof v === 'object' && !Array.isArray(v) && '_disabled' in v; }
 function pathStr(path) { return path.length ? path.join('.') : 'root'; }
 function preview(val, maxlen = 48) {
   if (val === null) return 'null';
@@ -1110,7 +1111,7 @@ function renderTreeLevel(container, obj, path) {
   for (const [k, v] of Object.entries(obj)) {
     const childPath = [...path, k];
     const pathKey = childPath.join('.');
-    const isSection = v !== null && typeof v === 'object' && !Array.isArray(v) && !isExprPkg(v);
+    const isSection = v !== null && typeof v === 'object' && !Array.isArray(v) && !isExprPkg(v) && !isDisabled(v);
 
     const nodeEl = document.createElement('div');
     const row = document.createElement('div');
@@ -1493,7 +1494,9 @@ function renderEditor() {
 function renderObj(container, obj, path) {
   for (const [k, v] of Object.entries(obj)) {
     const childPath = [...path, k];
-    if (typeof v === 'object' && v !== null && !Array.isArray(v)) {
+    if (isDisabled(v)) {
+      renderDisabled(container, k, v, childPath);
+    } else if (typeof v === 'object' && v !== null && !Array.isArray(v)) {
       renderSection(container, k, v, childPath);
     } else if (Array.isArray(v)) {
       renderArrayField(container, k, v, childPath);
@@ -1626,6 +1629,50 @@ function makeSectionHeader(key, path, extraType) {
   return { header, delBtn };
 }
 
+function renderDisabled(container, key, disabledObj, path) {
+  const inner = disabledObj._value;
+  const row = document.createElement('div');
+  row.className = 'field-row disabled-row';
+  row.dataset.path = path.join('.');
+
+  const opt = findOption(path);
+  const keyEl = document.createElement('div');
+  keyEl.className = 'field-key';
+  const keyText = document.createElement('span');
+  keyText.className = 'field-key-text';
+  const keyLabel = document.createElement('span');
+  keyLabel.className = 'key-label'; keyLabel.textContent = key;
+  keyText.appendChild(keyLabel);
+  keyText.appendChild(buildTooltip(opt, getTypeLabel(inner)));
+  const keyInner = document.createElement('span');
+  keyInner.className = 'field-key-inner';
+  keyInner.appendChild(keyText);
+  keyEl.appendChild(keyInner);
+
+  const valEl = document.createElement('div');
+  valEl.className = 'field-value';
+  const prevSpan = document.createElement('span');
+  prevSpan.className = 'disabled-preview';
+  prevSpan.textContent = preview(inner);
+  valEl.appendChild(prevSpan);
+
+  const actions = document.createElement('div');
+  actions.className = 'field-actions';
+  const enableBtn = document.createElement('button');
+  enableBtn.className = 'icon-btn disable-btn active'; enableBtn.textContent = '#'; enableBtn.title = 'Re-enable';
+  enableBtn.onclick = () => { setAtPath(config, path, inner); renderAll(); };
+  actions.appendChild(enableBtn);
+  const del = document.createElement('button');
+  del.className = 'icon-btn del'; del.textContent = '✕'; del.title = 'Delete';
+  del.onclick = () => { deleteAtPath(config, path); renderAll(); };
+  actions.appendChild(del);
+
+  row.appendChild(keyEl);
+  row.appendChild(valEl);
+  row.appendChild(actions);
+  container.appendChild(row);
+}
+
 function renderSection(container, key, obj, path) {
   const pathKey = path.join('.');
 
@@ -1655,8 +1702,16 @@ function renderSection(container, key, obj, path) {
     setAtPath(config, path, { _expr: jsonToNix(cur) });
     renderAll();
   };
-  // Insert before delBtn
   header.insertBefore(exprBtn, delBtn);
+
+  const disableBtn = document.createElement('button');
+  disableBtn.className = 'icon-btn disable-btn'; disableBtn.textContent = '#'; disableBtn.title = 'Disable this option';
+  disableBtn.onclick = e => {
+    e.stopPropagation();
+    setAtPath(config, path, { _disabled: true, _value: getAtPath(config, path) });
+    renderAll();
+  };
+  header.insertBefore(disableBtn, delBtn);
 
   section.appendChild(header);
 
@@ -1722,6 +1777,10 @@ function renderArrayField(container, key, arr, path) {
   exprBtn.className = 'icon-btn expr-wrap-btn'; exprBtn.textContent = '{ }'; exprBtn.title = 'Convert to Nix expression';
   exprBtn.onclick = () => { const cur = getAtPath(config, path); setAtPath(config, path, { _expr: jsonToNix(cur) }); renderAll(); };
   actions.appendChild(exprBtn);
+  const disableBtn = document.createElement('button');
+  disableBtn.className = 'icon-btn disable-btn'; disableBtn.textContent = '#'; disableBtn.title = 'Disable this option';
+  disableBtn.onclick = () => { setAtPath(config, path, { _disabled: true, _value: getAtPath(config, path) }); renderAll(); };
+  actions.appendChild(disableBtn);
   const del = document.createElement('button');
   del.className = 'icon-btn del'; del.textContent = '✕'; del.title = 'Delete';
   del.onclick = () => { deleteAtPath(config, path); renderAll(); };
@@ -2001,6 +2060,10 @@ function renderField(container, key, val, path) {
     actions.appendChild(exprBtn);
   }
   if (unwrapBtn) actions.appendChild(unwrapBtn);
+  const disableBtn = document.createElement('button');
+  disableBtn.className = 'icon-btn disable-btn'; disableBtn.textContent = '#'; disableBtn.title = 'Disable this option';
+  disableBtn.onclick = () => { setAtPath(config, path, { _disabled: true, _value: getAtPath(config, path) }); renderAll(); };
+  actions.appendChild(disableBtn);
   const del = document.createElement('button');
   del.className = 'icon-btn del'; del.textContent = '\u2715'; del.title = 'Delete';
   del.onclick = () => { deleteAtPath(config, path); renderAll(); };

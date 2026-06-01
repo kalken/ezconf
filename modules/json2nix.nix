@@ -17,7 +17,9 @@
     else if builtins.isList val
     then map resolveExprs val
     else if builtins.isAttrs val
-    then lib.mapAttrs (_: resolveExprs) val
+    then
+      let active = lib.filterAttrs (_: v: !(builtins.isAttrs v && v ? "_disabled")) val;
+      in lib.mapAttrs (_: resolveExprs) active
     else val;
 
   evaluatedConfig = resolveExprs rawJson;
