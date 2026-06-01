@@ -255,6 +255,9 @@ function isNullableString(nixType) {
 
 function typeFromNix(t) {
   if (!t) return 'string';
+  // "non-empty (list of X)" / "non-empty (attribute set of X)" — strip wrapper
+  const neMatch = t.match(/^non-empty \((.+)\)$/);
+  if (neMatch) t = neMatch[1];
   if (t === 'boolean') return 'boolean';
   if (t === 'null or boolean') return 'boolean'; // handled as nullable toggle in renderField
   // package types — render as expr so user can type a Nix expression
