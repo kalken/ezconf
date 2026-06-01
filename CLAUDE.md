@@ -97,7 +97,9 @@ Reads the same `ezconf.toml` as the web server (`--config FILE`). The WebSocket 
 
 All application logic is in the `<script>` block at the bottom (~1400 lines). No modules, no imports, no build step.
 
-**Data model**: `config` (plain JS object mirroring `configuration.json`), `options` (array of `{path, type, description, default, example}`), `packages` (array of `{name, description}`). The `_expr` sentinel `{ _expr: "..." }` represents a raw Nix expression wherever a value would normally go.
+**Data model**: `config` (plain JS object mirroring `configuration.json`), `options` (array of `{path, type, description, default, example}`), `packages` (array of `{name, description}`). Two sentinel object shapes are used:
+- `{ _expr: "..." }` — raw Nix expression replacing a normal value
+- `{ _disabled: true, _value: <original> }` — option disabled in the UI; filtered out by `json2nix.nix` at evaluation time, preserving the original value for re-enabling
 
 **Key subsystems:**
 
@@ -108,11 +110,13 @@ All application logic is in the `<script>` block at the bottom (~1400 lines). No
 | Option lookup | `findOption`, `optionSearch`, `isValidOptionPath`, `getWildcardBoundary`, `blankObjectFromOptions` — wildcard segments (`<name>`, `<n>`, `*`) match any concrete key |
 | Nix default parsing | `parseNixDefault` — converts Nix expression strings to JS values; falls back to `defaultForType` |
 | Add panel | `initAddPanel`, `doAdd`, `doForceAdd`, `doForceAddWithType` |
-| Editor rendering | `renderEditor` → `renderObj` → `renderSection` / `renderField` / `renderArray` / `renderPkgArray` |
+| Editor rendering | `renderEditor` → `renderObj` → `renderSection` / `renderField` / `renderArray` / `renderPkgArray` / `renderDisabled` |
 | Tree sidebar | `renderTree`, `renderTreeLevel` |
 | Drag-and-drop | `makeDraggable`, `reorderKey` |
 
 **`_expr` objects** appear as scalar fields toggled to raw Nix (via the `{ }` button) and as elements of package arrays (`{ _expr: "pkgs.foo" }`). `isExprPkg(v)` distinguishes the two. `renderPkgArray` handles arrays at paths ending in `systemPackages`, `packages`, `extraPackages`, `extraPlugins`, or `users.users.<name>.packages`.
+
+**`_disabled` objects** (`{ _disabled: true, _value: <original> }`) are rendered by `renderDisabled`, which delegates to the normal render function for the inner value and then adds the `is-disabled` CSS class. The `#` button inside the rendered element is replaced with a re-enable handler. `isDisabled(v)` guards the check in `renderObj` and `renderTreeLevel` (disabled nodes are treated as leaves in the tree).
 
 **`traverseForSet`** navigates/creates intermediate path nodes. It preserves existing arrays rather than replacing with `{}`, and uses `emptyContainerFor` (consults `findOption`) to decide if missing nodes should be `[]` or `{}`.
 

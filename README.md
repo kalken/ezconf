@@ -90,6 +90,12 @@ Any field in the editor has a `{ }` button that switches it to raw Nix expressio
 
 Press `⌫` on the field to convert it back to its native type.
 
+## `#` Disable Toggle
+
+Any option or section has a `#` button that disables it. Disabled options remain fully visible in the editor (dimmed with the key struck through) but are excluded from the Nix configuration at evaluation time — the value is preserved and can be re-enabled at any time by pressing `#` again.
+
+Disabling a section disables all of its children at once.
+
 ## 🔐 Authentication
 
 Three modes, set via `auth.method`:
