@@ -170,6 +170,12 @@ in
       description = "Open firewall ports for the web and terminal services. Enabled automatically when listen is set to a non-localhost address.";
     };
 
+    interface = lib.mkOption {
+      type        = lib.types.nullOr lib.types.str;
+      default     = null;
+      description = "Network interface to open firewall ports on (e.g. \"eth0\"). When set, ports are opened only on that interface; when unset, ports are opened on all interfaces.";
+    };
+
     trustedHosts = lib.mkOption {
       type        = lib.types.listOf lib.types.str;
       default     = [];
@@ -205,8 +211,11 @@ in
       services.ezconf.openFirewall  = lib.mkDefault (!builtins.elem cfg.listen [ null "127.0.0.1" "::1" ]);
       services.ezconf.installCerts  = lib.mkDefault (builtins.elem cfg.listen [ null "127.0.0.1" "::1" ]);
 
-      networking.firewall.allowedTCPPorts = lib.mkIf cfg.openFirewall (
-        [ cfg.ports.web ] ++ lib.optional cfg.terminal cfg.ports.terminal
+      networking.firewall = lib.mkIf cfg.openFirewall (
+        let ports = [ cfg.ports.web ] ++ lib.optional cfg.terminal cfg.ports.terminal;
+        in if cfg.interface != null
+           then { interfaces.${cfg.interface}.allowedTCPPorts = ports; }
+           else { allowedTCPPorts = ports; }
       );
 
       assertions = [
