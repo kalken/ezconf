@@ -166,6 +166,8 @@ Key options:
 - `terminal` — enable terminal panel and `ezconf-terminal.service` (default `true`)
 - `shell` — shell for the terminal panel (default: login shell of `user`)
 - `nixosTarget` — flake path passed to `ezconf-mkoptions` (default `/etc/nixos`)
+- `listen` — IP address to bind to (default `127.0.0.1`; use `0.0.0.0` for all interfaces); `openFirewall` is enabled automatically for non-localhost addresses
+- `interface` — network interface to open firewall ports on (e.g. `"eth0"`); when set, uses `networking.firewall.interfaces.<name>.allowedTCPPorts` instead of the global `allowedTCPPorts`; works with both iptables and nftables backends
 - `ports.web` / `ports.terminal` — service ports (defaults `9090` / `9091`)
 - `configDir` — directory for `configuration.json` and `default.nix` (default `/etc/nixos/ezconf`)
 - `buttons` — list of `{label, command, save_first}` shortcuts shown in the terminal panel
