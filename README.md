@@ -183,12 +183,13 @@ python3 bin/server.py --generate-cert
 
 ## 🌐 Accessing from other devices
 
-To reach ezconf from other devices on your network, set `listen` to a LAN IP or `0.0.0.0` for all interfaces. The firewall is opened and a TLS certificate covering the listen address is generated automatically:
+To reach ezconf from other devices on your network, set `listen` to a LAN IP or `0.0.0.0` for all interfaces. The firewall is opened and a TLS certificate covering the listen address is generated automatically. Set `interface` to restrict the firewall rule to a specific network interface instead of opening the port on all interfaces:
 
 ```nix
 services.ezconf = {
-  enable = true;
-  listen = "192.168.1.2";
+  enable    = true;
+  listen    = "192.168.1.2";
+  interface = "enp3s0";        # optional: restrict firewall rule to this interface
   auth.allowedUsers = [ "alice" ];
 };
 ```
@@ -260,6 +261,7 @@ services.ezconf = {
 | `cert` | str or null | `null` | Path to TLS certificate (PEM) |
 | `key` | str or null | `null` | Path to TLS private key (PEM) |
 | `listen` | str or null | `null` | IP address to listen on (default: `127.0.0.1`; use `0.0.0.0` for all interfaces) |
+| `interface` | str or null | `null` | Network interface to open firewall ports on (e.g. `"eth0"`); when set, ports are opened only on that interface instead of all interfaces |
 | `trustedHosts` | list of str | `[]` | Extra hostnames trusted for CSRF check — required when behind a reverse proxy; `listen` and `certNames` are trusted automatically |
 | `nixosTarget` | str | `"/etc/nixos"` | Flake path passed to `ezconf-mkoptions` |
 | `ports.web` | port | `9090` | Web server port |
