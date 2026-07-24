@@ -40,6 +40,12 @@ file = "example/configuration.json"
 # File to persist the session key across service restarts
 # session_key_file = "/run/ezconf/session.key"
 
+# Directory to store configuration.json backups (default: <config dir>/.ezconf-backups)
+# backup_dir = "/var/lib/ezconf/backups"
+
+# Number of backups to keep on each save; 0 disables backups (default: 5)
+# backup_count = 5
+
 # IP address to listen on (default: 127.0.0.1; use 0.0.0.0 for all interfaces)
 # listen = "127.0.0.1"
 

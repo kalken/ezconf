@@ -22,6 +22,8 @@ let
     "auth = ${str cfg.auth.method}"
     "theme = ${str cfg.theme}"
     "session_key_file = ${str "/var/lib/ezconf/session.key"}"
+    "backup_dir = ${str cfg.backupDir}"
+    "backup_count = ${toString cfg.backupCount}"
     (lib.optional cfg.terminal "terminal_port = ${toString cfg.ports.terminal}")
     (lib.optional (cfg.auth.username     != null) "username = ${str cfg.auth.username}")
     (lib.optional (cfg.auth.password     != null) "password = ${str cfg.auth.password}")
@@ -77,6 +79,18 @@ in
       type        = lib.types.str;
       default     = "/etc/nixos";
       description = "Flake path passed as TARGET to ezconf-mkoptions when generating autocomplete data.";
+    };
+
+    backupDir = lib.mkOption {
+      type        = lib.types.str;
+      default     = "/var/lib/ezconf/backups";
+      description = "Directory to store configuration.json backups.";
+    };
+
+    backupCount = lib.mkOption {
+      type        = lib.types.ints.unsigned;
+      default     = 5;
+      description = "Number of backups to keep, made on every save. 0 disables backups.";
     };
 
     auth = {

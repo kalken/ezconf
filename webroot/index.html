@@ -119,6 +119,16 @@ networking.hostName = "myhost";</pre>
   </div>
 </div>
 
+<div class="modal-overlay hidden" id="backups-modal">
+  <div class="modal">
+    <div class="modal-title-row">
+      <h2>Configuration backups</h2>
+      <button class="btn" onclick="closeBackupsModal()">✕</button>
+    </div>
+    <div class="backups-list" id="backups-list"></div>
+  </div>
+</div>
+
 <script>
 // ── Theme ─────────────────────────────────────────────────────────────────────
 function _buildTermTheme() {
@@ -2661,6 +2671,7 @@ function renderButtons() {
 const API_BASE = '/api/v1';
 const TERMINAL_ENABLED  = %%EZCONF_TERMINAL%%;
 const MKOPTIONS_ENABLED = %%EZCONF_MKOPTIONS%%;
+const BACKUP_ENABLED    = %%EZCONF_BACKUP%%;
 
 
 async function apiFetch(path, opts = {}) {
@@ -2745,6 +2756,71 @@ async function saveToServer() {
   }
 }
 
+// ── Backups ───────────────────────────────────────────────────────────────────
+function _formatBackupSize(n) {
+  if (n < 1024) return n + ' B';
+  if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB';
+  return (n / 1024 / 1024).toFixed(1) + ' MB';
+}
+
+async function showBackupsModal() {
+  document.getElementById('backups-modal').classList.remove('hidden');
+  await refreshBackupsList();
+}
+function closeBackupsModal() { document.getElementById('backups-modal').classList.add('hidden'); }
+
+async function refreshBackupsList() {
+  const list = document.getElementById('backups-list');
+  list.innerHTML = '<div class="backups-empty">Loading…</div>';
+  try {
+    const res = await apiFetch('/backups');
+    if (!res.ok) throw new Error(String(res.status));
+    const data = await res.json();
+    const backups = data.backups || [];
+    if (!backups.length) {
+      list.innerHTML = '<div class="backups-empty">No backups yet — one is made on every save.</div>';
+      return;
+    }
+    list.innerHTML = '';
+    backups.forEach(b => {
+      const row = document.createElement('div');
+      row.className = 'backup-row';
+      const label = document.createElement('span');
+      label.className = 'backup-label';
+      label.textContent = new Date(b.mtime * 1000).toLocaleString();
+      const size = document.createElement('span');
+      size.className = 'backup-size';
+      size.textContent = _formatBackupSize(b.size);
+      const btn = document.createElement('button');
+      btn.className = 'btn btn-sm';
+      btn.textContent = 'Restore';
+      btn.onclick = () => restoreBackup(b.name);
+      row.append(label, size, btn);
+      list.appendChild(row);
+    });
+  } catch (e) {
+    list.innerHTML = '<div class="backups-empty">Failed to load backups.</div>';
+  }
+}
+
+async function restoreBackup(name) {
+  if (!confirm(`Restore this backup?\n\n${name}\n\nThis overwrites the currently saved configuration.json (the current state is backed up first).`)) return;
+  try {
+    const res = await apiFetch('/restore-backup', {
+      method: 'POST',
+      body: JSON.stringify({ name }),
+    });
+    if (!res.ok) { setStatus('Restore failed (' + res.status + ')', 4000, 'err'); return; }
+    config = normalizeConfig(await fetch('configuration.json?' + Date.now()).then(r => r.json()));
+    renderAll();
+    markSaved();
+    closeBackupsModal();
+    setStatus('Restored backup', 3000, 'ok');
+  } catch (e) {
+    setStatus('Restore failed: ' + e.message, 4000, 'err');
+  }
+}
+
 // ── Load files ────────────────────────────────────────────────────────────────
 async function loadSiblingFiles() {
   const [cfgResult, pkgResult, optResult, kernelResult, customOptResult] = await Promise.allSettled([
@@ -2797,6 +2873,15 @@ async function loadSiblingFiles() {
     btn.title = 'Regenerate autocomplete data from NixOS options';
     btn.textContent = '↻ Autocomplete';
     btn.onclick = updateAutocomplete;
+    const actions = document.querySelector('.header-actions');
+    actions.insertBefore(btn, actions.firstChild);
+  }
+  if (BACKUP_ENABLED) {
+    const btn = document.createElement('button');
+    btn.className = 'btn'; btn.id = 'backups-btn';
+    btn.title = 'View and restore configuration.json backups';
+    btn.textContent = '🕐 Backups';
+    btn.onclick = showBackupsModal;
     const actions = document.querySelector('.header-actions');
     actions.insertBefore(btn, actions.firstChild);
   }

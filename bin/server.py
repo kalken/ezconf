@@ -2,7 +2,9 @@
 """
 ezconf server — single listener bound to 127.0.0.1:
   http(s)://localhost:9090  static files + API
-    POST /api/v1/save-config   writes the config file specified by --file
+    POST /api/v1/save-config      writes the config file specified by --file (backs up first)
+    GET  /api/v1/backups          lists configuration.json backups
+    POST /api/v1/restore-backup   restores a backup over the config file
 
 Run:
   python3 server.py --file /path/to/configuration.json
@@ -23,7 +25,7 @@ Auth:
 
 Config file (ezconf.toml):
   file, webroot, auth, terminal_port, session_key_file, cert, key, username, password,
-  allowed_users, mkoptions, nixos_target, ports.web
+  allowed_users, mkoptions, nixos_target, ports.web, backup_dir, backup_count
 """
 import argparse
 import datetime
@@ -32,6 +34,7 @@ import ipaddress
 import json
 import os
 import secrets
+import shutil
 import ssl
 import subprocess
 import sys
@@ -100,6 +103,8 @@ NIXOS_TARGET     = '/etc/nixos'  # flake path passed as TARGET to mkoptions
 TRUSTED_HOSTS    = set()         # extra hostnames allowed by _valid_host; set by trusted_hosts in TOML
 BIND_ADDR        = '127.0.0.1'   # IP address to listen on; set by listen in TOML
 CA_FILE          = None          # path to CA cert served at /download-ca; set by --generate-ca or ca_file in TOML
+BACKUP_DIR       = None          # directory for configuration.json backups; set by --backup-dir or backup_dir in TOML (default: <config dir>/.ezconf-backups)
+BACKUP_COUNT     = 5             # number of backups to keep; 0 disables backups; set by --backup-count or backup_count in TOML
 
 _SESSION_KEY = secrets.token_hex(32)
 
@@ -289,6 +294,50 @@ def check_auth(headers):
     return _session_from_cookie(headers) == _SESSION_KEY
 
 
+def backup_config():
+    """Copy the current CONFIG_FILE into BACKUP_DIR, pruning to BACKUP_COUNT newest."""
+    if BACKUP_COUNT <= 0 or not os.path.exists(CONFIG_FILE):
+        return
+    os.makedirs(BACKUP_DIR, exist_ok=True)
+    ts = datetime.datetime.now().strftime('%Y%m%d-%H%M%S')
+    dest = os.path.join(BACKUP_DIR, f'configuration-{ts}.json')
+    i = 1
+    while os.path.exists(dest):
+        dest = os.path.join(BACKUP_DIR, f'configuration-{ts}-{i}.json')
+        i += 1
+    shutil.copy2(CONFIG_FILE, dest)
+    backups = [f for f in os.listdir(BACKUP_DIR) if f.startswith('configuration-') and f.endswith('.json')]
+    backups.sort(key=lambda f: os.path.getmtime(os.path.join(BACKUP_DIR, f)), reverse=True)
+    for old in backups[BACKUP_COUNT:]:
+        try:
+            os.remove(os.path.join(BACKUP_DIR, old))
+        except OSError:
+            pass
+
+
+def list_backups():
+    items = []
+    if os.path.isdir(BACKUP_DIR):
+        for name in os.listdir(BACKUP_DIR):
+            if not (name.startswith('configuration-') and name.endswith('.json')):
+                continue
+            st = os.stat(os.path.join(BACKUP_DIR, name))
+            items.append({'name': name, 'mtime': st.st_mtime, 'size': st.st_size})
+    items.sort(key=lambda x: x['mtime'], reverse=True)
+    return items
+
+
+def resolve_backup_path(name):
+    """Return the absolute path for a backup file name, or None if invalid/outside BACKUP_DIR."""
+    if not name or '/' in name or '\\' in name or name in ('.', '..'):
+        return None
+    base = os.path.realpath(BACKUP_DIR)
+    full = os.path.realpath(os.path.join(base, name))
+    if os.path.dirname(full) != base or not os.path.isfile(full):
+        return None
+    return full
+
+
 def _read_login_page(error=''):
     if ALLOWED_USERS:
         options = ''.join(f'<option value="{u}">{u}</option>' for u in sorted(ALLOWED_USERS))
@@ -357,8 +406,35 @@ class StaticHandler(http.server.SimpleHTTPRequestHandler):
             try:
                 length = int(self.headers.get('Content-Length', 0))
                 body = json.loads(self.rfile.read(length))
+                backup_config()
                 with open(CONFIG_FILE, 'w') as f:
                     json.dump(body, f, indent=2)
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                self.wfile.write(b'{"ok":true}')
+            except Exception as e:
+                self.send_error(500, str(e))
+        elif parsed.path == '/api/v1/restore-backup':
+            try:
+                length = int(self.headers.get('Content-Length', 0))
+                body = json.loads(self.rfile.read(length))
+                src = resolve_backup_path(body.get('name', ''))
+                if not src:
+                    resp = b'{"error":"invalid backup name"}'
+                    self.send_response(400)
+                    self.send_header('Content-Type', 'application/json')
+                    self.send_header('Content-Length', str(len(resp)))
+                    self.end_headers()
+                    self.wfile.write(resp)
+                    return
+                # read before backing up the current state — backup_config() prunes
+                # old backups and could otherwise evict `src` itself before it's copied
+                with open(src, 'rb') as f:
+                    restored = f.read()
+                backup_config()  # snapshot the current state so the restore itself is undoable
+                with open(CONFIG_FILE, 'wb') as f:
+                    f.write(restored)
                 self.send_response(200)
                 self.send_header('Content-Type', 'application/json')
                 self.end_headers()
@@ -435,6 +511,17 @@ class StaticHandler(http.server.SimpleHTTPRequestHandler):
             self._deny(); return
         if parsed.path.rstrip('/') in ('', '/index.html'):
             self._serve_index(); return
+        if parsed.path == '/api/v1/backups':
+            try:
+                data = json.dumps({'backups': list_backups()}).encode()
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.send_header('Content-Length', str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+            except Exception as e:
+                self.send_error(500, str(e))
+            return
         # configuration.json and custom-options.json live next to CONFIG_FILE, not in WEBROOT
         if parsed.path == '/configuration.json':
             self._serve_raw(CONFIG_FILE); return
@@ -479,6 +566,7 @@ class StaticHandler(http.server.SimpleHTTPRequestHandler):
                 .replace('%%EZCONF_TERMINAL_PORT%%', str(TERMINAL_PORT or WEB_PORT))
                 .replace('%%EZCONF_THEME%%', THEME)
                 .replace('%%EZCONF_MKOPTIONS%%', 'true' if MKOPTIONS_CMD else 'false')
+                .replace('%%EZCONF_BACKUP%%', 'true' if BACKUP_COUNT > 0 else 'false')
             )
             data = content.encode('utf-8')
             self.send_response(200)
@@ -514,6 +602,10 @@ if __name__ == '__main__':
                     help='flake path passed as TARGET to mkoptions (default: /etc/nixos)')
     ap.add_argument('--file', metavar='FILE', default=None,
                     help='configuration JSON file to edit')
+    ap.add_argument('--backup-dir', metavar='DIR', default=None,
+                    help='directory to store configuration.json backups (default: <config dir>/.ezconf-backups)')
+    ap.add_argument('--backup-count', metavar='N', type=int, default=None,
+                    help='number of backups to keep on each save; 0 disables backups (default: 5)')
     ap.add_argument('--auth', choices=['auto', 'custom', 'pam'], default=None,
                     help='authentication mode: auto, custom, or pam')
     ap.add_argument('--theme', choices=['nixos', 'dark', 'light'], default=None,
@@ -656,6 +748,10 @@ if __name__ == '__main__':
         ap.error('--file is required (or set "file" in ezconf.toml)')
     CONFIG_FILE = os.path.abspath(_file)
 
+    _bd = _resolve(args.backup_dir, cfg.get('backup_dir'), None, None)
+    BACKUP_DIR = os.path.abspath(_bd) if _bd else os.path.join(os.path.dirname(CONFIG_FILE), '.ezconf-backups')
+    BACKUP_COUNT = args.backup_count if args.backup_count is not None else int(cfg.get('backup_count', 5))
+
     use_tls = os.path.exists(CERT_FILE) and os.path.exists(KEY_FILE)
     scheme = 'https' if use_tls else 'http'
 
@@ -674,6 +770,8 @@ if __name__ == '__main__':
     print(f'web  → {scheme}://localhost:{WEB_PORT}')
     print(f'dir  → {WEBROOT}')
     print(f'file → {CONFIG_FILE}')
+    if BACKUP_COUNT > 0:
+        print(f'backup → {BACKUP_DIR} (keeping {BACKUP_COUNT})')
     if AUTH_MODE == 'custom':
         print(f'auth → custom   (username: {LOGIN_USER})')
     elif AUTH_MODE == 'pam':

@@ -66,8 +66,10 @@ Single `ThreadingHTTPServer` bound to `BIND_ADDR:WEB_PORT` (default `127.0.0.1:9
 
 **API endpoints**:
 - `GET /download-ca` — serves `CA_FILE` as a downloadable PEM (no auth required; only available when `CA_FILE` is set)
-- `POST /api/v1/save-config` — writes `CONFIG_FILE` (auth required)
+- `POST /api/v1/save-config` — writes `CONFIG_FILE`, backing up the previous contents first via `backup_config()` (auth required)
 - `POST /api/v1/update-autocomplete` — runs `MKOPTIONS_CMD` to regenerate autocomplete data; only available when `--mkoptions` is set (auth required)
+- `GET /api/v1/backups` — lists backups in `BACKUP_DIR` (name, mtime, size), newest first (auth required)
+- `POST /api/v1/restore-backup` — copies a named backup over `CONFIG_FILE`, after backing up the current state first; rejects names outside `BACKUP_DIR` (auth required)
 
 **File routing**: `StaticHandler.translate_path` sets `self.directory = WEBROOT`. `/configuration.json` is served from `CONFIG_FILE` (not WEBROOT). `/autocomplete/*` is served from `AUTOCOMPLETE_DIR` when set.
 
@@ -81,6 +83,8 @@ Single `ThreadingHTTPServer` bound to `BIND_ADDR:WEB_PORT` (default `127.0.0.1:9
 - `BIND_ADDR` — IP address to listen on; set by `listen` in config (default `127.0.0.1`); automatically added to `TRUSTED_HOSTS`
 - `TRUSTED_HOSTS` — extra hostnames accepted by `_valid_host` for CSRF check; set by `trusted_hosts` in config; always includes `BIND_ADDR` and any `--san` values
 - `CA_FILE` — path to the CA cert served at `/download-ca`; set automatically by `--generate-ca` or via `ca_file` in config
+- `BACKUP_DIR` — directory for `configuration.json` backups; set by `--backup-dir` or `backup_dir` in config (default: `.ezconf-backups` next to `CONFIG_FILE`)
+- `BACKUP_COUNT` — number of backups kept per save; set by `--backup-count` or `backup_count` in config (default `5`; `0` disables backups)
 - `_SESSION_KEY` — random hex key generated at startup (or loaded from `--session-key-file`); used as the expected value of the `ezconf_session` cookie
 
 **Auth flow**: The login form POSTs to `/login`. On success the server sets `Set-Cookie: ezconf_session=<SESSION_KEY>; HttpOnly; SameSite=Strict; Path=/`. All subsequent requests (browser and API) are authenticated by that cookie. `check_auth()` reads the `ezconf_session` cookie from the `Cookie` header and compares it to `_SESSION_KEY`.
@@ -166,6 +170,7 @@ Key options:
 - `terminal` — enable terminal panel and `ezconf-terminal.service` (default `true`)
 - `shell` — shell for the terminal panel (default: login shell of `user`)
 - `nixosTarget` — flake path passed to `ezconf-mkoptions` (default `/etc/nixos`)
+- `backupDir` / `backupCount` — directory and retention count for `configuration.json` backups (defaults `/var/lib/ezconf/backups`, `5`; `backupCount = 0` disables backups)
 - `listen` — IP address to bind to (default `127.0.0.1`; use `0.0.0.0` for all interfaces); `openFirewall` is enabled automatically for non-localhost addresses
 - `interface` — network interface to open firewall ports on (e.g. `"eth0"`); when set, uses `networking.firewall.interfaces.<name>.allowedTCPPorts` instead of the global `allowedTCPPorts`; works with both iptables and nftables backends
 - `ports.web` / `ports.terminal` — service ports (defaults `9090` / `9091`)

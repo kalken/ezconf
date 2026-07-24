@@ -229,6 +229,12 @@ nix run .#ezconf-mkoptions
 TARGET=/path/to/flake nix run .#ezconf-mkoptions -- all myhostname
 ```
 
+## 💾 Backups
+
+Every time `configuration.json` is saved (including a restore, see below), the server copies the previous contents into a backup directory, keeping the `backup_count` most recent copies (default 5; set to 0 to disable). The `🕐 Backups` button appears in the header automatically once backups are enabled — it lists past saves with their timestamp and size, and lets you restore any of them with one click. Restoring itself makes a backup of the current state first, so a restore is never a one-way trip.
+
+Standalone: set `backup_dir` / `backup_count` in `ezconf.toml`, or pass `--backup-dir` / `--backup-count`. Backups default to `.ezconf-backups/` next to `configuration.json`. The NixOS module stores them in `/var/lib/ezconf/backups` by default (`backupDir` / `backupCount` options).
+
 ## 🎨 Theme
 
 ```nix
@@ -264,6 +270,8 @@ services.ezconf = {
 | `interface` | str or null | `null` | Network interface to open firewall ports on (e.g. `"eth0"`); when set, ports are opened only on that interface instead of all interfaces |
 | `trustedHosts` | list of str | `[]` | Extra hostnames trusted for CSRF check — required when behind a reverse proxy; `listen` and `certNames` are trusted automatically |
 | `nixosTarget` | str | `"/etc/nixos"` | Flake path passed to `ezconf-mkoptions` |
+| `backupDir` | str | `"/var/lib/ezconf/backups"` | Directory to store `configuration.json` backups |
+| `backupCount` | int | `5` | Number of backups to keep, made on every save; `0` disables backups |
 | `ports.web` | port | `9090` | Web server port |
 | `ports.terminal` | port | `9091` | Terminal WebSocket port |
 
