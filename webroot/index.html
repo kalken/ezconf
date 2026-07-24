@@ -2795,7 +2795,12 @@ async function refreshBackupsList() {
       btn.className = 'btn btn-sm';
       btn.textContent = 'Restore';
       btn.onclick = () => restoreBackup(b.name);
-      row.append(label, size, btn);
+      const delBtn = document.createElement('button');
+      delBtn.className = 'btn btn-sm';
+      delBtn.title = 'Delete this backup';
+      delBtn.textContent = '✕';
+      delBtn.onclick = () => deleteBackup(b.name);
+      row.append(label, size, btn, delBtn);
       list.appendChild(row);
     });
   } catch (e) {
@@ -2818,6 +2823,21 @@ async function restoreBackup(name) {
     setStatus('Restored backup', 3000, 'ok');
   } catch (e) {
     setStatus('Restore failed: ' + e.message, 4000, 'err');
+  }
+}
+
+async function deleteBackup(name) {
+  if (!confirm(`Delete this backup?\n\n${name}\n\nThis cannot be undone.`)) return;
+  try {
+    const res = await apiFetch('/delete-backup', {
+      method: 'POST',
+      body: JSON.stringify({ name }),
+    });
+    if (!res.ok) { setStatus('Delete failed (' + res.status + ')', 4000, 'err'); return; }
+    await refreshBackupsList();
+    setStatus('Deleted backup', 2000, 'ok');
+  } catch (e) {
+    setStatus('Delete failed: ' + e.message, 4000, 'err');
   }
 }
 

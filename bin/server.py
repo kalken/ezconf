@@ -5,6 +5,7 @@ ezconf server — single listener bound to 127.0.0.1:
     POST /api/v1/save-config      writes the config file specified by --file (backs up first)
     GET  /api/v1/backups          lists configuration.json backups
     POST /api/v1/restore-backup   restores a backup over the config file
+    POST /api/v1/delete-backup    deletes a backup file
 
 Run:
   python3 server.py --file /path/to/configuration.json
@@ -429,6 +430,26 @@ class StaticHandler(http.server.SimpleHTTPRequestHandler):
                     self.wfile.write(resp)
                     return
                 shutil.copy2(src, CONFIG_FILE)
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                self.wfile.write(b'{"ok":true}')
+            except Exception as e:
+                self.send_error(500, str(e))
+        elif parsed.path == '/api/v1/delete-backup':
+            try:
+                length = int(self.headers.get('Content-Length', 0))
+                body = json.loads(self.rfile.read(length))
+                target = resolve_backup_path(body.get('name', ''))
+                if not target:
+                    resp = b'{"error":"invalid backup name"}'
+                    self.send_response(400)
+                    self.send_header('Content-Type', 'application/json')
+                    self.send_header('Content-Length', str(len(resp)))
+                    self.end_headers()
+                    self.wfile.write(resp)
+                    return
+                os.remove(target)
                 self.send_response(200)
                 self.send_header('Content-Type', 'application/json')
                 self.end_headers()
