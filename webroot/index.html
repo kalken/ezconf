@@ -2804,7 +2804,7 @@ async function refreshBackupsList() {
 }
 
 async function restoreBackup(name) {
-  if (!confirm(`Restore this backup?\n\n${name}\n\nThis overwrites the currently saved configuration.json (the current state is backed up first).`)) return;
+  if (!confirm(`Restore this backup?\n\n${name}\n\nThis overwrites the currently saved configuration.json. This cannot be undone.`)) return;
   try {
     const res = await apiFetch('/restore-backup', {
       method: 'POST',

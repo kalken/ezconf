@@ -428,13 +428,7 @@ class StaticHandler(http.server.SimpleHTTPRequestHandler):
                     self.end_headers()
                     self.wfile.write(resp)
                     return
-                # read before backing up the current state — backup_config() prunes
-                # old backups and could otherwise evict `src` itself before it's copied
-                with open(src, 'rb') as f:
-                    restored = f.read()
-                backup_config()  # snapshot the current state so the restore itself is undoable
-                with open(CONFIG_FILE, 'wb') as f:
-                    f.write(restored)
+                shutil.copy2(src, CONFIG_FILE)
                 self.send_response(200)
                 self.send_header('Content-Type', 'application/json')
                 self.end_headers()

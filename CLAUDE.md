@@ -69,7 +69,7 @@ Single `ThreadingHTTPServer` bound to `BIND_ADDR:WEB_PORT` (default `127.0.0.1:9
 - `POST /api/v1/save-config` — writes `CONFIG_FILE`, backing up the previous contents first via `backup_config()` (auth required)
 - `POST /api/v1/update-autocomplete` — runs `MKOPTIONS_CMD` to regenerate autocomplete data; only available when `--mkoptions` is set (auth required)
 - `GET /api/v1/backups` — lists backups in `BACKUP_DIR` (name, mtime, size), newest first (auth required)
-- `POST /api/v1/restore-backup` — copies a named backup over `CONFIG_FILE`, after backing up the current state first; rejects names outside `BACKUP_DIR` (auth required)
+- `POST /api/v1/restore-backup` — copies a named backup over `CONFIG_FILE`; does not itself create a backup (that state is only saved if/when the user later hits Save); rejects names outside `BACKUP_DIR` (auth required)
 
 **File routing**: `StaticHandler.translate_path` sets `self.directory = WEBROOT`. `/configuration.json` is served from `CONFIG_FILE` (not WEBROOT). `/autocomplete/*` is served from `AUTOCOMPLETE_DIR` when set.
 
