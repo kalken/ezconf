@@ -2827,7 +2827,6 @@ async function restoreBackup(name) {
 }
 
 async function deleteBackup(name) {
-  if (!confirm(`Delete this backup?\n\n${name}\n\nThis cannot be undone.`)) return;
   try {
     const res = await apiFetch('/delete-backup', {
       method: 'POST',
