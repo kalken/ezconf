@@ -1631,10 +1631,8 @@ function makeSectionHeader(key, path, extraType) {
 
   keyEl.appendChild(keyInner);
 
-  header.title = 'Click to add option under this section';
-  header.style.cursor = 'pointer';
-  header.addEventListener('click', triggerAdd);
-  dragHandle.addEventListener('click', e => e.stopPropagation());
+  keyText.title = 'Click to add option under this section';
+  keyText.addEventListener('click', triggerAdd);
 
   header.appendChild(dragHandle);
   header.appendChild(keyEl);
