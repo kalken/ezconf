@@ -343,8 +343,14 @@ function _commonMenuItems(path, { skipDisable = false } = {}) {
       { label: 'Delete', danger: true, onclick: () => { deleteAtPath(config, path); renderAll(); } },
     ];
   }
+  // Disabling a single array item isn't supported end-to-end (json2nix.nix's resolveExprs only
+  // filters _disabled out of attrsets, not array elements), so skip that option whenever the
+  // path's last segment names an index into an array rather than a real object key — determined
+  // by the actual parent container's type, not by guessing from the segment's own shape.
+  const parent = path.length ? getAtPath(config, path.slice(0, -1)) : null;
+  const isArrayItem = Array.isArray(parent);
   const items = [];
-  if (!skipDisable) {
+  if (!skipDisable && !isArrayItem) {
     items.push({ label: 'Disable', onclick: () => { setAtPath(config, path, { _disabled: true, _value: getAtPath(config, path) }); renderAll(); } });
   }
   items.push(
@@ -2215,10 +2221,8 @@ function renderArray(container, arr, path) {
       wrap.oncontextmenu = e => {
         const disabled = isDisabled(getAtPath(config, itemPath));
         const items = disabled ? [] : [{ label: 'Add field', onclick: triggerAdd }];
-        // Disabling a single array item isn't supported end-to-end (json2nix.nix only filters
-        // _disabled out of attrsets, not array elements) — skip that option here; skipDisable
-        // only suppresses the *offer* to disable, "Re-enable"/"Delete" still work normally.
-        showContextMenu(e, [...items, ..._commonMenuItems(itemPath, { skipDisable: true })]);
+        // _commonMenuItems already omits Disable for array-indexed paths like this one.
+        showContextMenu(e, [...items, ..._commonMenuItems(itemPath)]);
       };
       container.appendChild(wrap);
       makeDraggable(wrap, String(i), path);
