@@ -2211,24 +2211,15 @@ function renderArray(container, arr, path) {
       const fields = document.createElement('div');
       fields.className = 'array-obj-fields';
       renderObj(fields, v, itemPath);
-      const sideBtns = document.createElement('div');
-      sideBtns.className = 'array-obj-side-btns';
-      // Unlike sections/fields, an array item's body is entirely filled by its own nested
-      // editable fields — there's no blank chrome left to grab, so this handle stays (removing
-      // it would make the item nearly impossible to drag or move to another file).
-      const dragHandle = document.createElement('span');
-      dragHandle.className = 'drag-handle'; dragHandle.innerHTML = '⠿'; dragHandle.title = 'Drag to reorder';
-      const addBtn = document.createElement('button');
-      addBtn.className = 'icon-btn array-add-btn'; addBtn.textContent = '+'; addBtn.title = 'Add field';
-      addBtn.onclick = triggerAdd;
-      const del = document.createElement('button');
-      del.className = 'icon-btn del'; del.textContent = '✕';
-      del.onclick = () => { deleteAtPath(config, itemPath); renderAll(); };
-      sideBtns.appendChild(dragHandle);
-      sideBtns.appendChild(addBtn);
-      sideBtns.appendChild(del);
       wrap.appendChild(fields);
-      wrap.appendChild(sideBtns);
+      wrap.oncontextmenu = e => {
+        const disabled = isDisabled(getAtPath(config, itemPath));
+        const items = disabled ? [] : [{ label: 'Add field', onclick: triggerAdd }];
+        // Disabling a single array item isn't supported end-to-end (json2nix.nix only filters
+        // _disabled out of attrsets, not array elements) — skip that option here; skipDisable
+        // only suppresses the *offer* to disable, "Re-enable"/"Delete" still work normally.
+        showContextMenu(e, [...items, ..._commonMenuItems(itemPath, { skipDisable: true })]);
+      };
       container.appendChild(wrap);
       makeDraggable(wrap, String(i), path);
       return;
@@ -2249,13 +2240,18 @@ function renderArray(container, arr, path) {
       editor = document.createElement('input');
       editor.type = 'text'; editor.value = strVal;
       editor.addEventListener('change', () => setAtPath(config, itemPath, isExpr ? { _expr: editor.value } : editor.value));
-      if (!isExpr) editor.addEventListener('contextmenu', e => { e.preventDefault(); setAtPath(config, itemPath, { _expr: strVal }); renderAll(); });
     }
     if (isExpr) editor.classList.add('expr-value');
-    const del = document.createElement('button');
-    del.className = 'icon-btn del'; del.textContent = '✕';
-    del.onclick = () => { deleteAtPath(config, itemPath); renderAll(); };
-    item.appendChild(editor); item.appendChild(del);
+    item.oncontextmenu = e => {
+      const items = [
+        isExpr
+          ? { label: 'Convert back to native type', onclick: () => { setAtPath(config, itemPath, editor.value); renderAll(); } }
+          : { label: 'Convert to Nix expression', onclick: () => { setAtPath(config, itemPath, { _expr: editor.value }); renderAll(); } },
+        { label: 'Delete', danger: true, onclick: () => { deleteAtPath(config, itemPath); renderAll(); } },
+      ];
+      showContextMenu(e, items);
+    };
+    item.appendChild(editor);
     container.appendChild(item);
   });
 }
@@ -2276,17 +2272,17 @@ function renderPkgArray(container, arr, path) {
       tt.className = 'tooltip'; tt.textContent = pkgInfo.description;
       label.appendChild(tt);
     }
-    const del = document.createElement('button');
-    del.className = 'icon-btn del'; del.textContent = '✕';
-    del.onclick = () => {
-      const cur = getAtPath(config, path);
-      const liveIdx = Array.isArray(cur) ? cur.findIndex(p => p._expr === pkg._expr) : -1;
-      if (liveIdx !== -1) deleteAtPath(config, [...path, liveIdx]);
-      item.remove();
-      _pushHistory();
-      _updateDirty();
+    item.oncontextmenu = e => {
+      showContextMenu(e, [{ label: 'Delete', danger: true, onclick: () => {
+        const cur = getAtPath(config, path);
+        const liveIdx = Array.isArray(cur) ? cur.findIndex(p => p._expr === pkg._expr) : -1;
+        if (liveIdx !== -1) deleteAtPath(config, [...path, liveIdx]);
+        item.remove();
+        _pushHistory();
+        _updateDirty();
+      } }]);
     };
-    item.appendChild(label); item.appendChild(del);
+    item.appendChild(label);
     return item;
   }
 

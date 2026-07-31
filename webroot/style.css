@@ -395,13 +395,9 @@ textarea { resize: vertical; min-height: unset; line-height: 1.5; }
 /* ── Array ── */
 .array-item { display: flex; align-items: center; gap: 4px; }
 .array-item input, .array-item textarea { flex: 1; min-width: 0; }
-.array-item .icon-btn { flex-shrink: 0; width: 20px; opacity: 0; transition: opacity .15s; }
-.array-item:hover .icon-btn,
-.array-item:focus-within .icon-btn { opacity: 1; }
 
 /* Object items inside arrays */
 .array-obj-item {
-  display: flex; align-items: flex-start; gap: 6px;
   border: 1px solid var(--border); border-radius: var(--radius);
   padding: 4px 6px;
 }
@@ -413,19 +409,13 @@ textarea { resize: vertical; min-height: unset; line-height: 1.5; }
 .pkg-items { display: flex; flex-wrap: wrap; gap: 4px; }
 .pkg-items .array-item {
   background: transparent; border: 1px solid var(--btn-active-border);
-  border-radius: var(--radius); padding: 2px 4px 2px 8px;
-  gap: 4px;
+  border-radius: var(--radius); padding: 2px 8px;
 }
 .pkg-items .array-item .pkg-label {
   color: var(--green); font-size: 12px; white-space: nowrap; position: relative;
 }
 .pkg-items .array-item .pkg-label:hover > .tooltip { display: block; }
 .expr-value { color: var(--purple) !important; }
-.array-add-btn { color: var(--green); }
-.array-obj-side-btns { display: flex; flex-direction: row; gap: 2px; align-items: center; opacity: 0; transition: opacity .15s; }
-.array-obj-item:hover .array-obj-side-btns,
-.array-obj-item:focus-within .array-obj-side-btns { opacity: 1; }
-.array-obj-side-btns .drag-handle { opacity: 1; }
 .expr-badge {
   display: inline-flex; align-items: center; gap: 4px;
   background: var(--expr-bg); border: 1px solid var(--expr-border);
