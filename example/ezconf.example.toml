@@ -2,8 +2,11 @@
 # Copy to ezconf.toml and edit as needed.
 # Command-line arguments always override values set here.
 
-# Path to the NixOS configuration JSON file to edit (required)
+# Path to the NixOS configuration JSON file to edit (required). Can also be a directory of
+# *.json files (each an independent tab, merged together at Nix-eval time); when it is, the
+# preferred initial tab can be set with default_file below.
 file = "example/configuration.json"
+# default_file = "configuration.json"
 
 # Directory to serve static files from (default: ./webroot)
 # webroot = "webroot"

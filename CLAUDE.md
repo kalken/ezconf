@@ -10,7 +10,7 @@ All changes must be committed to `develop` first. Only merge `develop` into `mas
 
 ## What this is
 
-A zero-dependency, single-page NixOS configuration editor. No build step, no framework, no package manager. The app is served by `bin/server.py` and edits a configuration JSON file specified via `--file`.
+A zero-dependency, single-page NixOS configuration editor. No build step, no framework, no package manager. The app is served by `bin/server.py` and edits the `*.json` config files under a directory specified via `--file`, discovered recursively (except `custom-options.json`, a schema-extension sidecar, and dotdirs like the default `.ezconf-backups`) — each one an independently editable/saveable/backed-up "file," chosen via a dropdown in the header, merged together only at Nix-eval time via `lib.mkMerge` in `json2nix.nix`. Files can be nested in subfolders (e.g. `services/nginx.json`) purely for the user's own organization — root-level files are plain entries in the dropdown, files in a folder are grouped under an `<optgroup>`. `--file` can also name a specific `*.json` file inside that directory (kept for compatibility with older invocations) — its directory becomes the working set and it's preselected initially.
 
 ## Running
 
@@ -66,17 +66,21 @@ Single `ThreadingHTTPServer` bound to `BIND_ADDR:WEB_PORT` (default `127.0.0.1:9
 
 **API endpoints**:
 - `GET /download-ca` — serves `CA_FILE` as a downloadable PEM (no auth required; only available when `CA_FILE` is set)
-- `POST /api/v1/save-config` — writes `CONFIG_FILE`, backing up the previous contents first via `backup_config()` (auth required)
+- `GET /api/v1/files` — `{"files": [...], "default": NAME|null}`; lists the `*.json` tabs in `CONFIG_DIR`; `default` is the file `--file` named explicitly (if any), used to pick the initial tab (auth required)
+- `POST /api/v1/save-config?file=NAME` — writes the resolved config file (falls back to `DEFAULT_FILE` when `NAME` is omitted), backing up the previous contents first via `backup_config()`; creates the file if it doesn't exist yet, which is how a new tab gets persisted (auth required)
 - `POST /api/v1/update-autocomplete` — runs `MKOPTIONS_CMD` to regenerate autocomplete data; only available when `--mkoptions` is set (auth required)
-- `GET /api/v1/backups` — lists backups in `BACKUP_DIR` (name, mtime, size), newest first (auth required)
-- `POST /api/v1/restore-backup` — copies a named backup over `CONFIG_FILE`; does not itself create a backup (that state is only saved if/when the user later hits Save); rejects names outside `BACKUP_DIR` (auth required)
+- `GET /api/v1/backups?file=NAME` — lists backups in `BACKUP_DIR` whose name is prefixed with `NAME`'s stem (name, mtime, size), newest first (auth required)
+- `POST /api/v1/restore-backup` — body `{"file": NAME, "name": BACKUP_NAME}`; copies a named backup over the resolved config file; does not itself create a backup (that state is only saved if/when the user later hits Save); rejects backup names outside `BACKUP_DIR` (auth required)
 - `POST /api/v1/delete-backup` — deletes a named backup file; rejects names outside `BACKUP_DIR` (auth required)
+- `POST /api/v1/delete-file` — body `{"file": NAME}`; deletes a whole config file; does not itself create a backup (that state is only saved if/when the user later hits Save on another tab); refuses to delete the last remaining file (auth required)
+- `POST /api/v1/rename-file` — body `{"from": NAME, "to": NAME}`; renames/moves a config file via `os.rename` (moving into/out of a subfolder is just a path change, so one endpoint covers both); both names are validated through `resolve_config_path()`; auto-creates destination subdirectories; rejects if the destination already exists (auth required)
 
-**File routing**: `StaticHandler.translate_path` sets `self.directory = WEBROOT`. `/configuration.json` is served from `CONFIG_FILE` (not WEBROOT). `/autocomplete/*` is served from `AUTOCOMPLETE_DIR` when set.
+**File routing**: `StaticHandler.translate_path` sets `self.directory = WEBROOT`. `/configuration.json?file=NAME` is served from the resolved config path (not WEBROOT) — `resolve_config_path()` accepts `NAME` as a relative path (e.g. `services/nginx.json`) and keeps writes inside `CONFIG_DIR` (a correctness guard, not a security boundary — an authenticated user here already has full terminal access to the machine); falls back to `DEFAULT_FILE` when `NAME` is omitted. `list_config_files()` walks `CONFIG_DIR` recursively via `os.walk`, skipping dotdirs. Backup filenames flatten the relative path (`services/nginx.json` → stem `services--nginx`) via `_flatten_stem()` so `BACKUP_DIR` itself stays a single flat directory even with nested tabs. `/autocomplete/*` is served from `AUTOCOMPLETE_DIR` when set.
 
 **Key globals**:
 - `WEBROOT` — directory for static assets (set by `--webroot`)
-- `CONFIG_FILE` — JSON file being edited (set by `--file`)
+- `CONFIG_DIR` — directory of JSON config files (tabs); set by `--file` (its dirname, if `--file` names a specific file)
+- `DEFAULT_FILE` — basename to prefer as the initial tab; set when `--file` names a specific file rather than a directory, or explicitly via `--default-file`/`default_file` in config when `--file` is a directory (unset otherwise); used to pick which tab the editor opens on and as `resolve_config_path()`'s fallback when no `file` is given
 - `AUTOCOMPLETE_DIR` — override for autocomplete file serving (set by `--autocomplete-dir`)
 - `MKOPTIONS_CMD` — path to mkoptions binary; enables the update-autocomplete endpoint
 - `TERMINAL_PORT` — when set, enables the terminal panel in the frontend and points it at this port
@@ -84,7 +88,7 @@ Single `ThreadingHTTPServer` bound to `BIND_ADDR:WEB_PORT` (default `127.0.0.1:9
 - `BIND_ADDR` — IP address to listen on; set by `listen` in config (default `127.0.0.1`); automatically added to `TRUSTED_HOSTS`
 - `TRUSTED_HOSTS` — extra hostnames accepted by `_valid_host` for CSRF check; set by `trusted_hosts` in config; always includes `BIND_ADDR` and any `--san` values
 - `CA_FILE` — path to the CA cert served at `/download-ca`; set automatically by `--generate-ca` or via `ca_file` in config
-- `BACKUP_DIR` — directory for `configuration.json` backups; set by `--backup-dir` or `backup_dir` in config (default: `.ezconf-backups` next to `CONFIG_FILE`)
+- `BACKUP_DIR` — directory for config file backups, one subset per file (named `<stem>-<timestamp>.json`); set by `--backup-dir` or `backup_dir` in config (default: `.ezconf-backups` inside `CONFIG_DIR`)
 - `BACKUP_COUNT` — number of backups kept per save; set by `--backup-count` or `backup_count` in config (default `5`; `0` disables backups)
 - `_SESSION_KEY` — random hex key generated at startup (or loaded from `--session-key-file`); used as the expected value of the `ezconf_session` cookie
 
@@ -102,9 +106,11 @@ Reads the same `ezconf.toml` as the web server (`--config FILE`). The WebSocket 
 
 All application logic is in the `<script>` block at the bottom (~1400 lines). No modules, no imports, no build step.
 
-**Data model**: `config` (plain JS object mirroring `configuration.json`), `options` (array of `{path, type, description, default, example}`), `packages` (array of `{name, description}`). Two sentinel object shapes are used:
+**Data model**: `config` (plain JS object mirroring the active tab's JSON file), `options` (array of `{path, type, description, default, example}`), `packages` (array of `{name, description}`). Two sentinel object shapes are used:
 - `{ _expr: "..." }` — raw Nix expression replacing a normal value
 - `{ _disabled: true, _value: <original> }` — option disabled in the UI; filtered out by `json2nix.nix` at evaluation time, preserving the original value for re-enabling
+
+**Multi-file state**: every file's config is loaded into `fileConfigs[name]` up front (not just the active one), so edits on inactive files survive switching and Save can persist all of them at once. `config` is always the same object as `fileConfigs[activeFile]` — code paths that reassign `config` wholesale (import, undo/redo, reload) must be reflected back into `fileConfigs[activeFile]`; `renderAll()` does this unconditionally as a safety net, since virtually every mutation calls it. `fileSaved[name]` holds the last-saved-to-disk JSON snapshot per file; `isAnyDirty()` compares every file against it, driving both the status dot and every `save_first` terminal button (disabled while *any* file is dirty, not just the active one). `fileHistories[name]` holds independent undo/redo stacks per file. `saveToServer()` POSTs every dirty file, not just the active one. `name` keys throughout are `CONFIG_DIR`-relative paths (e.g. `services/nginx.json`) — `renderFileSelector()` renders a first `.tab-row` for root-level files (which also carries the "+" to create a file), then one `.tab-folder-group` per top-level folder (a `.tab-folder-label` on its own line above a `.tab-row` of that folder's files), each row holding one tab button (`_makeTab()`) per file in it; a tab's label (`_tabLabel()`) drops the folder prefix and the `.json` suffix (both redundant — the row/group already names the folder, and every tab is a `.json` file), with the full relative path shown as its `title` tooltip. Each tab has a right-click context menu offering "Rename / Move…" (`renameFile()`, backed by `POST /api/v1/rename-file`) and "Delete" (no separate "✕" — the context menu covers both); renaming re-keys `files`/`fileConfigs`/`fileSaved`/`fileHistories` client-side and updates `activeFile`/`localStorage` when the active file is the one renamed. A file that was never saved to disk (absent from `fileSaved`) skips the backend call entirely on rename, mirroring `deleteFile()`'s same check.
 
 **Key subsystems:**
 
@@ -117,13 +123,20 @@ All application logic is in the `<script>` block at the bottom (~1400 lines). No
 | Add panel | `initAddPanel`, `doAdd`, `doForceAdd`, `doForceAddWithType` |
 | Editor rendering | `renderEditor` → `renderObj` → `renderSection` / `renderField` / `renderArray` / `renderPkgArray` / `renderDisabled` |
 | Tree sidebar | `renderTree`, `renderTreeLevel` |
-| Drag-and-drop | `makeDraggable`, `reorderKey` |
+| Drag-and-drop | `makeDraggable`, `reorderKey`, `moveValueToFile` |
+| Copy/cut/paste | `copyPath`, `cutPath`, `pastePath`, `_clipboard` — moves/duplicates a section or option between files, always at the same path it was copied from |
+| Context menu | `showContextMenu`, `_commonMenuItems`, `triggerAddUnder` — right-click on a section/field/array-field row for its actions (add option, convert to expr, disable/re-enable, copy, cut, delete, add item). A section's menu is bound to the whole `.section` div (header + body), not just the header, so right-clicking blank space inside it still targets that section — nested sections/fields stop propagation in their own handler first. There's no dedicated Paste button anywhere — `renderEditor()` also binds `#editor-area`'s `oncontextmenu` to offer "Paste" (only when `_clipboard` is set; otherwise it doesn't call `preventDefault()`, so the browser's native menu shows instead), which is what lets you paste into a file with nothing rendered in it yet |
+| Import | `doImport`, `_normalizeFileName`, `_nixDeepMerge` — parses pasted (or file-loaded) Nix/JSON and deep-merges it into the file named in the "Import into" field (`#import-target-file`, defaulting to `activeFile` when opened via `showImportModal()`); a name not already in `files` is created on the fly (same in-memory-only, no `fileSaved` entry, until Save as `createFile()`) and switched to after import so the result is immediately visible |
 
-**`_expr` objects** appear as scalar fields toggled to raw Nix (via the `{ }` button) and as elements of package arrays (`{ _expr: "pkgs.foo" }`). `isExprPkg(v)` distinguishes the two. `renderPkgArray` handles arrays at paths ending in `systemPackages`, `packages`, `extraPackages`, `extraPlugins`, or `users.users.<name>.packages`.
+**`_expr` objects** appear as scalar fields toggled to raw Nix (via the "Convert to Nix expression" context-menu item) and as elements of package arrays (`{ _expr: "pkgs.foo" }`). `isExprPkg(v)` distinguishes the two. `renderPkgArray` handles arrays at paths ending in `systemPackages`, `packages`, `extraPackages`, `extraPlugins`, or `users.users.<name>.packages`.
 
-**`_disabled` objects** (`{ _disabled: true, _value: <original> }`) are rendered by `renderDisabled`, which delegates to the normal render function for the inner value and then adds the `is-disabled` CSS class. The `#` button inside the rendered element is replaced with a re-enable handler. `isDisabled(v)` guards the check in `renderObj` and `renderTreeLevel` (disabled nodes are treated as leaves in the tree).
+**`_disabled` objects** (`{ _disabled: true, _value: <original> }`) are rendered by `renderDisabled`, which delegates to the normal render function for the inner value and then adds the `is-disabled` CSS class. Unlike the old always-visible `#` button, the context menu's "Disable"/"Re-enable" item is computed fresh at menu-open time from `isDisabled(getAtPath(config, path))`, so `renderDisabled` doesn't need to patch anything up after the fact. `isDisabled(v)` also guards the check in `renderObj` and `renderTreeLevel` (disabled nodes are treated as leaves in the tree).
+
+**Right-click context menu** (`showContextMenu`, in place of the old always-visible icon-button row on sections/fields/array-fields): `oncontextmenu` on the row calls `showContextMenu(event, items)`, which renders a fixed-position `.context-menu` at the cursor and wires a capture-phase `mousedown` listener (`_ctxMenuOutsideHandler`) to close it — that listener specifically checks the click is outside the menu (`!_ctxMenuEl.contains(e.target)`), since a plain document-wide close-on-mousedown would fire on the menu's own items first and remove them before their click handler runs. `_commonMenuItems(path)` builds the shared Disable/Re-enable + Copy/Cut + Delete tail every row's menu ends with; each render function prepends its own type-specific items (convert-to-expr, convert-back-to-native-type, add-item) before it.
 
 **`traverseForSet`** navigates/creates intermediate path nodes. It preserves existing arrays rather than replacing with `{}`, and uses `emptyContainerFor` (consults `findOption`) to decide if missing nodes should be `[]` or `{}`.
+
+**Drag-and-drop** (`makeDraggable`): sections, field-rows, and array-field-rows have no dedicated drag handle — `mousedown` is bound to the whole element, and starts a drag unless the event target is inside `_DRAG_EXCLUDE_SELECTOR` (inputs, buttons, toggles, custom-select controls, etc.), so clicking/typing into a value still works while grabbing anywhere else on the row (background, key label, section header) reorders it. `array-obj-item` (an object element inside an array) is the one exception that keeps a visible `⠿` handle, since its body is entirely filled by its own nested editable fields with no blank chrome left to grab. During a drag, hovering over a sibling with the same parent path highlights it (`.drag-over`) for a same-file reorder (`reorderKey`); hovering over a *different* file's tab in `#tab-bar` (each tab carries `dataset.file`) highlights it (`.tab-drop-target`) and dropping calls `moveValueToFile(path, targetFile)` — copies the value into that file's `fileConfigs` at the same path (via `traverseForSet`, confirming first if it would overwrite something already there) and deletes it from the current file. Only object-keyed rows can be dropped on a file tab this way — a plain array item (numeric-index key) has no stable meaning as a path in another file's config, so `canMoveToFile` is false for those and only same-array reordering applies.
 
 **Autocomplete data** is fetched from `/autocomplete/options.json`, `/autocomplete/packages.json`, and `/autocomplete/kernels.json` — served from `AUTOCOMPLETE_DIR` when set, otherwise `autocomplete/` under WEBROOT.
 
@@ -175,7 +188,8 @@ Key options:
 - `listen` — IP address to bind to (default `127.0.0.1`; use `0.0.0.0` for all interfaces); `openFirewall` is enabled automatically for non-localhost addresses
 - `interface` — network interface to open firewall ports on (e.g. `"eth0"`); when set, uses `networking.firewall.interfaces.<name>.allowedTCPPorts` instead of the global `allowedTCPPorts`; works with both iptables and nftables backends
 - `ports.web` / `ports.terminal` — service ports (defaults `9090` / `9091`)
-- `configDir` — directory for `configuration.json` and `default.nix` (default `/etc/nixos/ezconf`)
-- `buttons` — list of `{label, command, save_first}` shortcuts shown in the terminal panel
+- `configDir` — directory for `configuration.json` (and any additional `*.json` tabs) plus `default.nix` (default `/etc/nixos/ezconf`); `services.ezconf.file` is set to this directory — a fresh install starts with one tab (`configuration.json`)
+- `defaultFile` — file (relative to `configDir`) seeded with `{}` on first activation and preferred as the initially-selected tab (default `configuration.json`); change this to rename the seeded file, e.g. to `main.json`
+- `buttons` — list of `{label, command, save_first, always_show}` shortcuts shown in the terminal panel; `always_show` (default `true`) controls whether a button set in one tab's config also shows while other tabs are active; `save_first` disables the button while *any* tab has unsaved changes, not just the active one (Save persists every dirty tab, not just the active one)
 
 The activation script creates `configDir`, generates certs if needed, and installs the CA into allowed users' NSS databases. The `preStart` script generates autocomplete data on first run, creates the session key, and writes the runtime TOML to `/run/ezconf/ezconf.toml`.

@@ -14,7 +14,8 @@ let
   preStartScript = p.mkPrestart { inherit cfg staticToml mkoptions package; };
 
   staticToml = pkgs.writeText "ezconf.toml" (lib.concatLines (lib.flatten [
-    "file = ${str "${cfg.configDir}/configuration.json"}"
+    "file = ${str cfg.configDir}"
+    "default_file = ${str cfg.defaultFile}"
     "webroot = ${str cfg.webroot}"
     "autocomplete_dir = ${str "/var/lib/ezconf/autocomplete"}"
     "mkoptions = ${str "${mkoptions}/bin/ezconf-mkoptions"}"
@@ -42,7 +43,7 @@ let
     ""
     "[ports]"
     "web = ${toString cfg.ports.web}"
-    (map (btn: "\n[[buttons]]\nlabel = ${str btn.label}\ncommand = ${str btn.command}${lib.optionalString btn.save_first "\nsave_first = true"}") cfg.buttons)
+    (map (btn: "\n[[buttons]]\nlabel = ${str btn.label}\ncommand = ${str btn.command}${lib.optionalString btn.save_first "\nsave_first = true"}${lib.optionalString (!btn.always_show) "\nalways_show = false"}") cfg.buttons)
   ]));
 
 in
@@ -66,7 +67,13 @@ in
     configDir = lib.mkOption {
       type        = lib.types.str;
       default     = "/etc/nixos/ezconf";
-      description = "Directory for configuration.json and default.nix. Should be inside the system flake so pure evaluation can read it.";
+      description = "Directory for configuration.json (and any additional *.json config files) plus default.nix. Should be inside the system flake so pure evaluation can read it. Any *.json file here (besides custom-options.json) is an independently editable tab in the UI, merged at eval time.";
+    };
+
+    defaultFile = lib.mkOption {
+      type        = lib.types.str;
+      default     = "configuration.json";
+      description = "File (relative to configDir) to seed with an empty {} on first activation, and to prefer as the initially-selected tab when the editor opens.";
     };
 
     webroot = lib.mkOption {
@@ -210,9 +217,10 @@ in
     buttons = lib.mkOption {
       type = lib.types.listOf (lib.types.submodule {
         options = {
-          label      = lib.mkOption { type = lib.types.str;  description = "Button label shown in the UI."; };
-          command    = lib.mkOption { type = lib.types.str;  description = "Shell command to run in the terminal."; };
-          save_first = lib.mkOption { type = lib.types.bool; default = false; description = "Disable the button while there are unsaved changes."; };
+          label       = lib.mkOption { type = lib.types.str;  description = "Button label shown in the UI."; };
+          command     = lib.mkOption { type = lib.types.str;  description = "Shell command to run in the terminal."; };
+          save_first  = lib.mkOption { type = lib.types.bool; default = false; description = "Disable the button while there are unsaved changes."; };
+          always_show = lib.mkOption { type = lib.types.bool; default = true;  description = "Show this button regardless of which config file (tab) is active. Set to false to only show it while its own defining file is the active tab."; };
         };
       });
       default     = [];
@@ -253,15 +261,16 @@ in
 
       system.activationScripts.ezconf.text = ''
         mkdir -p ${cfg.configDir}
+        mkdir -p $(dirname ${cfg.configDir}/${cfg.defaultFile})
         cp ${./json2nix.nix} ${cfg.configDir}/default.nix
         chmod 644 ${cfg.configDir}/default.nix
-        if [ ! -f ${cfg.configDir}/configuration.json ]; then
-          echo '{}' > ${cfg.configDir}/configuration.json
-          chmod 644 ${cfg.configDir}/configuration.json
+        if [ ! -f ${cfg.configDir}/${cfg.defaultFile} ]; then
+          echo '{}' > ${cfg.configDir}/${cfg.defaultFile}
+          chmod 644 ${cfg.configDir}/${cfg.defaultFile}
         fi
         chown ${cfg.user}:${cfg.group} ${cfg.configDir}
         chown ${cfg.user}:${cfg.group} ${cfg.configDir}/default.nix
-        chown ${cfg.user}:${cfg.group} ${cfg.configDir}/configuration.json
+        chown ${cfg.user}:${cfg.group} ${cfg.configDir}/${cfg.defaultFile}
       '';
 
       systemd.services.ezconf = {

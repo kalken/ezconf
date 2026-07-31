@@ -154,6 +154,8 @@ services.ezconf = {
 
 `save_first = true` disables the button while there are unsaved changes. The terminal service has `restartIfChanged = false` so active sessions survive `nixos-rebuild switch`.
 
+If you're editing multiple config files (tabs), buttons show up regardless of which tab is active by default. Set `always_show = false` on a button to only show it while its own defining file is the active tab — handy for a shortcut that only makes sense in the context of one specific file.
+
 ## 🔒 HTTPS
 
 HTTPS is enabled by default. When no `cert` or `key` are provided a local CA and certificate are generated automatically in `/var/lib/ezconf/`. With `installCerts = true` (the default) the CA is installed into `~/.pki/nssdb` for each user in `auth.allowedUsers` so browsers trust it without a warning.
@@ -251,6 +253,7 @@ services.ezconf = {
 | `enable` | bool | `false` | Enable ezconf |
 | `user` / `group` | str | `"root"` | User and group for the services |
 | `configDir` | str | `"/etc/nixos/ezconf"` | Directory for `configuration.json` and `default.nix` |
+| `defaultFile` | str | `"configuration.json"` | File (relative to `configDir`) seeded on first activation and preselected in the editor |
 | `auth.method` | str | `"auto"` | `auto`, `pam`, or `custom` |
 | `auth.username` | str or null | `null` | Username for `custom` auth |
 | `auth.password` | str or null | `null` | Password for `custom` auth (stored in Nix store — prefer `passwordFile`) |

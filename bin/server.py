@@ -2,14 +2,26 @@
 """
 ezconf server — single listener bound to 127.0.0.1:
   http(s)://localhost:9090  static files + API
-    POST /api/v1/save-config      writes the config file specified by --file (backs up first)
-    GET  /api/v1/backups          lists configuration.json backups
-    POST /api/v1/restore-backup   restores a backup over the config file
+    GET  /api/v1/files            lists the config files (tabs) in CONFIG_DIR
+    POST /api/v1/save-config      writes a config file (backs up first); creates it if new
+    GET  /api/v1/backups          lists backups for a config file
+    POST /api/v1/restore-backup   restores a backup over a config file
     POST /api/v1/delete-backup    deletes a backup file
+    POST /api/v1/delete-file      deletes a whole config file (refuses to delete the last one)
+    POST /api/v1/rename-file      renames/moves a config file (same op — moving between
+                                   subfolders is just a path change)
+
+Every *.json file in CONFIG_DIR (except custom-options.json) is a
+separately editable/saveable "tab" in the UI, merged together only at
+Nix-eval time via lib.mkMerge. --file (or "file" in ezconf.toml) can name
+CONFIG_DIR directly, or a specific *.json file inside it (kept for
+compatibility — its directory becomes CONFIG_DIR and it's used as the
+initially selected tab).
 
 Run:
-  python3 server.py --file /path/to/configuration.json
-  python3 server.py --webroot /path/to/webroot --file /path/to/configuration.json
+  python3 server.py --file /path/to/config-dir/
+  python3 server.py --webroot /path/to/webroot --file /path/to/config-dir/
+  python3 server.py --file /path/to/config-dir/configuration.json
   python3 server.py --terminal-port 9092 --file ...  show terminal panel (run terminal.py separately)
   python3 server.py --auth custom --file ...          custom username/password from ezconf.toml
   python3 server.py --auth pam --file ...             PAM auth (requires python-pam)
@@ -25,8 +37,8 @@ Auth:
   --auth pam      system username + password via PAM (requires python-pam)
 
 Config file (ezconf.toml):
-  file, webroot, auth, terminal_port, session_key_file, cert, key, username, password,
-  allowed_users, mkoptions, nixos_target, ports.web, backup_dir, backup_count
+  file, default_file, webroot, auth, terminal_port, session_key_file, cert, key, username,
+  password, allowed_users, mkoptions, nixos_target, ports.web, backup_dir, backup_count
 """
 import argparse
 import datetime
@@ -92,7 +104,8 @@ ALLOWED_USERS = set()
 
 WEBROOT          = os.path.join(os.getcwd(), 'webroot')  # serves all static files; set by --webroot
 AUTOCOMPLETE_DIR = None          # override for /autocomplete/ requests; set by --autocomplete-dir
-CONFIG_FILE      = None          # path to the JSON config file to edit; set by --file
+CONFIG_DIR       = None          # directory of JSON config files (tabs); set by --file
+DEFAULT_FILE     = None          # basename to prefer as the initial tab; set when --file names a specific file
 AUTH_MODE        = 'none'        # set by --auth: 'none', 'custom', 'pam'
 TERMINAL_ENABLED = False         # True when terminal_port is set
 TERMINAL_PORT    = None          # port the terminal WebSocket service is running on
@@ -295,19 +308,28 @@ def check_auth(headers):
     return _session_from_cookie(headers) == _SESSION_KEY
 
 
-def backup_config():
-    """Copy the current CONFIG_FILE into BACKUP_DIR, pruning to BACKUP_COUNT newest."""
-    if BACKUP_COUNT <= 0 or not os.path.exists(CONFIG_FILE):
+def _flatten_stem(rel):
+    """Turn a CONFIG_DIR-relative path like 'services/nginx.json' into a flat, collision-safe
+    backup stem ('services--nginx') so BACKUP_DIR itself never needs subdirectories."""
+    return os.path.splitext(rel)[0].replace(os.sep, '--').replace('/', '--')
+
+
+def backup_config(path):
+    """Copy path into BACKUP_DIR, pruning to BACKUP_COUNT newest backups sharing its stem."""
+    if BACKUP_COUNT <= 0 or not os.path.exists(path):
         return
     os.makedirs(BACKUP_DIR, exist_ok=True)
+    rel = os.path.relpath(path, os.path.realpath(CONFIG_DIR))
+    stem = _flatten_stem(rel)
     ts = datetime.datetime.now().strftime('%Y%m%d-%H%M%S')
-    dest = os.path.join(BACKUP_DIR, f'configuration-{ts}.json')
+    dest = os.path.join(BACKUP_DIR, f'{stem}-{ts}.json')
     i = 1
     while os.path.exists(dest):
-        dest = os.path.join(BACKUP_DIR, f'configuration-{ts}-{i}.json')
+        dest = os.path.join(BACKUP_DIR, f'{stem}-{ts}-{i}.json')
         i += 1
-    shutil.copy2(CONFIG_FILE, dest)
-    backups = [f for f in os.listdir(BACKUP_DIR) if f.startswith('configuration-') and f.endswith('.json')]
+    shutil.copy2(path, dest)
+    prefix = f'{stem}-'
+    backups = [f for f in os.listdir(BACKUP_DIR) if f.startswith(prefix) and f.endswith('.json')]
     backups.sort(key=lambda f: os.path.getmtime(os.path.join(BACKUP_DIR, f)), reverse=True)
     for old in backups[BACKUP_COUNT:]:
         try:
@@ -316,11 +338,12 @@ def backup_config():
             pass
 
 
-def list_backups():
+def list_backups(stem):
     items = []
+    prefix = f'{stem}-'
     if os.path.isdir(BACKUP_DIR):
         for name in os.listdir(BACKUP_DIR):
-            if not (name.startswith('configuration-') and name.endswith('.json')):
+            if not (name.startswith(prefix) and name.endswith('.json')):
                 continue
             st = os.stat(os.path.join(BACKUP_DIR, name))
             items.append({'name': name, 'mtime': st.st_mtime, 'size': st.st_size})
@@ -337,6 +360,57 @@ def resolve_backup_path(name):
     if os.path.dirname(full) != base or not os.path.isfile(full):
         return None
     return full
+
+
+def resolve_config_path(name):
+    """Return the absolute path for a config file name inside CONFIG_DIR, or None if invalid.
+
+    Falls back to DEFAULT_FILE when name is empty, so a caller that hasn't learned the file
+    list yet still resolves to a sensible file. Does not require the file to already exist,
+    since save-config uses this to create new tabs. Subpaths (e.g. "services/nginx.json") are
+    allowed for organizing tabs into folders; this only keeps writes inside CONFIG_DIR by
+    construction (an authenticated user here already has full terminal access to the machine,
+    so this is a correctness guard against typos, not a security boundary).
+    """
+    name = name or DEFAULT_FILE
+    if not name or not name.endswith('.json') or os.path.basename(name) == 'custom-options.json':
+        return None
+    parts = name.replace('\\', '/').split('/')
+    if os.path.isabs(name) or any(p in ('', '.', '..') for p in parts):
+        return None
+    base = os.path.realpath(CONFIG_DIR)
+    full = os.path.realpath(os.path.join(base, name))
+    if os.path.commonpath([base, full]) != base:
+        return None
+    return full
+
+
+def list_config_files():
+    """Recursively list the *.json tabs under CONFIG_DIR as relative POSIX paths.
+
+    Skips dotdirs (in particular BACKUP_DIR's default name, .ezconf-backups, when it lives
+    inside CONFIG_DIR) so backup files never show up as tabs.
+    """
+    base = os.path.realpath(CONFIG_DIR)
+    names = []
+    for root, dirs, filenames in os.walk(base):
+        dirs[:] = [d for d in dirs if not d.startswith('.')]
+        for fn in filenames:
+            if not fn.endswith('.json') or fn == 'custom-options.json':
+                continue
+            rel = os.path.relpath(os.path.join(root, fn), base).replace(os.sep, '/')
+            names.append(rel)
+    names.sort()
+    return names
+
+
+def _config_stem(name):
+    """Resolve name to a config path and return its flattened backup stem, or None if invalid."""
+    path = resolve_config_path(name)
+    if path is None:
+        return None
+    rel = os.path.relpath(path, os.path.realpath(CONFIG_DIR))
+    return _flatten_stem(rel)
 
 
 def _read_login_page(error=''):
@@ -405,10 +479,21 @@ class StaticHandler(http.server.SimpleHTTPRequestHandler):
             return
         if parsed.path == '/api/v1/save-config':
             try:
+                qs = parse_qs(parsed.query)
+                target = resolve_config_path(qs.get('file', [None])[0])
+                if not target:
+                    resp = b'{"error":"invalid file name"}'
+                    self.send_response(400)
+                    self.send_header('Content-Type', 'application/json')
+                    self.send_header('Content-Length', str(len(resp)))
+                    self.end_headers()
+                    self.wfile.write(resp)
+                    return
                 length = int(self.headers.get('Content-Length', 0))
                 body = json.loads(self.rfile.read(length))
-                backup_config()
-                with open(CONFIG_FILE, 'w') as f:
+                backup_config(target)
+                os.makedirs(os.path.dirname(target), exist_ok=True)
+                with open(target, 'w') as f:
                     json.dump(body, f, indent=2)
                 self.send_response(200)
                 self.send_header('Content-Type', 'application/json')
@@ -420,6 +505,15 @@ class StaticHandler(http.server.SimpleHTTPRequestHandler):
             try:
                 length = int(self.headers.get('Content-Length', 0))
                 body = json.loads(self.rfile.read(length))
+                target = resolve_config_path(body.get('file'))
+                if not target:
+                    resp = b'{"error":"invalid file name"}'
+                    self.send_response(400)
+                    self.send_header('Content-Type', 'application/json')
+                    self.send_header('Content-Length', str(len(resp)))
+                    self.end_headers()
+                    self.wfile.write(resp)
+                    return
                 src = resolve_backup_path(body.get('name', ''))
                 if not src:
                     resp = b'{"error":"invalid backup name"}'
@@ -429,7 +523,65 @@ class StaticHandler(http.server.SimpleHTTPRequestHandler):
                     self.end_headers()
                     self.wfile.write(resp)
                     return
-                shutil.copy2(src, CONFIG_FILE)
+                shutil.copy2(src, target)
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                self.wfile.write(b'{"ok":true}')
+            except Exception as e:
+                self.send_error(500, str(e))
+        elif parsed.path == '/api/v1/delete-file':
+            try:
+                length = int(self.headers.get('Content-Length', 0))
+                body = json.loads(self.rfile.read(length))
+                target = resolve_config_path(body.get('file', ''))
+                if not target or not os.path.isfile(target):
+                    resp = b'{"error":"invalid file name"}'
+                    self.send_response(400)
+                    self.send_header('Content-Type', 'application/json')
+                    self.send_header('Content-Length', str(len(resp)))
+                    self.end_headers()
+                    self.wfile.write(resp)
+                    return
+                if len(list_config_files()) <= 1:
+                    resp = b'{"error":"cannot delete the last remaining file"}'
+                    self.send_response(400)
+                    self.send_header('Content-Type', 'application/json')
+                    self.send_header('Content-Length', str(len(resp)))
+                    self.end_headers()
+                    self.wfile.write(resp)
+                    return
+                os.remove(target)
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                self.wfile.write(b'{"ok":true}')
+            except Exception as e:
+                self.send_error(500, str(e))
+        elif parsed.path == '/api/v1/rename-file':
+            try:
+                length = int(self.headers.get('Content-Length', 0))
+                body = json.loads(self.rfile.read(length))
+                src = resolve_config_path(body.get('from', ''))
+                dst = resolve_config_path(body.get('to', ''))
+                if not src or not os.path.isfile(src) or not dst:
+                    resp = b'{"error":"invalid file name"}'
+                    self.send_response(400)
+                    self.send_header('Content-Type', 'application/json')
+                    self.send_header('Content-Length', str(len(resp)))
+                    self.end_headers()
+                    self.wfile.write(resp)
+                    return
+                if os.path.exists(dst):
+                    resp = b'{"error":"a file already exists at the destination"}'
+                    self.send_response(400)
+                    self.send_header('Content-Type', 'application/json')
+                    self.send_header('Content-Length', str(len(resp)))
+                    self.end_headers()
+                    self.wfile.write(resp)
+                    return
+                os.makedirs(os.path.dirname(dst), exist_ok=True)
+                os.rename(src, dst)
                 self.send_response(200)
                 self.send_header('Content-Type', 'application/json')
                 self.end_headers()
@@ -526,9 +678,9 @@ class StaticHandler(http.server.SimpleHTTPRequestHandler):
             self._deny(); return
         if parsed.path.rstrip('/') in ('', '/index.html'):
             self._serve_index(); return
-        if parsed.path == '/api/v1/backups':
+        if parsed.path == '/api/v1/files':
             try:
-                data = json.dumps({'backups': list_backups()}).encode()
+                data = json.dumps({'files': list_config_files(), 'default': DEFAULT_FILE}).encode()
                 self.send_response(200)
                 self.send_header('Content-Type', 'application/json')
                 self.send_header('Content-Length', str(len(data)))
@@ -537,11 +689,30 @@ class StaticHandler(http.server.SimpleHTTPRequestHandler):
             except Exception as e:
                 self.send_error(500, str(e))
             return
-        # configuration.json and custom-options.json live next to CONFIG_FILE, not in WEBROOT
+        if parsed.path == '/api/v1/backups':
+            try:
+                qs = parse_qs(parsed.query)
+                stem = _config_stem(qs.get('file', [None])[0])
+                if stem is None:
+                    self.send_error(400); return
+                data = json.dumps({'backups': list_backups(stem)}).encode()
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.send_header('Content-Length', str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+            except Exception as e:
+                self.send_error(500, str(e))
+            return
+        # configuration.json and custom-options.json live in CONFIG_DIR, not in WEBROOT
         if parsed.path == '/configuration.json':
-            self._serve_raw(CONFIG_FILE); return
+            qs = parse_qs(parsed.query)
+            target = resolve_config_path(qs.get('file', [None])[0])
+            if not target:
+                self.send_error(400); return
+            self._serve_raw(target); return
         if parsed.path == '/custom-options.json':
-            self._serve_raw(os.path.join(os.path.dirname(CONFIG_FILE), 'custom-options.json')); return
+            self._serve_raw(os.path.join(CONFIG_DIR, 'custom-options.json')); return
         # autocomplete files served from AUTOCOMPLETE_DIR when set
         if AUTOCOMPLETE_DIR and parsed.path.startswith('/autocomplete/'):
             rel = os.path.normpath(parsed.path[len('/autocomplete/'):]).lstrip('/')
@@ -616,7 +787,9 @@ if __name__ == '__main__':
     ap.add_argument('--nixos-target', metavar='PATH', default=None,
                     help='flake path passed as TARGET to mkoptions (default: /etc/nixos)')
     ap.add_argument('--file', metavar='FILE', default=None,
-                    help='configuration JSON file to edit')
+                    help='directory of JSON config files (tabs) to edit, or a specific *.json file inside one')
+    ap.add_argument('--default-file', metavar='NAME', default=None,
+                    help='file (relative to --file, when --file is a directory) to prefer as the initially-selected tab')
     ap.add_argument('--backup-dir', metavar='DIR', default=None,
                     help='directory to store configuration.json backups (default: <config dir>/.ezconf-backups)')
     ap.add_argument('--backup-count', metavar='N', type=int, default=None,
@@ -761,10 +934,17 @@ if __name__ == '__main__':
     _file = _resolve(args.file, cfg.get('file'), None, None)
     if not _file:
         ap.error('--file is required (or set "file" in ezconf.toml)')
-    CONFIG_FILE = os.path.abspath(_file)
+    _file = os.path.abspath(_file)
+    if os.path.isdir(_file):
+        CONFIG_DIR = _file
+        DEFAULT_FILE = _resolve(args.default_file, cfg.get('default_file'), None, None)
+    else:
+        CONFIG_DIR = os.path.dirname(_file)
+        DEFAULT_FILE = os.path.basename(_file)
+    os.makedirs(CONFIG_DIR, exist_ok=True)
 
     _bd = _resolve(args.backup_dir, cfg.get('backup_dir'), None, None)
-    BACKUP_DIR = os.path.abspath(_bd) if _bd else os.path.join(os.path.dirname(CONFIG_FILE), '.ezconf-backups')
+    BACKUP_DIR = os.path.abspath(_bd) if _bd else os.path.join(CONFIG_DIR, '.ezconf-backups')
     BACKUP_COUNT = args.backup_count if args.backup_count is not None else int(cfg.get('backup_count', 5))
 
     use_tls = os.path.exists(CERT_FILE) and os.path.exists(KEY_FILE)
@@ -784,7 +964,8 @@ if __name__ == '__main__':
 
     print(f'web  → {scheme}://localhost:{WEB_PORT}')
     print(f'dir  → {WEBROOT}')
-    print(f'file → {CONFIG_FILE}')
+    _n = len(list_config_files())
+    print(f'files → {CONFIG_DIR} ({_n} file{"s" if _n != 1 else ""})')
     if BACKUP_COUNT > 0:
         print(f'backup → {BACKUP_DIR} (keeping {BACKUP_COUNT})')
     if AUTH_MODE == 'custom':

@@ -26,15 +26,16 @@ const _DEFAULT_THEME = '%%EZCONF_THEME%%';
     <button class="btn" onclick="reloadConfig()" title="Reload saved file">↺</button>
     <button class="btn" onclick="clearConfig()" title="Clear all configuration">✕</button>
   </div>
-  <span class="header-file" id="filename-label">loading…</span>
   <div class="header-actions">
     <input type="file" id="import-file-input" accept=".json,.nix" style="display:none">
     <button class="btn" onclick="showImportModal()">⬇ Import</button>
     <button class="btn" onclick="exportJSON()">⬆ Export</button>
-    <button class="btn" onclick="saveToServer()">⬇ Save</button>
+    <button class="btn" id="save-btn" onclick="saveToServer()">⬇ Save</button>
     <button class="btn" onclick="location.href='/logout'" title="Log out">⏻</button>
   </div>
 </div>
+
+<div class="tab-bar" id="tab-bar"></div>
 
 <div class="layout">
   <div class="sidebar">
@@ -99,8 +100,12 @@ const _DEFAULT_THEME = '%%EZCONF_THEME%%';
       <h2>Import and merge configuration</h2>
       <button class="btn" onclick="document.getElementById('import-file-input').click()" title="Load a .json or .nix file">⬆ Load file</button>
     </div>
+    <div class="import-target-row">
+      <label for="import-target-file">Import into</label>
+      <input type="text" id="import-target-file" placeholder="e.g. services/nginx.json" autocomplete="off">
+    </div>
     <textarea id="import-textarea" placeholder="Paste a Nix expression or JSON object…" oninput="_validateImportInput(this)"></textarea>
-    <p class="import-hint">Try pasting the contents of your <code>configuration.nix</code> — options will be merged into the current config.</p>
+    <p class="import-hint">Try pasting the contents of your <code>configuration.nix</code> — options will be merged into the target file above (defaults to the current one; a name that doesn't exist yet, e.g. <code>services/nginx.json</code>, is created).</p>
     <div class="import-examples">
       <div class="import-example-label">Nix</div>
       <pre class="import-example-code" onclick="setImportExample(this)">services.nginx.enable = true;
@@ -174,6 +179,10 @@ let packages = [];
 let kernels = [];
 let options = [];
 let customOptions = [];
+let files = [];
+let activeFile = null;
+let fileConfigs = {}; // filename -> live (possibly edited) config object; config === fileConfigs[activeFile]
+let fileSaved = {};   // filename -> JSON string snapshot of the last-saved-to-disk state
 
 // ── Input auto-sizer ──────────────────────────────────────────────────────────
 function bindAutosize(_inp) { /* no-op: inputs fill their container */ }
@@ -210,6 +219,143 @@ function typeOf(val) {
 function isExprPkg(v) { return v && typeof v === 'object' && '_expr' in v; }
 function isDisabled(v) { return v !== null && typeof v === 'object' && !Array.isArray(v) && '_disabled' in v; }
 function pathStr(path) { return path.length ? path.join('.') : 'root'; }
+
+// ── Copy / cut / paste (move sections or options between files) ────────────────
+// Paste always targets the same path it was copied from, just in whichever file is currently
+// active — the point is moving/duplicating a section or option across files, not renaming it.
+// The clipboard is one-shot: pasting clears it, so "Paste" only shows between a copy/cut and
+// the paste that consumes it.
+let _clipboard = null; // { path, value, sourceFile }
+
+function copyPath(path) {
+  const val = getAtPath(config, path);
+  if (val === undefined) return;
+  _clipboard = { path: path.slice(), value: JSON.parse(JSON.stringify(val)), sourceFile: activeFile };
+  setStatus('Copied ' + pathStr(path), 2000, 'ok');
+}
+
+function cutPath(path) {
+  copyPath(path);
+  deleteAtPath(config, path);
+  renderAll();
+  setStatus('Cut ' + pathStr(path) + ' — pick a file, right-click, and choose Paste to move it there', 4000, 'ok');
+}
+
+function pastePath() {
+  if (!_clipboard) return;
+  const { path, value } = _clipboard;
+  if (getAtPath(config, path) !== undefined) {
+    if (!confirm(`"${pathStr(path)}" already has a value in ${activeFile}.\n\nOverwrite it with the pasted content?`)) return;
+  }
+  const parent = traverseForSet(config, path);
+  if (!parent) { setStatus('Could not paste here', 4000, 'err'); return; }
+  const key = path[path.length - 1];
+  const clone = JSON.parse(JSON.stringify(value));
+  if (Array.isArray(parent)) parent[parseInt(key)] = clone;
+  else parent[key] = clone;
+  _clipboard = null; // one-shot: pasting consumes it, matching a move/cut flow
+  renderAll();
+  setStatus('Pasted ' + pathStr(path), 2000, 'ok');
+}
+
+// Drag-and-drop analogue of copy+paste-elsewhere: dragging a section/field onto a tab in the
+// file bar moves it (same path) into that file's config and removes it from the current one.
+// Returns false (without touching either config) if the user cancels an overwrite confirm or
+// the path can't be traversed, so the caller can restore the dragged element's visual state.
+function moveValueToFile(path, targetFile) {
+  const value = getAtPath(config, path);
+  if (value === undefined) return false;
+  const targetConfig = fileConfigs[targetFile];
+  if (getAtPath(targetConfig, path) !== undefined
+      && !confirm(`"${pathStr(path)}" already has a value in ${targetFile}.\n\nOverwrite it with the dragged content?`)) {
+    return false;
+  }
+  const parent = traverseForSet(targetConfig, path);
+  if (!parent) { setStatus('Could not move there', 4000, 'err'); return false; }
+  const key = path[path.length - 1];
+  const clone = JSON.parse(JSON.stringify(value));
+  if (Array.isArray(parent)) parent[parseInt(key)] = clone;
+  else parent[key] = clone;
+  deleteAtPath(config, path);
+  renderAll();
+  setStatus('Moved ' + pathStr(path) + ' to ' + targetFile, 2500, 'ok');
+  return true;
+}
+
+// ── Right-click context menu ────────────────────────────────────────────────────
+// Replaces the old always-visible icon-button row on sections/fields/array-fields
+// (dragging isn't a menu action — see makeDraggable, which drags from anywhere on the row).
+let _ctxMenuEl = null;
+
+function _closeContextMenu() {
+  if (_ctxMenuEl) { _ctxMenuEl.remove(); _ctxMenuEl = null; }
+  document.removeEventListener('mousedown', _ctxMenuOutsideHandler, true);
+  document.removeEventListener('keydown', _ctxMenuEscHandler);
+}
+// Only closes on a mousedown OUTSIDE the menu — a plain document-wide listener would fire (and
+// remove the menu) on mousedown over a menu item too, before its own click handler ever runs.
+function _ctxMenuOutsideHandler(e) { if (_ctxMenuEl && !_ctxMenuEl.contains(e.target)) _closeContextMenu(); }
+function _ctxMenuEscHandler(e) { if (e.key === 'Escape') _closeContextMenu(); }
+
+function showContextMenu(event, items) {
+  event.preventDefault();
+  event.stopPropagation();
+  _closeContextMenu();
+  const menu = document.createElement('div');
+  menu.className = 'context-menu';
+  items.forEach(item => {
+    if (item.separator) {
+      const sep = document.createElement('div');
+      sep.className = 'context-menu-sep';
+      menu.appendChild(sep);
+      return;
+    }
+    const btn = document.createElement('button');
+    btn.className = 'context-menu-item' + (item.danger ? ' danger' : '');
+    btn.textContent = item.label;
+    if (item.disabled) btn.disabled = true;
+    btn.onclick = () => { _closeContextMenu(); item.onclick(); };
+    menu.appendChild(btn);
+  });
+  document.body.appendChild(menu);
+  const rect = menu.getBoundingClientRect();
+  let x = event.clientX, y = event.clientY;
+  if (x + rect.width > window.innerWidth) x = Math.max(0, window.innerWidth - rect.width - 4);
+  if (y + rect.height > window.innerHeight) y = Math.max(0, window.innerHeight - rect.height - 4);
+  menu.style.left = x + 'px';
+  menu.style.top = y + 'px';
+  _ctxMenuEl = menu;
+  setTimeout(() => {
+    document.addEventListener('mousedown', _ctxMenuOutsideHandler, true);
+    document.addEventListener('keydown', _ctxMenuEscHandler);
+  }, 0);
+}
+
+// Shared "Disable" / "Re-enable" + "Copy" / "Cut" + "Delete" items every row's menu ends with.
+// Checked live at menu-open time (not render time), so it stays correct even though
+// renderDisabled() renders the *inner* value at the same path as the {_disabled,_value} wrapper.
+function _commonMenuItems(path, { skipDisable = false } = {}) {
+  const cur = getAtPath(config, path);
+  if (isDisabled(cur)) {
+    return [
+      { label: 'Re-enable', onclick: () => { setAtPath(config, path, cur._value); renderAll(); } },
+      { separator: true },
+      { label: 'Delete', danger: true, onclick: () => { deleteAtPath(config, path); renderAll(); } },
+    ];
+  }
+  const items = [];
+  if (!skipDisable) {
+    items.push({ label: 'Disable', onclick: () => { setAtPath(config, path, { _disabled: true, _value: getAtPath(config, path) }); renderAll(); } });
+  }
+  items.push(
+    { separator: true },
+    { label: 'Copy', onclick: () => copyPath(path) },
+    { label: 'Cut', onclick: () => cutPath(path) },
+    { separator: true },
+    { label: 'Delete', danger: true, onclick: () => { deleteAtPath(config, path); renderAll(); } },
+  );
+  return items;
+}
 function preview(val, maxlen = 48) {
   if (val === null) return 'null';
   if (typeof val === 'boolean') return val ? 'true' : 'false';
@@ -1248,28 +1394,24 @@ function makeFlatColHandle() {
   return handle;
 }
 
+// Elements that must keep normal click/focus/text-selection behavior instead of starting a
+// drag — everything else on the row (background, key label, whitespace) is a drag surface now
+// that there's no dedicated handle icon.
+const _DRAG_EXCLUDE_SELECTOR =
+  'input, textarea, select, button, a, [contenteditable], .toggle, .custom-select-btn, .custom-select-dropdown, .autocomplete-wrap';
+
 function makeDraggable(el, key, parentPath) {
   const parentKey = parentPath.join('\x00');
   el.dataset.dragKey = key;
   el.dataset.dragParent = parentKey;
+  // A plain array index (pure reorder-within-array item) has no meaning as a target path in a
+  // different file's config, so only object-keyed rows (sections/fields) can be dropped on a
+  // file tab to move them there.
+  const canMoveToFile = !/^\d+$/.test(key);
 
-  let handle;
-  if (el.classList.contains('field-row')) {
-    handle = el.querySelector(':scope > .field-actions > .drag-handle');
-  } else if (el.classList.contains('flat-group')) {
-    handle = el.querySelector('.flat-group-header > .drag-handle');
-  } else if (el.classList.contains('flat-sublevel')) {
-    handle = el.querySelector('.flat-sublevel-header > .drag-handle');
-  } else if (el.classList.contains('array-obj-item')) {
-    handle = el.querySelector(':scope > .array-obj-side-btns > .drag-handle');
-  } else {
-    handle = el.querySelector('.drag-handle');
-  }
-
-  if (!handle) return;
-
-  handle.addEventListener('mousedown', e => {
+  el.addEventListener('mousedown', e => {
     if (e.button !== 0) return;
+    if (e.target.closest(_DRAG_EXCLUDE_SELECTOR)) return;
     e.preventDefault();
     e.stopPropagation();
 
@@ -1299,8 +1441,21 @@ function makeDraggable(el, key, parentPath) {
       dragGhost.style.display = '';
 
       document.querySelectorAll('.drag-over').forEach(x => x.classList.remove('drag-over'));
+      document.querySelectorAll('.tab-drop-target').forEach(x => x.classList.remove('tab-drop-target'));
+      dragState.overKey = null;
+      dragState.overFile = null;
 
       if (!under) return;
+
+      if (canMoveToFile) {
+        const tab = under.closest('#tab-bar .tab[data-file]');
+        if (tab && tab.dataset.file !== activeFile) {
+          tab.classList.add('tab-drop-target');
+          dragState.overFile = tab.dataset.file;
+          return;
+        }
+      }
+
       // Walk up to find a sibling draggable with same parent
       let target = under;
       while (target && target !== document.body) {
@@ -1311,7 +1466,6 @@ function makeDraggable(el, key, parentPath) {
         }
         target = target.parentElement;
       }
-      dragState.overKey = null;
     };
 
     const onUp = () => {
@@ -1320,8 +1474,11 @@ function makeDraggable(el, key, parentPath) {
 
       if (dragGhost) { dragGhost.remove(); dragGhost = null; }
       document.querySelectorAll('.drag-over').forEach(x => x.classList.remove('drag-over'));
+      document.querySelectorAll('.tab-drop-target').forEach(x => x.classList.remove('tab-drop-target'));
 
-      if (dragState && dragState.overKey) {
+      if (dragState && dragState.overFile) {
+        if (!moveValueToFile([...parentPath, key], dragState.overFile)) el.classList.remove('is-dragging');
+      } else if (dragState && dragState.overKey) {
         reorderKey(parentPath, key, dragState.overKey);
       } else {
         el.classList.remove('is-dragging');
@@ -1502,6 +1659,13 @@ function renderEditor() {
   if (flatMode) renderFlat(area, config, []);
   else renderObj(area, config, []);
   area.scrollTop = scroll;
+  // Right-clicking any actual row shows that row's own menu (stopPropagation in
+  // showContextMenu), so this only ever fires on genuinely empty space — most importantly a
+  // blank file with nothing rendered in it yet, which otherwise has nowhere to right-click.
+  area.oncontextmenu = e => {
+    if (!_clipboard) return; // nothing to paste — let the browser's native menu show instead
+    showContextMenu(e, [{ label: 'Paste', onclick: pastePath }]);
+  };
 }
 
 function renderObj(container, obj, path) {
@@ -1584,6 +1748,17 @@ function buildTooltip(opt, typeLabel) {
   return tt;
 }
 
+// Focuses the add-input prefilled with "path.", used by both the section header's click-to-add
+// text and the "Add option" context-menu item.
+function triggerAddUnder(path) {
+  if (isDisabled(getAtPath(config, path))) return; // adding into a disabled section would corrupt its wrapper
+  const inp = document.getElementById('add-input');
+  inp.value = path.join('.') + '.';
+  inp.focus();
+  inp.dispatchEvent(new Event('input'));
+  inp.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
 function makeSectionHeader(key, path, extraType) {
   const header = document.createElement('div');
   header.className = 'section-header';
@@ -1600,25 +1775,8 @@ function makeSectionHeader(key, path, extraType) {
   typeEl.className = 'section-type';
   typeEl.textContent = extraType;
 
-  const delBtn = document.createElement('button');
-  delBtn.className = 'icon-btn del'; delBtn.textContent = '✕'; delBtn.title = 'Delete';
-
   const opt = findOption(path);
   keyText.appendChild(buildTooltip(opt, extraType));
-
-  const dragHandle = document.createElement('span');
-  dragHandle.className = 'drag-handle';
-  dragHandle.innerHTML = '⠿';
-  dragHandle.title = 'Drag to reorder';
-
-  function triggerAdd(e) {
-    e.stopPropagation();
-    const inp = document.getElementById('add-input');
-    inp.value = path.join('.') + '.';
-    inp.focus();
-    inp.dispatchEvent(new Event('input'));
-    inp.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-  }
 
   const sub = document.createElement('span');
   sub.className = 'section-key-sub';
@@ -1631,13 +1789,8 @@ function makeSectionHeader(key, path, extraType) {
 
   keyEl.appendChild(keyInner);
 
-  keyText.title = 'Click to add option under this section';
-  keyText.addEventListener('click', triggerAdd);
-
-  header.appendChild(dragHandle);
   header.appendChild(keyEl);
-  header.appendChild(delBtn);
-  return { header, delBtn };
+  return header;
 }
 
 function renderDisabled(container, key, disabledObj, path) {
@@ -1655,14 +1808,8 @@ function renderDisabled(container, key, disabledObj, path) {
   const el = tempContainer.firstElementChild;
   if (!el) return;
   el.classList.add('is-disabled');
-
-  // Replace # handler: should re-enable (unwrap), not double-wrap
-  const disableBtn = el.querySelector('.disable-btn');
-  if (disableBtn) {
-    disableBtn.classList.add('active');
-    disableBtn.title = 'Re-enable';
-    disableBtn.onclick = e => { if (e) e.stopPropagation(); setAtPath(config, path, inner); renderAll(); };
-  }
+  // The context menu built by _commonMenuItems() checks isDisabled(getAtPath(config, path))
+  // live at menu-open time, so it already shows "Re-enable" here — nothing to patch up.
 
   container.appendChild(el);
 }
@@ -1680,32 +1827,18 @@ function renderSection(container, key, obj, path) {
   section.className = 'section';
   section.dataset.path = pathKey;
 
-  const { header, delBtn } = makeSectionHeader(key, path, 'object');
-  delBtn.onclick = e => {
-    e.stopPropagation();
-    deleteAtPath(config, path); renderAll();
+  const header = makeSectionHeader(key, path, 'object');
+  // Attached to the whole section (header + body), not just the header, so right-clicking
+  // anywhere inside it — including blank space between child rows — shows this section's menu.
+  // Nested sections/fields have their own handler and stopPropagation() in showContextMenu(),
+  // so a right-click on a child still shows the child's menu, not this one.
+  section.oncontextmenu = e => {
+    const items = isDisabled(getAtPath(config, path)) ? [] : [
+      { label: 'Add option…', onclick: () => triggerAddUnder(path) },
+      { label: 'Convert to Nix expression', onclick: () => { setAtPath(config, path, { _expr: jsonToNix(getAtPath(config, path)) }); renderAll(); } },
+    ];
+    showContextMenu(e, [...items, ..._commonMenuItems(path)]);
   };
-
-  // { } button to convert whole object to a Nix expression
-  const exprBtn = document.createElement('button');
-  exprBtn.className = 'icon-btn expr-wrap-btn'; exprBtn.title = 'Convert to Nix expression';
-  exprBtn.textContent = '{ }';
-  exprBtn.onclick = e => {
-    e.stopPropagation();
-    const cur = getAtPath(config, path);
-    setAtPath(config, path, { _expr: jsonToNix(cur) });
-    renderAll();
-  };
-  header.insertBefore(exprBtn, delBtn);
-
-  const disableBtn = document.createElement('button');
-  disableBtn.className = 'icon-btn disable-btn'; disableBtn.textContent = '#'; disableBtn.title = 'Disable this option';
-  disableBtn.onclick = e => {
-    e.stopPropagation();
-    setAtPath(config, path, { _disabled: true, _value: getAtPath(config, path) });
-    renderAll();
-  };
-  header.insertBefore(disableBtn, delBtn);
 
   section.appendChild(header);
 
@@ -1741,53 +1874,38 @@ function renderArrayField(container, key, arr, path) {
   if (isPkgArrayPath(path)) renderPkgArray(valEl, arr, path);
   else renderArray(valEl, arr, path);
 
-  const actions = document.createElement('div');
-  actions.className = 'field-actions';
-  if (!isPkgArrayPath(path)) {
-    const addBtn = document.createElement('button');
-    addBtn.className = 'icon-btn add-btn'; addBtn.textContent = '+'; addBtn.title = 'Add item';
-    addBtn.onclick = () => {
-      const existing = arr[0];
-      if (existing !== undefined && typeof existing !== 'object') {
-        // Scalar array — just push an empty string
-        arr.push('');
+  function addItem() {
+    const existing = arr[0];
+    if (existing !== undefined && typeof existing !== 'object') {
+      // Scalar array — just push an empty string
+      arr.push('');
+    } else {
+      // Object array (or empty) — always use schema-derived blank with required fields
+      const blank = blankObjectFromOptions(path);
+      if (blank !== null) {
+        arr.push(blank);
       } else {
-        // Object array (or empty) — always use schema-derived blank with required fields
-        const blank = blankObjectFromOptions(path);
-        if (blank !== null) {
-          arr.push(blank);
-        } else {
-          const opt = findOption(path);
-          const isObjArray = (existing !== undefined && existing !== null && typeof existing === 'object' && !isExprPkg(existing))
-                          || (opt && isObjectArrayNixType(opt.type));
-          arr.push(isObjArray ? {} : '');
-        }
+        const opt = findOption(path);
+        const isObjArray = (existing !== undefined && existing !== null && typeof existing === 'object' && !isExprPkg(existing))
+                        || (opt && isObjectArrayNixType(opt.type));
+        arr.push(isObjArray ? {} : '');
       }
-      renderAll();
-    };
-    actions.appendChild(addBtn);
+    }
+    renderAll();
   }
-  const exprBtn = document.createElement('button');
-  exprBtn.className = 'icon-btn expr-wrap-btn'; exprBtn.textContent = '{ }'; exprBtn.title = 'Convert to Nix expression';
-  exprBtn.onclick = () => { const cur = getAtPath(config, path); setAtPath(config, path, { _expr: jsonToNix(cur) }); renderAll(); };
-  actions.appendChild(exprBtn);
-  const disableBtn = document.createElement('button');
-  disableBtn.className = 'icon-btn disable-btn'; disableBtn.textContent = '#'; disableBtn.title = 'Disable this option';
-  disableBtn.onclick = () => { setAtPath(config, path, { _disabled: true, _value: getAtPath(config, path) }); renderAll(); };
-  actions.appendChild(disableBtn);
-  const del = document.createElement('button');
-  del.className = 'icon-btn del'; del.textContent = '✕'; del.title = 'Delete';
-  del.onclick = () => { deleteAtPath(config, path); renderAll(); };
-  actions.appendChild(del);
 
-  const dragHandle = document.createElement('span');
-  dragHandle.className = 'drag-handle'; dragHandle.innerHTML = '⠿'; dragHandle.title = 'Drag to reorder';
-  actions.appendChild(dragHandle);
+  row.oncontextmenu = e => {
+    const disabled = isDisabled(getAtPath(config, path));
+    const items = disabled ? [] : [
+      ...(isPkgArrayPath(path) ? [] : [{ label: 'Add item', onclick: addItem }]),
+      { label: 'Convert to Nix expression', onclick: () => { setAtPath(config, path, { _expr: jsonToNix(getAtPath(config, path)) }); renderAll(); } },
+    ];
+    showContextMenu(e, [...items, ..._commonMenuItems(path)]);
+  };
 
   row.appendChild(keyEl);
   if (flatMode) row.appendChild(makeFlatColHandle());
   row.appendChild(valEl);
-  row.appendChild(actions);
   makeDraggable(row, path[path.length - 1], path.slice(0, -1));
   container.appendChild(row);
 }
@@ -1898,7 +2016,7 @@ function renderField(container, key, val, path) {
   const valEl = document.createElement('div');
   valEl.className = 'field-value';
   const type = typeOf(val);
-  let unwrapBtn = null;
+  let unwrapAction = null;
 
   const pathKey = path.join('.');
   const kernelExprStr = isExprPkg(val) && /^pkgs\./.test(val._expr) ? val._expr : null;
@@ -1918,9 +2036,7 @@ function renderField(container, key, val, path) {
     inp.rows = Math.max(1, val._expr.split('\n').length);
     inp.addEventListener('change', () => setAtPath(config, path, { _expr: inp.value }));
     inp.addEventListener('input', () => { inp.rows = Math.max(1, inp.value.split('\n').length); });
-    unwrapBtn = document.createElement('button');
-    unwrapBtn.className = 'icon-btn unwrap-btn'; unwrapBtn.textContent = '\u232b'; unwrapBtn.title = 'Convert back to native type';
-    unwrapBtn.onclick = () => {
+    unwrapAction = () => {
       // Kernel path: remove from expr set and store raw string to return to autocomplete mode.
       if (isKernelPath(path)) {
         setAtPath(config, path, inp.value.trim());
@@ -2032,46 +2148,33 @@ function renderField(container, key, val, path) {
     }
   }
 
-  const actions = document.createElement('div');
-  actions.className = 'field-actions';
-  if (!isExprPkg(val) && (isKernelPath(path) || type === 'string' || type === 'number' || type === 'null')) {
-    const exprBtn = document.createElement('button');
-    exprBtn.className = 'icon-btn expr-wrap-btn'; exprBtn.textContent = '{ }'; exprBtn.title = 'Convert to Nix expression';
-    exprBtn.onclick = () => {
-      const cur = getAtPath(config, path);
-      if (isKernelPath(path)) { setAtPath(config, path, { _expr: typeof cur === 'string' ? cur : '' }); }
-      else {
-        let expr;
-        if (cur === null || cur === undefined) {
-          expr = (opt && opt.default != null && opt.default !== 'null') ? String(opt.default) : '';
-        } else {
-          expr = jsonToNix(cur);
-        }
-        setAtPath(config, path, { _expr: expr });
+  const canConvertExpr = !isExprPkg(val) && (isKernelPath(path) || type === 'string' || type === 'number' || type === 'null');
+  function convertToExpr() {
+    const cur = getAtPath(config, path);
+    if (isKernelPath(path)) { setAtPath(config, path, { _expr: typeof cur === 'string' ? cur : '' }); }
+    else {
+      let expr;
+      if (cur === null || cur === undefined) {
+        expr = (opt && opt.default != null && opt.default !== 'null') ? String(opt.default) : '';
+      } else {
+        expr = jsonToNix(cur);
       }
-      renderAll();
-    };
-    actions.appendChild(exprBtn);
+      setAtPath(config, path, { _expr: expr });
+    }
+    renderAll();
   }
-  if (unwrapBtn) actions.appendChild(unwrapBtn);
-  const disableBtn = document.createElement('button');
-  disableBtn.className = 'icon-btn disable-btn'; disableBtn.textContent = '#'; disableBtn.title = 'Disable this option';
-  disableBtn.onclick = () => { setAtPath(config, path, { _disabled: true, _value: getAtPath(config, path) }); renderAll(); };
-  actions.appendChild(disableBtn);
-  const del = document.createElement('button');
-  del.className = 'icon-btn del'; del.textContent = '\u2715'; del.title = 'Delete';
-  del.onclick = () => { deleteAtPath(config, path); renderAll(); };
-  actions.appendChild(del);
-
-  const dragHandle = document.createElement('span');
-  dragHandle.className = 'drag-handle';
-  dragHandle.innerHTML = '⠿';
-  dragHandle.title = 'Drag to reorder';
-  actions.appendChild(dragHandle);
+  row.oncontextmenu = e => {
+    const disabled = isDisabled(getAtPath(config, path));
+    const items = disabled ? [] : [
+      ...(unwrapAction ? [{ label: 'Convert back to native type', onclick: unwrapAction }] : []),
+      ...(canConvertExpr ? [{ label: 'Convert to Nix expression', onclick: convertToExpr }] : []),
+    ];
+    showContextMenu(e, [...items, ..._commonMenuItems(path)]);
+  };
 
   row.appendChild(keyEl);
   if (flatMode) row.appendChild(makeFlatColHandle());
-  row.appendChild(valEl); row.appendChild(actions);
+  row.appendChild(valEl);
   makeDraggable(row, path[path.length - 1], path.slice(0, -1));
   container.appendChild(row);
 }
@@ -2110,6 +2213,9 @@ function renderArray(container, arr, path) {
       renderObj(fields, v, itemPath);
       const sideBtns = document.createElement('div');
       sideBtns.className = 'array-obj-side-btns';
+      // Unlike sections/fields, an array item's body is entirely filled by its own nested
+      // editable fields — there's no blank chrome left to grab, so this handle stays (removing
+      // it would make the item nearly impossible to drag or move to another file).
       const dragHandle = document.createElement('span');
       dragHandle.className = 'drag-handle'; dragHandle.innerHTML = '⠿'; dragHandle.title = 'Drag to reorder';
       const addBtn = document.createElement('button');
@@ -2248,44 +2354,59 @@ function renderPkgArray(container, arr, path) {
 }
 
 // ── Undo / Redo ───────────────────────────────────────────────────────────────
-let _configHistory = [];
-let _historyIndex = -1;
-let _savedConfigJson = '';
-let _lastConfigJson = '';
+let fileHistories = {}; // filename -> { stack: [json snapshots], index: N, lastJson: '' }
 let _skipHistory = false;
 
-function _pushHistory() {
-  if (_skipHistory) return;
-  const curr = JSON.stringify(config);
-  if (curr === _lastConfigJson) return;
-  _configHistory = _configHistory.slice(0, _historyIndex + 1);
-  _configHistory.push(curr);
-  if (_configHistory.length > 200) _configHistory.shift();
-  _historyIndex = _configHistory.length - 1;
-  _lastConfigJson = curr;
+function _historyFor(name) {
+  if (!fileHistories[name]) fileHistories[name] = { stack: [], index: -1, lastJson: '' };
+  return fileHistories[name];
 }
 
+function _pushHistory() {
+  if (_skipHistory || !activeFile) return;
+  const h = _historyFor(activeFile);
+  const curr = JSON.stringify(config);
+  if (curr === h.lastJson) return;
+  h.stack = h.stack.slice(0, h.index + 1);
+  h.stack.push(curr);
+  if (h.stack.length > 200) h.stack.shift();
+  h.index = h.stack.length - 1;
+  h.lastJson = curr;
+}
+
+// Marks the active file's current in-memory state as matching disk. Call this only right
+// after fileConfigs[activeFile] has actually been written or reloaded from the server.
 function markSaved() {
-  _savedConfigJson = JSON.stringify(config);
+  if (activeFile) fileSaved[activeFile] = JSON.stringify(fileConfigs[activeFile]);
   _updateDirty();
 }
 
+function isAnyDirty() {
+  return Object.keys(fileConfigs).some(f => JSON.stringify(fileConfigs[f]) !== fileSaved[f]);
+}
+
 function _updateDirty() {
-  const dirty = JSON.stringify(config) !== _savedConfigJson;
+  const dirty = isAnyDirty();
   document.querySelector('.status-dot').classList.toggle('dirty', dirty);
   document.querySelector('.status-ready').textContent = dirty ? 'Modified' : 'Ready';
   document.querySelectorAll('.term-run-btn[data-save-first]').forEach(b => { b.disabled = dirty; });
+  const saveBtn = document.getElementById('save-btn');
+  if (saveBtn) saveBtn.disabled = !dirty;
 }
 
 function undo() {
-  if (_historyIndex <= 0) return;
-  _historyIndex--;
+  if (!activeFile) return;
+  const h = _historyFor(activeFile);
+  if (h.index <= 0) return;
+  h.index--;
   _restoreHistory();
 }
 
 function redo() {
-  if (_historyIndex >= _configHistory.length - 1) return;
-  _historyIndex++;
+  if (!activeFile) return;
+  const h = _historyFor(activeFile);
+  if (h.index >= h.stack.length - 1) return;
+  h.index++;
   _restoreHistory();
 }
 
@@ -2297,10 +2418,11 @@ function clearConfig() {
 
 async function reloadConfig() {
   try {
-    const r = await fetch('configuration.json', { cache: 'no-cache' });
+    const r = await fetch(_cfgPath(), { cache: 'no-cache' });
     if (!r.ok) throw r.status;
     const data = await r.json();
     config = normalizeConfig(data);
+    fileConfigs[activeFile] = config;
     renderAll();
     markSaved();
     setStatus('Reloaded', 2000, 'ok');
@@ -2311,10 +2433,11 @@ async function reloadConfig() {
 
 function _restoreHistory() {
   _skipHistory = true;
-  const snap = JSON.parse(_configHistory[_historyIndex]);
+  const h = _historyFor(activeFile);
+  const snap = JSON.parse(h.stack[h.index]);
   Object.keys(config).forEach(k => delete config[k]);
   Object.assign(config, snap);
-  _lastConfigJson = _configHistory[_historyIndex];
+  h.lastJson = h.stack[h.index];
   renderAll();
   _skipHistory = false;
   _updateDirty();
@@ -2322,6 +2445,10 @@ function _restoreHistory() {
 
 // ── Render all ────────────────────────────────────────────────────────────────
 function renderAll() {
+  // Some code paths (import, undo/redo, etc.) reassign `config` to a whole new object rather
+  // than mutating it in place; resync fileConfigs here so dirty-tracking and Save always see it,
+  // regardless of which mutation path was taken.
+  if (activeFile) fileConfigs[activeFile] = config;
   _pushHistory();
   _updateDirty();
   renderTree();
@@ -2344,6 +2471,7 @@ function setImportExample(el) {
 function showImportModal() {
   const ta = document.getElementById('import-textarea');
   ta.value = '';
+  document.getElementById('import-target-file').value = activeFile || '';
   _importClearError();
   document.getElementById('import-modal').classList.remove('hidden');
 }
@@ -2449,10 +2577,27 @@ function doImport() {
     );
     return;
   }
-  config = normalizeConfig(_nixDeepMerge(config, parsed));
+  const rawName = document.getElementById('import-target-file').value.trim();
+  const targetName = rawName ? _normalizeFileName(rawName) : activeFile;
+  if (targetName === null) return; // _normalizeFileName already reported the error
+
+  const isNewFile = !files.includes(targetName);
+  if (isNewFile) {
+    files.push(targetName);
+    files.sort();
+    fileConfigs[targetName] = {};
+    // deliberately no fileSaved[name] yet — mirrors createFile(): doesn't exist on disk until Save
+  }
+  fileConfigs[targetName] = normalizeConfig(_nixDeepMerge(fileConfigs[targetName], parsed));
+
   closeImportModal();
-  renderAll();
-  setStatus('Imported and merged', 3000, 'ok');
+  if (targetName === activeFile) {
+    config = fileConfigs[targetName];
+    renderAll();
+  } else {
+    switchFile(targetName);
+  }
+  setStatus((isNewFile ? 'Created ' + targetName + ' and imported' : 'Imported and merged into ' + targetName), 3000, 'ok');
 }
 function initLoadButton() {
   document.getElementById('import-file-input').addEventListener('change', e => {
@@ -2472,10 +2617,11 @@ function initLoadButton() {
 async function exportJSON() {
   const { _gui, ...exportable } = config;
   const json = JSON.stringify(exportable, null, 2);
+  const filename = activeFile || 'configuration.json';
   if (window.showSaveFilePicker) {
     try {
       const handle = await window.showSaveFilePicker({
-        suggestedName: 'configuration.json',
+        suggestedName: filename,
         types: [{ description: 'JSON', accept: { 'application/json': ['.json'] } }],
       });
       const writable = await handle.createWritable();
@@ -2487,7 +2633,7 @@ async function exportJSON() {
     }
   } else {
     const blob = new Blob([json], { type: 'application/json' });
-    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'configuration.json'; a.click();
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = filename; a.click();
     markSaved();
   }
 }
@@ -2644,13 +2790,23 @@ function setTerminalSize(size) {
   });
 }
 
+// services.ezconf.buttons can be set in any tab. Buttons on the active tab always show (you're
+// editing that file); buttons on other tabs show too unless always_show is explicitly false,
+// which scopes a button to only appear while its own defining file is the active tab. Every
+// tab's config is kept in fileConfigs (loaded at startup), so this doesn't need a fetch.
+function getAllButtons() {
+  return files.flatMap(f => f === activeFile
+    ? (config.services?.ezconf?.buttons || [])
+    : ((fileConfigs[f]?.services?.ezconf?.buttons) || []).filter(b => b.always_show !== false));
+}
+
 function renderButtons() {
   if (!TERMINAL_ENABLED) return;
   const container = document.getElementById('terminal-cmd-btns');
   if (!container) return;
   container.innerHTML = '';
-  const buttons = config.services?.ezconf?.buttons || [];
-  const dirty = JSON.stringify(config) !== _savedConfigJson;
+  const buttons = getAllButtons();
+  const dirty = isAnyDirty();
   buttons.forEach((btn, idx) => {
     const b = document.createElement('button');
     b.className = 'btn term-run-btn';
@@ -2677,8 +2833,222 @@ async function apiFetch(path, opts = {}) {
   return fetch(API_BASE + path, { ...opts, headers });
 }
 
+// ── Multi-file (tabs) ───────────────────────────────────────────────────────
+function _fileQuery() {
+  return activeFile ? ('?file=' + encodeURIComponent(activeFile)) : '';
+}
+function _cfgPathFor(name) {
+  return name ? ('configuration.json?file=' + encodeURIComponent(name)) : 'configuration.json';
+}
+function _cfgPath() {
+  return _cfgPathFor(activeFile);
+}
+function _cfgPathBust() {
+  const base = _cfgPath();
+  return base + (base.includes('?') ? '&' : '?') + '_=' + Date.now();
+}
+
+// Every file gets its own tab button — root-level files on the first row, then one row per
+// top-level folder, labeled with that folder's name, so nested files stay visible without
+// opening anything (unlike a dropdown or a per-folder sub-menu, the whole tree is on screen at
+// once). Tab labels drop the folder prefix and the ".json" suffix (both are redundant: the
+// folder is already the row's label, and every tab is a .json file) — hover a tab to see its
+// full relative path. Right-click a tab for Rename/Move or Delete.
+function _tabLabel(name) {
+  const base = name.slice(name.lastIndexOf('/') + 1);
+  return base.endsWith('.json') ? base.slice(0, -5) : base;
+}
+
+function _makeTab(name) {
+  const tab = document.createElement('button');
+  tab.className = 'btn tab' + (name === activeFile ? ' active' : '');
+  tab.dataset.file = name;
+  tab.title = name;
+  const label = document.createElement('span');
+  label.textContent = _tabLabel(name);
+  tab.appendChild(label);
+  tab.onclick = () => switchFile(name);
+  tab.oncontextmenu = e => {
+    const items = [{ label: 'Rename / Move…', onclick: () => renameFile(name) }];
+    if (files.length > 1) items.push({ label: 'Delete', danger: true, onclick: () => deleteFile(name) });
+    showContextMenu(e, items);
+  };
+  return tab;
+}
+
+function renderFileSelector() {
+  const bar = document.getElementById('tab-bar');
+  bar.innerHTML = '';
+
+  const rootFiles = [];
+  const folders = {}; // top-level folder name -> [relative paths inside it]
+  files.forEach(name => {
+    const slash = name.indexOf('/');
+    if (slash === -1) rootFiles.push(name);
+    else (folders[name.slice(0, slash)] ??= []).push(name);
+  });
+
+  const rootRow = document.createElement('div');
+  rootRow.className = 'tab-row';
+  rootFiles.sort().forEach(name => rootRow.appendChild(_makeTab(name)));
+  const addTab = document.createElement('button');
+  addTab.className = 'btn tab tab-add';
+  addTab.textContent = '+';
+  addTab.title = 'Add a new config file (e.g. services/nginx.json for a folder)';
+  addTab.onclick = createFile;
+  rootRow.appendChild(addTab);
+  bar.appendChild(rootRow);
+
+  Object.keys(folders).sort().forEach(folder => {
+    const group = document.createElement('div');
+    group.className = 'tab-folder-group';
+    const label = document.createElement('div');
+    label.className = 'tab-folder-label';
+    label.textContent = folder;
+    group.appendChild(label);
+    const row = document.createElement('div');
+    row.className = 'tab-row';
+    folders[folder].slice().sort().forEach(name => row.appendChild(_makeTab(name)));
+    group.appendChild(row);
+    bar.appendChild(group);
+  });
+}
+
+// warnIfDirty is false for switches that are already the direct result of a deliberate user
+// action (creating or deleting a file) — only a plain dropdown pick needs the reminder, since
+// switching itself never loses anything (every file's edits stay in fileConfigs regardless).
+async function switchFile(name) {
+  if (name === activeFile) return;
+  if (!(name in fileConfigs)) {
+    try {
+      const r = await fetch(_cfgPathFor(name), { cache: 'no-cache' });
+      if (!r.ok) throw r.status;
+      fileConfigs[name] = normalizeConfig(await r.json());
+      fileSaved[name] = JSON.stringify(fileConfigs[name]);
+    } catch (e) {
+      setStatus('Could not load ' + name, 4000, 'err');
+      return;
+    }
+  }
+  activeFile = name;
+  config = fileConfigs[name];
+  localStorage.setItem('ezconf-active-file', activeFile);
+  renderFileSelector();
+  renderAll();
+}
+
+// The new file is only created in memory (and left dirty) — it isn't written to disk until
+// Save actually runs, so Save has real, visible work to do right after creating a tab instead
+// of reporting "nothing to save" because it was already persisted silently.
+// Shared by createFile/renameFile: normalizes slashes, appends .json, and rejects names that
+// would resolve outside CONFIG_DIR or collide with the custom-options.json sidecar. Returns
+// null (after reporting a status message) if the name is unusable.
+function _normalizeFileName(raw) {
+  let name = raw.trim().replace(/\\/g, '/');
+  if (!name.endsWith('.json')) name += '.json';
+  const parts = name.split('/');
+  const invalid = parts[parts.length - 1] === 'custom-options.json'
+    || parts.some(p => p === '' || p === '.' || p === '..');
+  if (invalid) { setStatus('Invalid file name', 4000, 'err'); return null; }
+  return name;
+}
+
+async function createFile() {
+  let name = prompt('New file name (e.g. network.json, or services/nginx.json to put it in a folder):');
+  if (!name) return;
+  name = _normalizeFileName(name);
+  if (name === null) return;
+  if (files.includes(name)) { setStatus('That file already exists', 4000, 'err'); return; }
+  files.push(name);
+  files.sort();
+  fileConfigs[name] = {};
+  // deliberately no fileSaved[name] yet — the file doesn't exist on disk until Save
+  await switchFile(name);
+  setStatus('Created ' + name + ' — click Save to write it to disk', 4000, 'ok');
+}
+
+async function deleteFile(name) {
+  if (!confirm(`Delete ${name}?\n\nThis does not create a backup and cannot be undone.`)) return;
+  const existsOnDisk = Object.prototype.hasOwnProperty.call(fileSaved, name);
+  if (existsOnDisk) {
+    try {
+      const res = await apiFetch('/delete-file', {
+        method: 'POST',
+        body: JSON.stringify({ file: name }),
+      });
+      if (!res.ok) { setStatus('Delete failed (' + res.status + ')', 4000, 'err'); return; }
+    } catch (e) {
+      setStatus('Delete failed: ' + e.message, 4000, 'err');
+      return;
+    }
+  }
+  files = files.filter(f => f !== name);
+  delete fileConfigs[name];
+  delete fileSaved[name];
+  delete fileHistories[name];
+  if (name === activeFile) {
+    activeFile = null;
+    await switchFile(files[0]);
+  } else {
+    renderFileSelector();
+    renderButtons();
+    _updateDirty();
+  }
+  setStatus('Deleted ' + name, 2000, 'ok');
+}
+
+// Renaming and moving are the same operation server-side (os.rename) — moving into/out of a
+// subfolder is just a path change, so one prompt and one endpoint cover both.
+async function renameFile(oldName) {
+  const raw = prompt('New name / path for ' + oldName + ':', oldName);
+  if (!raw) return;
+  const name = _normalizeFileName(raw);
+  if (name === null || name === oldName) return;
+  if (files.includes(name)) { setStatus('That file already exists', 4000, 'err'); return; }
+
+  const existsOnDisk = Object.prototype.hasOwnProperty.call(fileSaved, oldName);
+  if (existsOnDisk) {
+    try {
+      const res = await apiFetch('/rename-file', {
+        method: 'POST',
+        body: JSON.stringify({ from: oldName, to: name }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setStatus('Rename failed: ' + (data.error || res.status), 4000, 'err');
+        return;
+      }
+    } catch (e) {
+      setStatus('Rename failed: ' + e.message, 4000, 'err');
+      return;
+    }
+  }
+
+  fileConfigs[name] = fileConfigs[oldName];
+  delete fileConfigs[oldName];
+  if (existsOnDisk) {
+    fileSaved[name] = fileSaved[oldName];
+    delete fileSaved[oldName];
+  }
+  if (fileHistories[oldName]) {
+    fileHistories[name] = fileHistories[oldName];
+    delete fileHistories[oldName];
+  }
+  files = files.filter(f => f !== oldName);
+  files.push(name);
+  files.sort();
+  if (activeFile === oldName) {
+    activeFile = name;
+    config = fileConfigs[name];
+    localStorage.setItem('ezconf-active-file', activeFile);
+  }
+  renderFileSelector();
+  renderButtons();
+  setStatus('Renamed to ' + name, 2000, 'ok');
+}
+
 function runButton(idx) {
-  const btn = (config.services?.ezconf?.buttons || [])[idx];
+  const btn = getAllButtons()[idx];
   if (!btn) return;
   const panel = document.getElementById('terminal-panel');
   if (panel.classList.contains('collapsed')) toggleTerminal();
@@ -2738,20 +3108,26 @@ async function updateAutocomplete() {
   }
 }
 
+// Saves every dirty tab, not just the active one — a file with pending edits shouldn't lose
+// them just because Save was clicked while a different tab was open.
 async function saveToServer() {
-  try {
-    const res = await apiFetch('/save-config', {
+  const dirty = Object.keys(fileConfigs).filter(f => JSON.stringify(fileConfigs[f]) !== fileSaved[f]);
+  if (!dirty.length) { setStatus('Nothing to save', 2000, 'ok'); return; }
+  const results = await Promise.allSettled(dirty.map(async f => {
+    const res = await apiFetch('/save-config?file=' + encodeURIComponent(f), {
       method: 'POST',
-      body: JSON.stringify(config),
+      body: JSON.stringify(fileConfigs[f]),
     });
-    if (!res.ok) { setStatus('Save failed (' + res.status + ')', 4000, 'err'); return; }
-    config = normalizeConfig(await fetch('configuration.json?' + Date.now()).then(r => r.json()));
-    renderAll();
-    markSaved();
-    setStatus('Saved', 2000, 'ok');
-  } catch (e) {
-    setStatus('Save failed: ' + e.message, 4000, 'err');
-  }
+    if (!res.ok) throw new Error(String(res.status));
+    const fresh = normalizeConfig(await fetch(_cfgPathFor(f) + '&_=' + Date.now()).then(r => r.json()));
+    fileConfigs[f] = fresh;
+    fileSaved[f] = JSON.stringify(fresh);
+    if (f === activeFile) config = fresh;
+  }));
+  const failed = dirty.filter((f, i) => results[i].status === 'rejected');
+  renderAll();
+  if (failed.length) setStatus('Save failed for: ' + failed.join(', '), 6000, 'err');
+  else setStatus(`Saved ${dirty.length} file${dirty.length !== 1 ? 's' : ''}`, 2000, 'ok');
 }
 
 // ── Backups ───────────────────────────────────────────────────────────────────
@@ -2762,7 +3138,9 @@ function _formatBackupSize(n) {
 }
 
 async function showBackupsModal() {
-  document.getElementById('backups-modal').classList.remove('hidden');
+  const modal = document.getElementById('backups-modal');
+  modal.classList.remove('hidden');
+  modal.querySelector('h2').textContent = activeFile ? `Backups — ${activeFile}` : 'Configuration backups';
   await refreshBackupsList();
 }
 function closeBackupsModal() { document.getElementById('backups-modal').classList.add('hidden'); }
@@ -2771,7 +3149,7 @@ async function refreshBackupsList() {
   const list = document.getElementById('backups-list');
   list.innerHTML = '<div class="backups-empty">Loading…</div>';
   try {
-    const res = await apiFetch('/backups');
+    const res = await apiFetch('/backups' + _fileQuery());
     if (!res.ok) throw new Error(String(res.status));
     const data = await res.json();
     const backups = data.backups || [];
@@ -2807,14 +3185,16 @@ async function refreshBackupsList() {
 }
 
 async function restoreBackup(name) {
-  if (!confirm(`Restore this backup?\n\n${name}\n\nThis overwrites the currently saved configuration.json. This cannot be undone.`)) return;
+  const targetLabel = activeFile || 'configuration.json';
+  if (!confirm(`Restore this backup?\n\n${name}\n\nThis overwrites the currently saved ${targetLabel}. This cannot be undone.`)) return;
   try {
     const res = await apiFetch('/restore-backup', {
       method: 'POST',
-      body: JSON.stringify({ name }),
+      body: JSON.stringify({ name, file: activeFile }),
     });
     if (!res.ok) { setStatus('Restore failed (' + res.status + ')', 4000, 'err'); return; }
-    config = normalizeConfig(await fetch('configuration.json?' + Date.now()).then(r => r.json()));
+    config = normalizeConfig(await fetch(_cfgPathBust()).then(r => r.json()));
+    fileConfigs[activeFile] = config;
     renderAll();
     markSaved();
     closeBackupsModal();
@@ -2839,32 +3219,48 @@ async function deleteBackup(name) {
 }
 
 // ── Load files ────────────────────────────────────────────────────────────────
+// Loads every tab's config up front (not just the active one) so Save can persist all of them
+// and save_first buttons can see every file's dirty state, regardless of which tab is open.
 async function loadSiblingFiles() {
-  const [cfgResult, pkgResult, optResult, kernelResult, customOptResult] = await Promise.allSettled([
-    fetch('configuration.json', { cache: 'no-cache' }).then(r => { if (!r.ok) throw r.status; return r.json(); }),
+  let cfgOk = true;
+  if (files.length) {
+    const results = await Promise.allSettled(files.map(f =>
+      fetch(_cfgPathFor(f), { cache: 'no-cache' }).then(r => { if (!r.ok) throw r.status; return r.json(); })
+    ));
+    files.forEach((f, i) => {
+      if (results[i].status === 'fulfilled') {
+        fileConfigs[f] = normalizeConfig(results[i].value);
+        fileSaved[f] = JSON.stringify(fileConfigs[f]);
+      } else {
+        cfgOk = false;
+      }
+    });
+    config = fileConfigs[activeFile] || {};
+  } else {
+    config = {};
+  }
+
+  const [pkgResult, optResult, kernelResult, customOptResult] = await Promise.allSettled([
     fetch('autocomplete/packages.json').then(r => { if (!r.ok) throw r.status; return r.json(); }),
     fetch('autocomplete/options.json').then(r => { if (!r.ok) throw r.status; return r.json(); }),
     fetch('autocomplete/kernels.json').then(r => { if (!r.ok) throw r.status; return r.json(); }),
     fetch('custom-options.json').then(r => { if (!r.ok) throw r.status; return r.json(); }),
   ]);
 
-  if (cfgResult.status === 'fulfilled') {
-    config = normalizeConfig(cfgResult.value);
-    document.getElementById('filename-label').textContent = 'configuration.json';
+  if (!cfgOk) {
+    document.getElementById('editor-area').innerHTML =
+      '<div class="editor-error">Could not load one or more config files<br>'
+      + '<span class="editor-error-hint">Serve with: <code class="editor-error-code">python3 -m http.server</code></span></div>';
+    return false;
+  }
+  if (!activeFile) {
+    setStatus('No config files yet — click + to create one', 5000, 'err');
+  } else {
     const unsupported = _checkUnsupportedKeys(config);
     if (unsupported.length) {
       const keys = unsupported.map(k => `"${k}"`).join(', ');
-      setStatus(`Warning: ${keys} in configuration.json cannot be edited here (NixOS module directive)`, 8000, 'err');
+      setStatus(`Warning: ${keys} in ${activeFile} cannot be edited here (NixOS module directive)`, 8000, 'err');
     }
-  } else if (cfgResult.reason === 404) {
-    config = {};
-    document.getElementById('filename-label').textContent = 'configuration.json';
-    setStatus('configuration.json not found — starting empty', 5000, 'err');
-  } else {
-    document.getElementById('editor-area').innerHTML =
-      '<div class="editor-error">Could not load configuration.json<br>'
-      + '<span class="editor-error-hint">Serve with: <code class="editor-error-code">python3 -m http.server</code></span></div>';
-    return false;
   }
   if (pkgResult.status === 'fulfilled') packages = pkgResult.value;
   else setStatus('packages.json not found', 4000, 'err');
@@ -2896,19 +3292,30 @@ async function loadSiblingFiles() {
   if (BACKUP_ENABLED) {
     const btn = document.createElement('button');
     btn.className = 'btn'; btn.id = 'backups-btn';
-    btn.title = 'View and restore configuration.json backups';
+    btn.title = 'View and restore config file backups';
     btn.textContent = '🕐 Backups';
     btn.onclick = showBackupsModal;
     const actions = document.querySelector('.header-actions');
     actions.insertBefore(btn, actions.firstChild);
   }
   _applyInitialTheme();
+  try {
+    const filesRes = await apiFetch('/files');
+    if (filesRes.ok) {
+      const data = await filesRes.json();
+      files = data.files || [];
+      if (files.length) {
+        const stored = localStorage.getItem('ezconf-active-file');
+        activeFile = files.includes(stored) ? stored : (files.includes(data.default) ? data.default : files[0]);
+      }
+    }
+  } catch (e) { setStatus('Could not load file list', 4000, 'err'); }
+  renderFileSelector();
   const ok = await loadSiblingFiles();
   if (!ok) return;
   initAddPanel();
   initLoadButton();
   document.getElementById('flat-mode-btn').classList.toggle('active', flatMode);
-  markSaved();
   renderAll();
 
   document.addEventListener('keydown', e => {
