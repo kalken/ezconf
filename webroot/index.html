@@ -37,31 +37,33 @@ const _DEFAULT_THEME = '%%EZCONF_THEME%%';
 
 <div class="tab-bar" id="tab-bar"></div>
 
+<div class="topbar">
+  <div class="autocomplete-wrap">
+    <input type="text" id="add-input" placeholder="Add option path… (e.g. services.openssh.enable)" autocomplete="off">
+    <div class="autocomplete-list hidden" id="add-ac-list"></div>
+  </div>
+  <button class="btn" onclick="doAdd()">Add</button>
+  <button class="btn" id="flat-mode-btn" onclick="toggleFlatMode()" title="Toggle flat / nested view">≡</button>
+  <button class="btn" id="tree-toggle-btn" onclick="toggleTree()" title="Show/hide the configuration tree">Tree</button>
+</div>
+<div class="force-type-bar hidden" id="force-type-bar">
+  <span class="force-type-label">Pick type to force add:</span>
+  <button class="type-btn" onclick="doForceAddWithType('string')">string</button>
+  <button class="type-btn" onclick="doForceAddWithType('boolean')">boolean</button>
+  <button class="type-btn" onclick="doForceAddWithType('number')">number</button>
+  <button class="type-btn" onclick="doForceAddWithType('array')">array</button>
+  <button class="type-btn" onclick="doForceAddWithType('object')">object</button>
+  <button class="type-btn" onclick="doForceAddWithType('expr')">expr</button>
+  <button class="type-btn cancel" onclick="hideForcebar()">cancel</button>
+</div>
+
 <div class="layout">
-  <div class="sidebar">
+  <div class="sidebar hidden" id="sidebar">
     <div class="sidebar-header">Configuration tree</div>
     <div class="tree" id="tree-root"></div>
   </div>
 
   <div class="main">
-    <div class="topbar">
-      <div class="autocomplete-wrap">
-        <input type="text" id="add-input" placeholder="Add option path… (e.g. services.openssh.enable)" autocomplete="off">
-        <div class="autocomplete-list hidden" id="add-ac-list"></div>
-      </div>
-      <button class="btn" onclick="doAdd()">Add</button>
-      <button class="btn" id="flat-mode-btn" onclick="toggleFlatMode()" title="Toggle flat / nested view">≡</button>
-    </div>
-    <div class="force-type-bar hidden" id="force-type-bar">
-      <span class="force-type-label">Pick type to force add:</span>
-      <button class="type-btn" onclick="doForceAddWithType('string')">string</button>
-      <button class="type-btn" onclick="doForceAddWithType('boolean')">boolean</button>
-      <button class="type-btn" onclick="doForceAddWithType('number')">number</button>
-      <button class="type-btn" onclick="doForceAddWithType('array')">array</button>
-      <button class="type-btn" onclick="doForceAddWithType('object')">object</button>
-      <button class="type-btn" onclick="doForceAddWithType('expr')">expr</button>
-      <button class="type-btn cancel" onclick="hideForcebar()">cancel</button>
-    </div>
     <div class="editor-area" id="editor-area">
       <div class="editor-placeholder">Loading…</div>
     </div>
@@ -1495,6 +1497,14 @@ function makeDraggable(el, key, parentPath) {
     document.addEventListener('mousemove', onMove);
     document.addEventListener('mouseup', onUp);
   });
+}
+
+// Hidden by default (unlike flat mode's URL-param persistence) — remembered per-browser via
+// localStorage since which tab/path you're in doesn't affect whether the tree is useful.
+function toggleTree() {
+  const visible = document.getElementById('sidebar').classList.toggle('hidden') === false;
+  localStorage.setItem('ezconf-tree-visible', visible ? 'true' : 'false');
+  document.getElementById('tree-toggle-btn').classList.toggle('active', visible);
 }
 
 let flatMode = new URLSearchParams(location.search).get('mode') === 'flat';
@@ -3316,6 +3326,9 @@ async function loadSiblingFiles() {
   initAddPanel();
   initLoadButton();
   document.getElementById('flat-mode-btn').classList.toggle('active', flatMode);
+  const treeVisible = localStorage.getItem('ezconf-tree-visible') === 'true';
+  document.getElementById('sidebar').classList.toggle('hidden', !treeVisible);
+  document.getElementById('tree-toggle-btn').classList.toggle('active', treeVisible);
   renderAll();
 
   document.addEventListener('keydown', e => {
