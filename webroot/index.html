@@ -182,6 +182,7 @@ let kernels = [];
 let options = [];
 let customOptions = [];
 let files = [];
+let folders = []; // CONFIG_DIR-relative folder paths, including ones with no files in them yet
 let activeFile = null;
 let fileConfigs = {}; // filename -> live (possibly edited) config object; config === fileConfigs[activeFile]
 let fileSaved = {};   // filename -> JSON string snapshot of the last-saved-to-disk state
@@ -243,41 +244,47 @@ function cutPath(path) {
   setStatus('Cut ' + pathStr(path) + ' — pick a file, right-click, and choose Paste to move it there', 4000, 'ok');
 }
 
+// Shared by pastePath/moveValueToFile: if both sides are plain objects, deep-merge them (the
+// incoming/source side wins on any leaf conflict, same as doImport's merge) instead of
+// clobbering the destination's other keys wholesale — e.g. moving "hardware" into a file that
+// already has an unrelated "hardware.nvidia" section keeps that section instead of replacing
+// the whole "hardware" key. Anything that isn't a mergeable object on both sides (scalars,
+// arrays, _expr) just gets replaced outright, with the incoming value winning either way.
+function _mergeOrReplace(existing, incoming) {
+  return (_isPlainObj(existing) && _isPlainObj(incoming)) ? _nixDeepMerge(existing, incoming) : incoming;
+}
+
 function pastePath() {
   if (!_clipboard) return;
   const { path, value } = _clipboard;
-  if (getAtPath(config, path) !== undefined) {
-    if (!confirm(`"${pathStr(path)}" already has a value in ${activeFile}.\n\nOverwrite it with the pasted content?`)) return;
-  }
   const parent = traverseForSet(config, path);
   if (!parent) { setStatus('Could not paste here', 4000, 'err'); return; }
   const key = path[path.length - 1];
   const clone = JSON.parse(JSON.stringify(value));
-  if (Array.isArray(parent)) parent[parseInt(key)] = clone;
-  else parent[key] = clone;
+  const merged = _mergeOrReplace(getAtPath(config, path), clone);
+  if (Array.isArray(parent)) parent[parseInt(key)] = merged;
+  else parent[key] = merged;
   _clipboard = null; // one-shot: pasting consumes it, matching a move/cut flow
   renderAll();
   setStatus('Pasted ' + pathStr(path), 2000, 'ok');
 }
 
 // Drag-and-drop analogue of copy+paste-elsewhere: dragging a section/field onto a tab in the
-// file bar moves it (same path) into that file's config and removes it from the current one.
-// Returns false (without touching either config) if the user cancels an overwrite confirm or
-// the path can't be traversed, so the caller can restore the dragged element's visual state.
+// file bar moves it (same path) into that file's config and removes it from the current one,
+// merging into (rather than overwriting) anything already there. Returns false (without
+// touching either config) if the path can't be traversed, so the caller can restore the
+// dragged element's visual state.
 function moveValueToFile(path, targetFile) {
   const value = getAtPath(config, path);
   if (value === undefined) return false;
   const targetConfig = fileConfigs[targetFile];
-  if (getAtPath(targetConfig, path) !== undefined
-      && !confirm(`"${pathStr(path)}" already has a value in ${targetFile}.\n\nOverwrite it with the dragged content?`)) {
-    return false;
-  }
   const parent = traverseForSet(targetConfig, path);
   if (!parent) { setStatus('Could not move there', 4000, 'err'); return false; }
   const key = path[path.length - 1];
   const clone = JSON.parse(JSON.stringify(value));
-  if (Array.isArray(parent)) parent[parseInt(key)] = clone;
-  else parent[key] = clone;
+  const merged = _mergeOrReplace(getAtPath(targetConfig, path), clone);
+  if (Array.isArray(parent)) parent[parseInt(key)] = merged;
+  else parent[key] = merged;
   deleteAtPath(config, path);
   renderAll();
   setStatus('Moved ' + pathStr(path) + ' to ' + targetFile, 2500, 'ok');
@@ -2858,32 +2865,212 @@ function _cfgPathBust() {
   return base + (base.includes('?') ? '&' : '?') + '_=' + Date.now();
 }
 
-// Every file gets its own tab button — root-level files on the first row, then one row per
-// top-level folder, labeled with that folder's name, so nested files stay visible without
-// opening anything (unlike a dropdown or a per-folder sub-menu, the whole tree is on screen at
-// once). Tab labels drop the folder prefix and the ".json" suffix (both are redundant: the
-// folder is already the row's label, and every tab is a .json file) — hover a tab to see its
-// full relative path. Right-click a tab for Rename/Move or Delete.
+// Every file gets its own tab — root-level files on the first row, then one row per top-level
+// folder, labeled with that folder's name, so nested files stay visible without opening
+// anything. A folder with no files yet (created via "+ folder") still gets its own (empty) row,
+// since `folders` is tracked independently of `files`. Tab labels drop the folder prefix and
+// the ".json" suffix (both are redundant: the folder is already the row's label, and every tab
+// is a .json file) — hover a tab to see its full relative path. Click switches to a file,
+// double-click renames it in place, dragging it onto another folder's row (or back onto the
+// root row) moves it there, and right-click offers Delete.
 function _tabLabel(name) {
   const base = name.slice(name.lastIndexOf('/') + 1);
   return base.endsWith('.json') ? base.slice(0, -5) : base;
 }
 
+// Tabs are plain divs, not <button>s, because rename mode swaps the label for a live <input> —
+// and an <input> nested inside a real <button> is invalid HTML with inconsistent browser
+// behavior.
 function _makeTab(name) {
-  const tab = document.createElement('button');
+  const tab = document.createElement('div');
   tab.className = 'btn tab' + (name === activeFile ? ' active' : '');
+  tab.tabIndex = 0;
   tab.dataset.file = name;
-  tab.title = name;
+  tab.title = name + ' — double-click to rename, drag to move between folders';
   const label = document.createElement('span');
   label.textContent = _tabLabel(name);
   tab.appendChild(label);
-  tab.onclick = () => switchFile(name);
+
+  let dragging = false;
+  let suppressClick = false;
+
+  tab.addEventListener('mousedown', e => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    const startX = e.clientX, startY = e.clientY;
+    const rect = tab.getBoundingClientRect();
+    const offsetX = startX - rect.left, offsetY = startY - rect.top;
+    let ghost = null;
+    let target = null; // null = no valid drop target yet; '' = root; else a folder name
+
+    const onMove = e => {
+      if (!dragging) {
+        if (Math.hypot(e.clientX - startX, e.clientY - startY) < 5) return;
+        dragging = true;
+        suppressClick = true;
+        ghost = tab.cloneNode(true);
+        ghost.className += ' drag-ghost';
+        ghost.style.width = rect.width + 'px';
+        document.body.appendChild(ghost);
+        tab.classList.add('is-dragging');
+      }
+      ghost.style.left = (e.clientX - offsetX) + 'px';
+      ghost.style.top = (e.clientY - offsetY) + 'px';
+
+      document.querySelectorAll('.tab-move-target').forEach(x => x.classList.remove('tab-move-target'));
+      ghost.style.display = 'none';
+      const under = document.elementFromPoint(e.clientX, e.clientY);
+      ghost.style.display = '';
+      target = null;
+      if (under) {
+        const group = under.closest('.tab-folder-group');
+        if (group) {
+          target = group.dataset.folder;
+          group.classList.add('tab-move-target');
+        } else {
+          const rootRow = under.closest('.tab-row-root');
+          if (rootRow) { target = ''; rootRow.classList.add('tab-move-target'); }
+        }
+      }
+    };
+
+    const onUp = () => {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      document.querySelectorAll('.tab-move-target').forEach(x => x.classList.remove('tab-move-target'));
+      if (ghost) ghost.remove();
+      tab.classList.remove('is-dragging');
+      if (dragging && target !== null) {
+        const base = name.slice(name.lastIndexOf('/') + 1);
+        const newName = target ? target + '/' + base : base;
+        if (newName !== name) _relocateFile(name, newName);
+      }
+      dragging = false;
+      setTimeout(() => { suppressClick = false; }, 0);
+    };
+
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  });
+
+  tab.addEventListener('click', () => { if (!suppressClick) switchFile(name); });
+  tab.addEventListener('dblclick', e => { e.preventDefault(); _startTabRename(name); });
   tab.oncontextmenu = e => {
-    const items = [{ label: 'Rename / Move…', onclick: () => renameFile(name) }];
-    if (files.length > 1) items.push({ label: 'Delete', danger: true, onclick: () => deleteFile(name) });
-    showContextMenu(e, items);
+    if (files.length <= 1) return; // can't delete the last file — bubble up to the tab-bar's New file/New folder menu instead
+    showContextMenu(e, [{ label: 'Delete', danger: true, onclick: () => deleteFile(name) }]);
   };
   return tab;
+}
+
+// Sizes an <input> to its own text via the "size" attribute (character count) instead of a
+// fixed CSS width, so a short filename doesn't sit in an oversized box and a long one isn't
+// clipped. Approximate for proportional fonts, but tracks the actual typed length live.
+function _autosizeInput(input) {
+  const resize = () => { input.size = Math.max(1, input.value.length); };
+  resize();
+  input.addEventListener('input', resize);
+}
+
+// Swaps a tab's label for an <input>, used both for the "rename in place" gesture (double-click
+// an existing tab) and immediately after creating a new file so its placeholder name is ready
+// to be typed over. Only the basename can be edited here — moving between folders is drag's job
+// — so a "/" in the typed value is rejected rather than silently reinterpreted as a move.
+function _startTabRename(name) {
+  const tab = document.querySelector('.tab[data-file="' + CSS.escape(name) + '"]');
+  if (!tab) return;
+  const label = tab.querySelector('span');
+  const folder = name.includes('/') ? name.slice(0, name.lastIndexOf('/')) : '';
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.className = 'tab-rename-input';
+  input.value = _tabLabel(name);
+  label.replaceWith(input);
+  _autosizeInput(input);
+  input.focus();
+  input.select();
+
+  let done = false;
+  function commit() {
+    if (done) return;
+    done = true;
+    const raw = input.value.trim();
+    if (!raw) { renderFileSelector(); return; }
+    if (raw.includes('/') || raw.includes('\\')) {
+      setStatus('Drag a tab onto a folder to move it there instead', 3500, 'err');
+      renderFileSelector();
+      return;
+    }
+    const newName = (folder ? folder + '/' : '') + raw + '.json';
+    if (newName === name) { renderFileSelector(); return; }
+    _relocateFile(name, newName);
+  }
+  function cancel() { if (!done) { done = true; renderFileSelector(); } }
+  input.addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
+    else if (e.key === 'Escape') { e.preventDefault(); cancel(); }
+  });
+  input.addEventListener('blur', commit);
+  input.addEventListener('mousedown', e => e.stopPropagation());
+  input.addEventListener('click', e => e.stopPropagation());
+}
+
+// Same swap-for-<input> pattern as _startTabRename, for the folder label instead of a tab.
+// Unlike a file (which exists purely in memory until Save), a bare folder has no config data to
+// stage — creating it calls /api/v1/create-folder immediately on commit, same as a real mkdir.
+function _startFolderRename(name) {
+  const group = document.querySelector('.tab-folder-group[data-folder="' + CSS.escape(name) + '"]');
+  if (!group) return;
+  const label = group.querySelector('.tab-folder-label');
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.className = 'tab-folder-label-input';
+  input.value = name;
+  label.replaceWith(input);
+  _autosizeInput(input);
+  input.focus();
+  input.select();
+
+  let done = false;
+  async function commit() {
+    if (done) return;
+    done = true;
+    const raw = input.value.trim();
+    const invalid = !raw || raw.includes('/') || raw.includes('\\') || raw === '.' || raw === '..';
+    if (invalid || (raw !== name && folders.includes(raw))) {
+      if (invalid) setStatus('Invalid folder name', 4000, 'err');
+      else setStatus('That folder already exists', 4000, 'err');
+      folders = folders.filter(f => f !== name);
+      renderFileSelector();
+      return;
+    }
+    try {
+      const res = await apiFetch('/create-folder', { method: 'POST', body: JSON.stringify({ folder: raw }) });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setStatus('Could not create folder: ' + (data.error || res.status), 4000, 'err');
+        folders = folders.filter(f => f !== name);
+        renderFileSelector();
+        return;
+      }
+    } catch (e) {
+      setStatus('Could not create folder: ' + e.message, 4000, 'err');
+      folders = folders.filter(f => f !== name);
+      renderFileSelector();
+      return;
+    }
+    folders = folders.filter(f => f !== name);
+    folders.push(raw);
+    folders.sort();
+    renderFileSelector();
+    setStatus('Created folder ' + raw, 2000, 'ok');
+  }
+  function cancel() { if (!done) { done = true; folders = folders.filter(f => f !== name); renderFileSelector(); } }
+  input.addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
+    else if (e.key === 'Escape') { e.preventDefault(); cancel(); }
+  });
+  input.addEventListener('blur', commit);
+  input.addEventListener('mousedown', e => e.stopPropagation());
 }
 
 function renderFileSelector() {
@@ -2891,37 +3078,55 @@ function renderFileSelector() {
   bar.innerHTML = '';
 
   const rootFiles = [];
-  const folders = {}; // top-level folder name -> [relative paths inside it]
+  const filesByFolder = {}; // top-level folder name -> [relative paths inside it]
   files.forEach(name => {
     const slash = name.indexOf('/');
     if (slash === -1) rootFiles.push(name);
-    else (folders[name.slice(0, slash)] ??= []).push(name);
+    else (filesByFolder[name.slice(0, slash)] ??= []).push(name);
   });
+  const topFolders = new Set(Object.keys(filesByFolder));
+  folders.forEach(f => topFolders.add(f.split('/')[0]));
 
   const rootRow = document.createElement('div');
-  rootRow.className = 'tab-row';
+  rootRow.className = 'tab-row tab-row-root';
+  rootRow.title = 'Right-click for New file / New folder';
   rootFiles.sort().forEach(name => rootRow.appendChild(_makeTab(name)));
-  const addTab = document.createElement('button');
-  addTab.className = 'btn tab tab-add';
-  addTab.textContent = '+';
-  addTab.title = 'Add a new config file (e.g. services/nginx.json for a folder)';
-  addTab.onclick = createFile;
-  rootRow.appendChild(addTab);
   bar.appendChild(rootRow);
 
-  Object.keys(folders).sort().forEach(folder => {
+  Array.from(topFolders).sort().forEach(folder => {
     const group = document.createElement('div');
     group.className = 'tab-folder-group';
+    group.dataset.folder = folder;
     const label = document.createElement('div');
     label.className = 'tab-folder-label';
     label.textContent = folder;
     group.appendChild(label);
     const row = document.createElement('div');
     row.className = 'tab-row';
-    folders[folder].slice().sort().forEach(name => row.appendChild(_makeTab(name)));
+    (filesByFolder[folder] || []).slice().sort().forEach(name => row.appendChild(_makeTab(name)));
     group.appendChild(row);
+    // Bound to the whole group (label + row), not just the label, so right-clicking blank
+    // space in an otherwise-empty folder still offers these — individual tabs inside `row`
+    // have their own contextmenu handler and stop propagation before it gets here.
+    group.oncontextmenu = e => {
+      showContextMenu(e, [
+        { label: 'New file here', onclick: () => createFile(folder) },
+        { label: 'Delete folder', danger: true, onclick: () => deleteFolder(folder) },
+      ]);
+    };
     bar.appendChild(group);
   });
+
+  // Right-click anywhere else in the tab bar (blank space in the root row, or below every
+  // group) offers to create something new; a tab's own contextmenu stops propagation before
+  // reaching here, except when it deliberately lets a click on the sole remaining file bubble
+  // up (nothing to offer there but Delete, which doesn't apply to the last file).
+  bar.oncontextmenu = e => {
+    showContextMenu(e, [
+      { label: 'New file', onclick: () => createFile() },
+      { label: 'New folder', onclick: () => createFolder() },
+    ]);
+  };
 }
 
 // warnIfDirty is false for switches that are already the direct result of a deliberate user
@@ -2947,12 +3152,10 @@ async function switchFile(name) {
   renderAll();
 }
 
-// The new file is only created in memory (and left dirty) — it isn't written to disk until
-// Save actually runs, so Save has real, visible work to do right after creating a tab instead
-// of reporting "nothing to save" because it was already persisted silently.
-// Shared by createFile/renameFile: normalizes slashes, appends .json, and rejects names that
-// would resolve outside CONFIG_DIR or collide with the custom-options.json sidecar. Returns
-// null (after reporting a status message) if the name is unusable.
+// Used by doImport()'s "Import into" field, the one place a filename is still typed as free
+// text rather than edited in place on a tab — normalizes slashes, appends .json, and rejects
+// names that would resolve outside CONFIG_DIR or collide with the custom-options.json sidecar.
+// Returns null (after reporting a status message) if the name is unusable.
 function _normalizeFileName(raw) {
   let name = raw.trim().replace(/\\/g, '/');
   if (!name.endsWith('.json')) name += '.json';
@@ -2963,18 +3166,33 @@ function _normalizeFileName(raw) {
   return name;
 }
 
-async function createFile() {
-  let name = prompt('New file name (e.g. network.json, or services/nginx.json to put it in a folder):');
-  if (!name) return;
-  name = _normalizeFileName(name);
-  if (name === null) return;
-  if (files.includes(name)) { setStatus('That file already exists', 4000, 'err'); return; }
+// The new file is only created in memory (and left dirty) — it isn't written to disk until
+// Save actually runs, so Save has real, visible work to do right after creating a tab instead
+// of reporting "nothing to save" because it was already persisted silently. folder defaults to
+// the root, but "New file here" on a folder's own context menu passes its name so a file can be
+// created directly inside it without a follow-up drag.
+async function createFile(folder = '') {
+  let base = 'untitled', n = 1;
+  let name = folder ? `${folder}/${base}.json` : `${base}.json`;
+  while (files.includes(name)) {
+    base = `untitled-${n}`;
+    name = folder ? `${folder}/${base}.json` : `${base}.json`;
+    n++;
+  }
   files.push(name);
   files.sort();
   fileConfigs[name] = {};
   // deliberately no fileSaved[name] yet — the file doesn't exist on disk until Save
   await switchFile(name);
-  setStatus('Created ' + name + ' — click Save to write it to disk', 4000, 'ok');
+  _startTabRename(name);
+}
+
+async function createFolder() {
+  let name = 'new-folder', n = 1;
+  while (folders.includes(name)) { name = `new-folder-${n}`; n++; }
+  folders.push(name);
+  renderFileSelector();
+  _startFolderRename(name);
 }
 
 async function deleteFile(name) {
@@ -3007,54 +3225,99 @@ async function deleteFile(name) {
   setStatus('Deleted ' + name, 2000, 'ok');
 }
 
-// Renaming and moving are the same operation server-side (os.rename) — moving into/out of a
-// subfolder is just a path change, so one prompt and one endpoint cover both.
-async function renameFile(oldName) {
-  const raw = prompt('New name / path for ' + oldName + ':', oldName);
-  if (!raw) return;
-  const name = _normalizeFileName(raw);
-  if (name === null || name === oldName) return;
-  if (files.includes(name)) { setStatus('That file already exists', 4000, 'err'); return; }
+// Deletes a folder and everything in it (files, never-saved or not, and any nested subfolders).
+// Refuses if that would leave zero files anywhere — mirrors deleteFile()'s "can't delete the
+// last remaining file" rule, just computed over every file the folder contains at once. The
+// backend independently refuses too (based on what's actually on disk), but that alone wouldn't
+// catch a folder holding only never-saved files, which the server doesn't know about.
+async function deleteFolder(name) {
+  const prefix = name + '/';
+  const filesInside = files.filter(f => f.startsWith(prefix));
+  if (filesInside.length === files.length) {
+    setStatus('Cannot delete the only folder with files in it', 4000, 'err');
+    return;
+  }
+  const msg = filesInside.length
+    ? `Delete folder "${name}" and its ${filesInside.length} file${filesInside.length === 1 ? '' : 's'}?\n\nThis does not create a backup and cannot be undone.`
+    : `Delete empty folder "${name}"?`;
+  if (!confirm(msg)) return;
+  try {
+    const res = await apiFetch('/delete-folder', { method: 'POST', body: JSON.stringify({ folder: name }) });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      setStatus('Delete failed: ' + (data.error || res.status), 4000, 'err');
+      return;
+    }
+  } catch (e) {
+    setStatus('Delete failed: ' + e.message, 4000, 'err');
+    return;
+  }
+  filesInside.forEach(f => {
+    delete fileConfigs[f];
+    delete fileSaved[f];
+    delete fileHistories[f];
+  });
+  files = files.filter(f => !f.startsWith(prefix));
+  folders = folders.filter(f => f !== name && !f.startsWith(prefix));
+  if (filesInside.includes(activeFile)) {
+    activeFile = null;
+    await switchFile(files[0]);
+  } else {
+    renderFileSelector();
+    renderButtons();
+    _updateDirty();
+  }
+  setStatus('Deleted folder ' + name, 2000, 'ok');
+}
+
+// Core of both the inline rename (_startTabRename) and the drag-to-folder move (_makeTab) —
+// renaming and moving are the same operation server-side (os.rename), so one function covers
+// both. Re-renders (reverting any in-progress edit UI) on every path, success or failure.
+async function _relocateFile(oldName, newName) {
+  if (files.includes(newName)) { setStatus('That file already exists', 4000, 'err'); renderFileSelector(); return false; }
 
   const existsOnDisk = Object.prototype.hasOwnProperty.call(fileSaved, oldName);
   if (existsOnDisk) {
     try {
       const res = await apiFetch('/rename-file', {
         method: 'POST',
-        body: JSON.stringify({ from: oldName, to: name }),
+        body: JSON.stringify({ from: oldName, to: newName }),
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        setStatus('Rename failed: ' + (data.error || res.status), 4000, 'err');
-        return;
+        setStatus('Move failed: ' + (data.error || res.status), 4000, 'err');
+        renderFileSelector();
+        return false;
       }
     } catch (e) {
-      setStatus('Rename failed: ' + e.message, 4000, 'err');
-      return;
+      setStatus('Move failed: ' + e.message, 4000, 'err');
+      renderFileSelector();
+      return false;
     }
   }
 
-  fileConfigs[name] = fileConfigs[oldName];
+  fileConfigs[newName] = fileConfigs[oldName];
   delete fileConfigs[oldName];
   if (existsOnDisk) {
-    fileSaved[name] = fileSaved[oldName];
+    fileSaved[newName] = fileSaved[oldName];
     delete fileSaved[oldName];
   }
   if (fileHistories[oldName]) {
-    fileHistories[name] = fileHistories[oldName];
+    fileHistories[newName] = fileHistories[oldName];
     delete fileHistories[oldName];
   }
   files = files.filter(f => f !== oldName);
-  files.push(name);
+  files.push(newName);
   files.sort();
   if (activeFile === oldName) {
-    activeFile = name;
-    config = fileConfigs[name];
+    activeFile = newName;
+    config = fileConfigs[newName];
     localStorage.setItem('ezconf-active-file', activeFile);
   }
   renderFileSelector();
   renderButtons();
-  setStatus('Renamed to ' + name, 2000, 'ok');
+  setStatus('Moved to ' + newName, 2000, 'ok');
+  return true;
 }
 
 function runButton(idx) {
@@ -3314,6 +3577,7 @@ async function loadSiblingFiles() {
     if (filesRes.ok) {
       const data = await filesRes.json();
       files = data.files || [];
+      folders = data.folders || [];
       if (files.length) {
         const stored = localStorage.getItem('ezconf-active-file');
         activeFile = files.includes(stored) ? stored : (files.includes(data.default) ? data.default : files[0]);

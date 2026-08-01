@@ -2,7 +2,7 @@
 """
 ezconf server — single listener bound to 127.0.0.1:
   http(s)://localhost:9090  static files + API
-    GET  /api/v1/files            lists the config files (tabs) in CONFIG_DIR
+    GET  /api/v1/files            lists the config files (tabs) and folders in CONFIG_DIR
     POST /api/v1/save-config      writes a config file (backs up first); creates it if new
     GET  /api/v1/backups          lists backups for a config file
     POST /api/v1/restore-backup   restores a backup over a config file
@@ -10,6 +10,9 @@ ezconf server — single listener bound to 127.0.0.1:
     POST /api/v1/delete-file      deletes a whole config file (refuses to delete the last one)
     POST /api/v1/rename-file      renames/moves a config file (same op — moving between
                                    subfolders is just a path change)
+    POST /api/v1/create-folder    creates an (initially empty) subfolder under CONFIG_DIR
+    POST /api/v1/delete-folder    deletes a subfolder and everything in it (refuses if that
+                                   would leave zero config files anywhere)
 
 Every *.json file in CONFIG_DIR (except custom-options.json) is a
 separately editable/saveable "tab" in the UI, merged together only at
@@ -404,6 +407,39 @@ def list_config_files():
     return names
 
 
+def list_config_folders():
+    """Recursively list every subdirectory under CONFIG_DIR as a relative POSIX path.
+
+    Unlike the folders implied by list_config_files(), this also reports directories that
+    don't (yet) contain any *.json file, so a folder created via /api/v1/create-folder still
+    shows up as an (empty) tab group after a reload.
+    """
+    base = os.path.realpath(CONFIG_DIR)
+    names = []
+    for root, dirs, _filenames in os.walk(base):
+        dirs[:] = [d for d in dirs if not d.startswith('.')]
+        for d in dirs:
+            rel = os.path.relpath(os.path.join(root, d), base).replace(os.sep, '/')
+            names.append(rel)
+    names.sort()
+    return names
+
+
+def resolve_folder_path(name):
+    """Like resolve_config_path, but for a directory rather than a *.json file — no extension
+    requirement, and the directory need not already exist."""
+    if not name:
+        return None
+    parts = name.replace('\\', '/').split('/')
+    if os.path.isabs(name) or any(p in ('', '.', '..') for p in parts):
+        return None
+    base = os.path.realpath(CONFIG_DIR)
+    full = os.path.realpath(os.path.join(base, name))
+    if os.path.commonpath([base, full]) != base:
+        return None
+    return full
+
+
 def _config_stem(name):
     """Resolve name to a config path and return its flattened backup stem, or None if invalid."""
     path = resolve_config_path(name)
@@ -588,6 +624,65 @@ class StaticHandler(http.server.SimpleHTTPRequestHandler):
                 self.wfile.write(b'{"ok":true}')
             except Exception as e:
                 self.send_error(500, str(e))
+        elif parsed.path == '/api/v1/create-folder':
+            try:
+                length = int(self.headers.get('Content-Length', 0))
+                body = json.loads(self.rfile.read(length))
+                target = resolve_folder_path(body.get('folder', ''))
+                if not target:
+                    resp = b'{"error":"invalid folder name"}'
+                    self.send_response(400)
+                    self.send_header('Content-Type', 'application/json')
+                    self.send_header('Content-Length', str(len(resp)))
+                    self.end_headers()
+                    self.wfile.write(resp)
+                    return
+                if os.path.isfile(target):
+                    resp = b'{"error":"a file already exists there"}'
+                    self.send_response(400)
+                    self.send_header('Content-Type', 'application/json')
+                    self.send_header('Content-Length', str(len(resp)))
+                    self.end_headers()
+                    self.wfile.write(resp)
+                    return
+                os.makedirs(target, exist_ok=True)
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                self.wfile.write(b'{"ok":true}')
+            except Exception as e:
+                self.send_error(500, str(e))
+        elif parsed.path == '/api/v1/delete-folder':
+            try:
+                length = int(self.headers.get('Content-Length', 0))
+                body = json.loads(self.rfile.read(length))
+                folder = body.get('folder', '')
+                target = resolve_folder_path(folder)
+                if not target or not os.path.isdir(target):
+                    resp = b'{"error":"invalid folder name"}'
+                    self.send_response(400)
+                    self.send_header('Content-Type', 'application/json')
+                    self.send_header('Content-Length', str(len(resp)))
+                    self.end_headers()
+                    self.wfile.write(resp)
+                    return
+                prefix = folder.rstrip('/') + '/'
+                remaining = [f for f in list_config_files() if not f.startswith(prefix)]
+                if not remaining:
+                    resp = b'{"error":"cannot delete the only files that exist"}'
+                    self.send_response(400)
+                    self.send_header('Content-Type', 'application/json')
+                    self.send_header('Content-Length', str(len(resp)))
+                    self.end_headers()
+                    self.wfile.write(resp)
+                    return
+                shutil.rmtree(target)
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                self.wfile.write(b'{"ok":true}')
+            except Exception as e:
+                self.send_error(500, str(e))
         elif parsed.path == '/api/v1/delete-backup':
             try:
                 length = int(self.headers.get('Content-Length', 0))
@@ -680,7 +775,11 @@ class StaticHandler(http.server.SimpleHTTPRequestHandler):
             self._serve_index(); return
         if parsed.path == '/api/v1/files':
             try:
-                data = json.dumps({'files': list_config_files(), 'default': DEFAULT_FILE}).encode()
+                data = json.dumps({
+                    'files': list_config_files(),
+                    'folders': list_config_folders(),
+                    'default': DEFAULT_FILE,
+                }).encode()
                 self.send_response(200)
                 self.send_header('Content-Type', 'application/json')
                 self.send_header('Content-Length', str(len(data)))

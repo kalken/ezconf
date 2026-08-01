@@ -61,13 +61,22 @@ body {
   flex-shrink: 0;
 }
 .tab-row { display: flex; align-items: center; gap: 6px; overflow-x: auto; }
-.tab-folder-group { display: flex; flex-direction: column; gap: 3px; }
+.tab-folder-group { display: flex; flex-direction: column; gap: 3px; border-radius: var(--radius-sm); }
 .tab-folder-label {
   color: var(--text3); font-size: 11px; text-transform: uppercase; letter-spacing: .04em;
   white-space: nowrap;
 }
 .tab { white-space: nowrap; }
-.tab-add { font-weight: bold; }
+/* Dropping a dragged file tab here moves it into this folder (or to the root) */
+.tab-move-target { outline: 2px dashed var(--accent2); background: var(--selected-bg); }
+.tab-rename-input, .tab-folder-label-input {
+  background: var(--bg); border: 1px solid var(--accent2); color: var(--text);
+  border-radius: var(--radius-sm); font-family: var(--font); outline: none;
+}
+.tab-rename-input { font-size: 12px; padding: 1px 4px; }
+.tab-folder-label-input {
+  font-size: 11px; text-transform: uppercase; letter-spacing: .04em; padding: 1px 4px;
+}
 
 /* ── Layout ── */
 .layout { display: flex; flex: 1; overflow: hidden; flex-direction: row-reverse; }
