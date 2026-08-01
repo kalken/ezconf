@@ -3,16 +3,17 @@
 ezconf server — single listener bound to 127.0.0.1:
   http(s)://localhost:9090  static files + API
     GET  /api/v1/files            lists the config files (tabs) and folders in CONFIG_DIR
-    POST /api/v1/save-config      writes a config file (backs up first); creates it if new
+    GET  /api/v1/file             serves a resolved config file's raw JSON content
+    POST /api/v1/file/save        writes a config file (backs up first); creates it if new
     GET  /api/v1/backups          lists backups for a config file
-    POST /api/v1/create-backup    backs up a config file's current on-disk contents on demand
-    POST /api/v1/restore-backup   restores a backup over a config file
-    POST /api/v1/delete-backup    deletes a backup file
-    POST /api/v1/delete-file      deletes a whole config file (refuses to delete the last one)
-    POST /api/v1/rename-file      renames/moves a config file (same op — moving between
+    POST /api/v1/backup/create    backs up a config file's current on-disk contents on demand
+    POST /api/v1/backup/restore   restores a backup over a config file
+    POST /api/v1/backup/delete    deletes a backup file
+    POST /api/v1/file/delete      deletes a whole config file (refuses to delete the last one)
+    POST /api/v1/file/rename      renames/moves a config file (same op — moving between
                                    subfolders is just a path change)
-    POST /api/v1/create-folder    creates an (initially empty) subfolder under CONFIG_DIR
-    POST /api/v1/delete-folder    deletes a subfolder and everything in it (refuses if that
+    POST /api/v1/folder/create    creates an (initially empty) subfolder under CONFIG_DIR
+    POST /api/v1/folder/delete    deletes a subfolder and everything in it (refuses if that
                                    would leave zero config files anywhere)
 
 Every *.json file in CONFIG_DIR (except custom-options.json) is a
@@ -116,7 +117,7 @@ TERMINAL_PORT    = None          # port the terminal WebSocket service is runnin
 THEME            = 'nixos'       # ui theme: nixos, dark, light
 LOGIN_USER       = ''            # custom auth username
 LOGIN_PASS       = ''            # custom auth password
-MKOPTIONS_CMD    = None          # path to ezconf-mkoptions binary; enables /api/v1/update-autocomplete
+MKOPTIONS_CMD    = None          # path to ezconf-mkoptions binary; enables /api/v1/autocomplete/update
 NIXOS_TARGET     = '/etc/nixos'  # flake path passed as TARGET to mkoptions
 TRUSTED_HOSTS    = set()         # extra hostnames allowed by _valid_host; set by trusted_hosts in TOML
 BIND_ADDR        = '127.0.0.1'   # IP address to listen on; set by listen in TOML
@@ -371,7 +372,7 @@ def resolve_config_path(name):
 
     Falls back to DEFAULT_FILE when name is empty, so a caller that hasn't learned the file
     list yet still resolves to a sensible file. Does not require the file to already exist,
-    since save-config uses this to create new tabs. Subpaths (e.g. "services/nginx.json") are
+    since file/save uses this to create new tabs. Subpaths (e.g. "services/nginx.json") are
     allowed for organizing tabs into folders; this only keeps writes inside CONFIG_DIR by
     construction (an authenticated user here already has full terminal access to the machine,
     so this is a correctness guard against typos, not a security boundary).
@@ -412,7 +413,7 @@ def list_config_folders():
     """Recursively list every subdirectory under CONFIG_DIR as a relative POSIX path.
 
     Unlike the folders implied by list_config_files(), this also reports directories that
-    don't (yet) contain any *.json file, so a folder created via /api/v1/create-folder still
+    don't (yet) contain any *.json file, so a folder created via /api/v1/folder/create still
     shows up as an (empty) tab group after a reload.
     """
     base = os.path.realpath(CONFIG_DIR)
@@ -514,7 +515,7 @@ class StaticHandler(http.server.SimpleHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(b'{"error":"Unauthorized"}')
             return
-        if parsed.path == '/api/v1/save-config':
+        if parsed.path == '/api/v1/file/save':
             try:
                 qs = parse_qs(parsed.query)
                 target = resolve_config_path(qs.get('file', [None])[0])
@@ -538,7 +539,7 @@ class StaticHandler(http.server.SimpleHTTPRequestHandler):
                 self.wfile.write(b'{"ok":true}')
             except Exception as e:
                 self.send_error(500, str(e))
-        elif parsed.path == '/api/v1/restore-backup':
+        elif parsed.path == '/api/v1/backup/restore':
             try:
                 length = int(self.headers.get('Content-Length', 0))
                 body = json.loads(self.rfile.read(length))
@@ -567,7 +568,7 @@ class StaticHandler(http.server.SimpleHTTPRequestHandler):
                 self.wfile.write(b'{"ok":true}')
             except Exception as e:
                 self.send_error(500, str(e))
-        elif parsed.path == '/api/v1/create-backup':
+        elif parsed.path == '/api/v1/backup/create':
             try:
                 length = int(self.headers.get('Content-Length', 0))
                 body = json.loads(self.rfile.read(length))
@@ -595,7 +596,7 @@ class StaticHandler(http.server.SimpleHTTPRequestHandler):
                 self.wfile.write(b'{"ok":true}')
             except Exception as e:
                 self.send_error(500, str(e))
-        elif parsed.path == '/api/v1/delete-file':
+        elif parsed.path == '/api/v1/file/delete':
             try:
                 length = int(self.headers.get('Content-Length', 0))
                 body = json.loads(self.rfile.read(length))
@@ -623,7 +624,7 @@ class StaticHandler(http.server.SimpleHTTPRequestHandler):
                 self.wfile.write(b'{"ok":true}')
             except Exception as e:
                 self.send_error(500, str(e))
-        elif parsed.path == '/api/v1/rename-file':
+        elif parsed.path == '/api/v1/file/rename':
             try:
                 length = int(self.headers.get('Content-Length', 0))
                 body = json.loads(self.rfile.read(length))
@@ -653,7 +654,7 @@ class StaticHandler(http.server.SimpleHTTPRequestHandler):
                 self.wfile.write(b'{"ok":true}')
             except Exception as e:
                 self.send_error(500, str(e))
-        elif parsed.path == '/api/v1/create-folder':
+        elif parsed.path == '/api/v1/folder/create':
             try:
                 length = int(self.headers.get('Content-Length', 0))
                 body = json.loads(self.rfile.read(length))
@@ -681,7 +682,7 @@ class StaticHandler(http.server.SimpleHTTPRequestHandler):
                 self.wfile.write(b'{"ok":true}')
             except Exception as e:
                 self.send_error(500, str(e))
-        elif parsed.path == '/api/v1/delete-folder':
+        elif parsed.path == '/api/v1/folder/delete':
             try:
                 length = int(self.headers.get('Content-Length', 0))
                 body = json.loads(self.rfile.read(length))
@@ -712,7 +713,7 @@ class StaticHandler(http.server.SimpleHTTPRequestHandler):
                 self.wfile.write(b'{"ok":true}')
             except Exception as e:
                 self.send_error(500, str(e))
-        elif parsed.path == '/api/v1/delete-backup':
+        elif parsed.path == '/api/v1/backup/delete':
             try:
                 length = int(self.headers.get('Content-Length', 0))
                 body = json.loads(self.rfile.read(length))
@@ -732,7 +733,7 @@ class StaticHandler(http.server.SimpleHTTPRequestHandler):
                 self.wfile.write(b'{"ok":true}')
             except Exception as e:
                 self.send_error(500, str(e))
-        elif parsed.path == '/api/v1/update-autocomplete':
+        elif parsed.path == '/api/v1/autocomplete/update':
             if not MKOPTIONS_CMD:
                 resp = json.dumps({'error': 'mkoptions not configured'}).encode()
                 self.send_response(501)
@@ -832,8 +833,8 @@ class StaticHandler(http.server.SimpleHTTPRequestHandler):
             except Exception as e:
                 self.send_error(500, str(e))
             return
-        # configuration.json and custom-options.json live in CONFIG_DIR, not in WEBROOT
-        if parsed.path == '/configuration.json':
+        # A resolved config file's content and custom-options.json live in CONFIG_DIR, not WEBROOT
+        if parsed.path == '/api/v1/file':
             qs = parse_qs(parsed.query)
             target = resolve_config_path(qs.get('file', [None])[0])
             if not target:

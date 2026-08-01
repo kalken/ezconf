@@ -2858,7 +2858,7 @@ function _fileQuery() {
   return activeFile ? ('?file=' + encodeURIComponent(activeFile)) : '';
 }
 function _cfgPathFor(name) {
-  return name ? ('configuration.json?file=' + encodeURIComponent(name)) : 'configuration.json';
+  return name ? ('/api/v1/file?file=' + encodeURIComponent(name)) : '/api/v1/file';
 }
 function _cfgPath() {
   return _cfgPathFor(activeFile);
@@ -3019,7 +3019,7 @@ function _startTabRename(name) {
 
 // Same swap-for-<input> pattern as _startTabRename, for the folder label instead of a tab.
 // Unlike a file (which exists purely in memory until Save), a bare folder has no config data to
-// stage — creating it calls /api/v1/create-folder immediately on commit, same as a real mkdir.
+// stage — creating it calls /api/v1/folder/create immediately on commit, same as a real mkdir.
 function _startFolderRename(name) {
   const group = document.querySelector('.tab-folder-group[data-folder="' + CSS.escape(name) + '"]');
   if (!group) return;
@@ -3047,7 +3047,7 @@ function _startFolderRename(name) {
       return;
     }
     try {
-      const res = await apiFetch('/create-folder', { method: 'POST', body: JSON.stringify({ folder: raw }) });
+      const res = await apiFetch('/folder/create', { method: 'POST', body: JSON.stringify({ folder: raw }) });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
         setStatus('Could not create folder: ' + (data.error || res.status), 4000, 'err');
@@ -3203,7 +3203,7 @@ async function deleteFile(name) {
   const existsOnDisk = Object.prototype.hasOwnProperty.call(fileSaved, name);
   if (existsOnDisk) {
     try {
-      const res = await apiFetch('/delete-file', {
+      const res = await apiFetch('/file/delete', {
         method: 'POST',
         body: JSON.stringify({ file: name }),
       });
@@ -3245,7 +3245,7 @@ async function deleteFolder(name) {
     : `Delete empty folder "${name}"?`;
   if (!confirm(msg)) return;
   try {
-    const res = await apiFetch('/delete-folder', { method: 'POST', body: JSON.stringify({ folder: name }) });
+    const res = await apiFetch('/folder/delete', { method: 'POST', body: JSON.stringify({ folder: name }) });
     if (!res.ok) {
       const data = await res.json().catch(() => ({}));
       setStatus('Delete failed: ' + (data.error || res.status), 4000, 'err');
@@ -3282,7 +3282,7 @@ async function _relocateFile(oldName, newName) {
   const existsOnDisk = Object.prototype.hasOwnProperty.call(fileSaved, oldName);
   if (existsOnDisk) {
     try {
-      const res = await apiFetch('/rename-file', {
+      const res = await apiFetch('/file/rename', {
         method: 'POST',
         body: JSON.stringify({ from: oldName, to: newName }),
       });
@@ -3361,7 +3361,7 @@ async function updateAutocomplete() {
   btn.disabled = true;
   btn.textContent = '↻ Updating…';
   try {
-    const res = await apiFetch('/update-autocomplete', { method: 'POST' });
+    const res = await apiFetch('/autocomplete/update', { method: 'POST' });
     const data = await res.json().catch(() => ({}));
     if (res.ok) {
       const [pkgRes, optRes, kernelRes] = await Promise.all([
@@ -3390,7 +3390,7 @@ async function saveToServer() {
   const dirty = Object.keys(fileConfigs).filter(f => JSON.stringify(fileConfigs[f]) !== fileSaved[f]);
   if (!dirty.length) { setStatus('Nothing to save', 2000, 'ok'); return; }
   const results = await Promise.allSettled(dirty.map(async f => {
-    const res = await apiFetch('/save-config?file=' + encodeURIComponent(f), {
+    const res = await apiFetch('/file/save?file=' + encodeURIComponent(f), {
       method: 'POST',
       body: JSON.stringify(fileConfigs[f]),
     });
@@ -3465,7 +3465,7 @@ async function refreshBackupsList() {
 // active in-memory edits, so an unsaved change won't show up in the resulting backup.
 async function createBackup() {
   try {
-    const res = await apiFetch('/create-backup', {
+    const res = await apiFetch('/backup/create', {
       method: 'POST',
       body: JSON.stringify({ file: activeFile }),
     });
@@ -3485,7 +3485,7 @@ async function restoreBackup(name) {
   const targetLabel = activeFile || 'configuration.json';
   if (!confirm(`Restore this backup?\n\n${name}\n\nThis overwrites the currently saved ${targetLabel}. This cannot be undone.`)) return;
   try {
-    const res = await apiFetch('/restore-backup', {
+    const res = await apiFetch('/backup/restore', {
       method: 'POST',
       body: JSON.stringify({ name, file: activeFile }),
     });
@@ -3503,7 +3503,7 @@ async function restoreBackup(name) {
 
 async function deleteBackup(name) {
   try {
-    const res = await apiFetch('/delete-backup', {
+    const res = await apiFetch('/backup/delete', {
       method: 'POST',
       body: JSON.stringify({ name }),
     });
