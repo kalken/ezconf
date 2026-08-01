@@ -130,7 +130,10 @@ networking.hostName = "myhost";</pre>
   <div class="modal">
     <div class="modal-title-row">
       <h2>Configuration backups</h2>
-      <button class="btn" onclick="closeBackupsModal()">✕</button>
+      <div class="modal-title-actions">
+        <button class="btn" onclick="createBackup()">New backup</button>
+        <button class="btn" onclick="closeBackupsModal()">✕</button>
+      </div>
     </div>
     <div class="backups-list" id="backups-list"></div>
   </div>
@@ -3454,6 +3457,27 @@ async function refreshBackupsList() {
     });
   } catch (e) {
     list.innerHTML = '<div class="backups-empty">Failed to load backups.</div>';
+  }
+}
+
+// Backs up the file's current on-disk contents on demand — independent of Save, which already
+// backs up the pre-save state as a side effect of every save. Snapshots what's on disk, not the
+// active in-memory edits, so an unsaved change won't show up in the resulting backup.
+async function createBackup() {
+  try {
+    const res = await apiFetch('/create-backup', {
+      method: 'POST',
+      body: JSON.stringify({ file: activeFile }),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      setStatus('Backup failed: ' + (data.error || res.status), 4000, 'err');
+      return;
+    }
+    await refreshBackupsList();
+    setStatus('Backup created', 2000, 'ok');
+  } catch (e) {
+    setStatus('Backup failed: ' + e.message, 4000, 'err');
   }
 }
 

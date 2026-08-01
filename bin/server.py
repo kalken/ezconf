@@ -5,6 +5,7 @@ ezconf server — single listener bound to 127.0.0.1:
     GET  /api/v1/files            lists the config files (tabs) and folders in CONFIG_DIR
     POST /api/v1/save-config      writes a config file (backs up first); creates it if new
     GET  /api/v1/backups          lists backups for a config file
+    POST /api/v1/create-backup    backs up a config file's current on-disk contents on demand
     POST /api/v1/restore-backup   restores a backup over a config file
     POST /api/v1/delete-backup    deletes a backup file
     POST /api/v1/delete-file      deletes a whole config file (refuses to delete the last one)
@@ -560,6 +561,34 @@ class StaticHandler(http.server.SimpleHTTPRequestHandler):
                     self.wfile.write(resp)
                     return
                 shutil.copy2(src, target)
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                self.wfile.write(b'{"ok":true}')
+            except Exception as e:
+                self.send_error(500, str(e))
+        elif parsed.path == '/api/v1/create-backup':
+            try:
+                length = int(self.headers.get('Content-Length', 0))
+                body = json.loads(self.rfile.read(length))
+                target = resolve_config_path(body.get('file'))
+                if not target or not os.path.isfile(target):
+                    resp = b'{"error":"invalid file name"}'
+                    self.send_response(400)
+                    self.send_header('Content-Type', 'application/json')
+                    self.send_header('Content-Length', str(len(resp)))
+                    self.end_headers()
+                    self.wfile.write(resp)
+                    return
+                if BACKUP_COUNT <= 0:
+                    resp = b'{"error":"backups are disabled (backup_count is 0)"}'
+                    self.send_response(400)
+                    self.send_header('Content-Type', 'application/json')
+                    self.send_header('Content-Length', str(len(resp)))
+                    self.end_headers()
+                    self.wfile.write(resp)
+                    return
+                backup_config(target)
                 self.send_response(200)
                 self.send_header('Content-Type', 'application/json')
                 self.end_headers()
