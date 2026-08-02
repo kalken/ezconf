@@ -497,7 +497,8 @@ function _nixSkipAnyStr(s, i) {
   return i + 1;
 }
 function _nixMatchBracket(s, openIdx) {
-  const open = s[openIdx], close = open === '{' ? '}' : ']';
+  const open = s[openIdx];
+  const close = open === '{' ? '}' : open === '[' ? ']' : ')';
   let depth = 1, i = openIdx + 1;
   while (i < s.length) {
     if (s[i] === '"') { i = _nixSkipStr(s, i); continue; }
@@ -509,14 +510,17 @@ function _nixMatchBracket(s, openIdx) {
   throw new Error('unmatched ' + open);
 }
 function _nixSplitListItems(s) {
-  // Split whitespace-separated items at depth 0, respecting brackets and strings.
+  // Split whitespace-separated items at depth 0, respecting brackets, parens, and strings.
+  // Parens matter here because a parenthesized item — e.g. a package override like
+  // "(pkgs.foo.overrideAttrs (prev: { ... }))" — very commonly spans multiple lines/words;
+  // without tracking them it gets shredded into bogus fragments at every internal whitespace.
   const items = [];
   let i = 0;
   while (i < s.length) {
     while (i < s.length && /\s/.test(s[i])) i++;
     if (i >= s.length) break;
     const start = i;
-    if (s[i] === '{' || s[i] === '[') { const end = _nixMatchBracket(s, i); items.push(s.slice(start, end + 1)); i = end + 1; }
+    if (s[i] === '{' || s[i] === '[' || s[i] === '(') { const end = _nixMatchBracket(s, i); items.push(s.slice(start, end + 1)); i = end + 1; }
     else if (s[i] === '"') { const end = _nixSkipStr(s, i); items.push(s.slice(start, end)); i = end; }
     else if (s[i] === "'" && s[i + 1] === "'") { const end = _nixSkipIndentedStr(s, i); items.push(s.slice(start, end)); i = end; }
     else { while (i < s.length && !/\s/.test(s[i])) i++; items.push(s.slice(start, i)); }
