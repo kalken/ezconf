@@ -1685,6 +1685,24 @@ function renderEditor() {
   const area = document.getElementById('editor-area');
   const scroll = area.scrollTop;
   area.innerHTML = '';
+  // No config files at all (e.g. a fresh install — configDir starts empty on purpose, nothing
+  // seeds a file automatically) — explain how to create the first one instead of just leaving
+  // the area blank, and let right-clicking it do the same thing the tab bar's own empty-space
+  // menu offers.
+  if (!activeFile) {
+    area.classList.remove('flat-mode');
+    const empty = document.createElement('div');
+    empty.className = 'editor-empty-state';
+    empty.innerHTML = 'No configuration files yet.<br>Right-click here (or the tab bar above) to create your first one.';
+    area.appendChild(empty);
+    area.oncontextmenu = e => {
+      showContextMenu(e, [
+        { label: 'New file', onclick: () => createFile() },
+        { label: 'New folder', onclick: () => createFolder() },
+      ]);
+    };
+    return;
+  }
   area.classList.toggle('flat-mode', flatMode);
   if (flatMode) renderFlat(area, config, []);
   else renderObj(area, config, []);
@@ -2300,17 +2318,18 @@ function renderPkgArray(container, arr, path) {
       tt.className = 'tooltip'; tt.textContent = pkgInfo.description;
       label.appendChild(tt);
     }
-    item.oncontextmenu = e => {
-      showContextMenu(e, [{ label: 'Delete', danger: true, onclick: () => {
-        const cur = getAtPath(config, path);
-        const liveIdx = Array.isArray(cur) ? cur.findIndex(p => p._expr === pkg._expr) : -1;
-        if (liveIdx !== -1) deleteAtPath(config, [...path, liveIdx]);
-        item.remove();
-        _pushHistory();
-        _updateDirty();
-      } }]);
+    const del = document.createElement('button');
+    del.className = 'icon-btn del'; del.textContent = '✕';
+    del.onclick = () => {
+      const cur = getAtPath(config, path);
+      const liveIdx = Array.isArray(cur) ? cur.findIndex(p => p._expr === pkg._expr) : -1;
+      if (liveIdx !== -1) deleteAtPath(config, [...path, liveIdx]);
+      item.remove();
+      _pushHistory();
+      _updateDirty();
     };
     item.appendChild(label);
+    item.appendChild(del);
     return item;
   }
 
@@ -3554,9 +3573,7 @@ async function loadSiblingFiles() {
       + '<span class="editor-error-hint">Serve with: <code class="editor-error-code">python3 -m http.server</code></span></div>';
     return false;
   }
-  if (!activeFile) {
-    setStatus('No config files yet — click + to create one', 5000, 'err');
-  } else {
+  if (activeFile) {
     const unsupported = _checkUnsupportedKeys(config);
     if (unsupported.length) {
       const keys = unsupported.map(k => `"${k}"`).join(', ');

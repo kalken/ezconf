@@ -418,7 +418,8 @@ textarea { resize: vertical; min-height: unset; line-height: 1.5; }
 .pkg-items { display: flex; flex-wrap: wrap; gap: 4px; }
 .pkg-items .array-item {
   background: transparent; border: 1px solid var(--btn-active-border);
-  border-radius: var(--radius); padding: 2px 8px;
+  border-radius: var(--radius); padding: 2px 4px 2px 8px;
+  gap: 4px;
 }
 .pkg-items .array-item .pkg-label {
   color: var(--green); font-size: 12px; white-space: nowrap; position: relative;
@@ -605,6 +606,7 @@ textarea { resize: vertical; min-height: unset; line-height: 1.5; }
 .editor-error { color: var(--red); padding: 30px; text-align: center; }
 .editor-error-hint { color: var(--text3); font-size: 11px; margin-top: 8px; display: block; }
 .editor-error-code { background: var(--bg4); padding: 2px 6px; border-radius: var(--radius-sm); }
+.editor-empty-state { color: var(--text3); padding: 40px 30px; text-align: center; line-height: 1.6; }
 
 /* ── Status bar IDs ── */
 #status-path { color: var(--text2); cursor: pointer; }

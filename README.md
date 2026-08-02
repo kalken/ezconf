@@ -54,8 +54,8 @@ After `nixos-rebuild switch` the editor is at `https://localhost:9090`. A local 
 
 ## 🔁 Migrating from configuration.nix
 
-1. Enable the service and rebuild — this creates `/etc/nixos/ezconf/configuration.json`
-2. Open the editor and use the import button to import your existing `configuration.nix`
+1. Enable the service and rebuild — this creates `/etc/nixos/ezconf/` (empty; nothing is seeded automatically)
+2. Open the editor and use the import button to import your existing `configuration.nix` — name the target `configuration.json` in the "Import into" field and it's created for you in one step
 3. In your `flake.nix`, comment out `./configuration.nix` and add `./ezconf` instead
 4. Rebuild — your config is now managed through the editor
 
@@ -252,8 +252,8 @@ services.ezconf = {
 |--------|------|---------|-------------|
 | `enable` | bool | `false` | Enable ezconf |
 | `user` / `group` | str | `"root"` | User and group for the services |
-| `configDir` | str | `"/etc/nixos/ezconf"` | Directory for `configuration.json` and `default.nix` |
-| `defaultFile` | str | `"configuration.json"` | File (relative to `configDir`) seeded on first activation and preselected in the editor |
+| `configDir` | str | `"/etc/nixos/ezconf"` | Directory for the `*.json` tabs and `default.nix`; starts empty — create your first file in the editor |
+| `defaultFile` | str | `"configuration.json"` | File (relative to `configDir`) preselected in the editor when a browser has no prior tab remembered; a hint only, nothing creates it automatically |
 | `auth.method` | str | `"auto"` | `auto`, `pam`, or `custom` |
 | `auth.username` | str or null | `null` | Username for `custom` auth |
 | `auth.password` | str or null | `null` | Password for `custom` auth (stored in Nix store — prefer `passwordFile`) |
@@ -280,7 +280,7 @@ services.ezconf = {
 
 ## 📝 Notes
 
-- `configDir` is created automatically with a `configuration.json` and a `default.nix` that applies it. Add `./ezconf` to your `nixosSystem` modules list in `flake.nix` to wire it in.
+- `configDir` is created automatically with a `default.nix` that applies whatever `*.json` files end up there — it starts with none; create your first one from the editor (right-click the tab bar, or the empty editor area, for "New file"). Add `./ezconf` to your `nixosSystem` modules list in `flake.nix` to wire it in.
 - Autocomplete data is generated on first service start into `/var/lib/ezconf/autocomplete/` and can be refreshed from the UI.
 - The terminal service has `restartIfChanged = false` — active terminal sessions survive `nixos-rebuild switch`.
 - `auth.password` is stored in the Nix store (world-readable). Use `auth.passwordFile` for anything real.

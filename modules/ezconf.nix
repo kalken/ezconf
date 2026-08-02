@@ -67,13 +67,13 @@ in
     configDir = lib.mkOption {
       type        = lib.types.str;
       default     = "/etc/nixos/ezconf";
-      description = "Directory for configuration.json (and any additional *.json config files) plus default.nix. Should be inside the system flake so pure evaluation can read it. Any *.json file here (besides custom-options.json) is an independently editable tab in the UI, merged at eval time.";
+      description = "Directory for the *.json config files (tabs) plus default.nix. Starts empty — the editor's UI is used to create the first file. Should be inside the system flake so pure evaluation can read it. Any *.json file here (besides custom-options.json) is an independently editable tab in the UI, merged at eval time.";
     };
 
     defaultFile = lib.mkOption {
       type        = lib.types.str;
       default     = "configuration.json";
-      description = "File (relative to configDir) to seed with an empty {} on first activation, and to prefer as the initially-selected tab when the editor opens.";
+      description = "File (relative to configDir) to prefer as the initially-selected tab when the editor opens and no file has been picked before in that browser. Purely a hint — nothing creates this file automatically; configDir starts empty and the editor explains how to create the first file.";
     };
 
     webroot = lib.mkOption {
@@ -259,18 +259,17 @@ in
         }
       ];
 
+      # Deliberately does not seed defaultFile — doing so on every activation fought the
+      # editor's own rename/move features: renaming defaultFile away just made the next
+      # nixos-rebuild/reboot recreate it, which could then collide with a later rename back to
+      # that name. An empty configDir is a valid, if inert, state — the editor's UI explains how
+      # to create the first file when there are none.
       system.activationScripts.ezconf.text = ''
         mkdir -p ${cfg.configDir}
-        mkdir -p $(dirname ${cfg.configDir}/${cfg.defaultFile})
         cp ${./json2nix.nix} ${cfg.configDir}/default.nix
         chmod 644 ${cfg.configDir}/default.nix
-        if [ ! -f ${cfg.configDir}/${cfg.defaultFile} ]; then
-          echo '{}' > ${cfg.configDir}/${cfg.defaultFile}
-          chmod 644 ${cfg.configDir}/${cfg.defaultFile}
-        fi
         chown ${cfg.user}:${cfg.group} ${cfg.configDir}
         chown ${cfg.user}:${cfg.group} ${cfg.configDir}/default.nix
-        chown ${cfg.user}:${cfg.group} ${cfg.configDir}/${cfg.defaultFile}
       '';
 
       systemd.services.ezconf = {
