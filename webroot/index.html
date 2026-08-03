@@ -42,7 +42,7 @@ const _DEFAULT_THEME = '%%EZCONF_THEME%%';
     <input type="text" id="add-input" placeholder="Add option path… (e.g. services.openssh.enable)" autocomplete="off">
     <div class="autocomplete-list hidden" id="add-ac-list"></div>
   </div>
-  <button class="btn" onclick="doAdd()">Add</button>
+  <button class="btn" id="add-commit-btn" onclick="doAdd()">Add</button>
   <button class="btn" id="flat-mode-btn" onclick="toggleFlatMode()" title="Toggle flat / nested view">≡</button>
   <button class="btn" id="tree-toggle-btn" onclick="toggleTree()" title="Show/hide the configuration tree">Tree</button>
 </div>
@@ -1103,6 +1103,7 @@ function initAddPanel() {
       if (acSaved !== null) { inp.value = acSaved; acSaved = null; }
       acList.classList.add('hidden');
       hideForcebar();
+      _closeFloatingAddPanel();
     }
   });
   inp.addEventListener('blur', () => { acHideTimer = setTimeout(() => { acList.classList.add('hidden'); acHideTimer = null; hideForcebar(); }, 150); });
@@ -1157,6 +1158,7 @@ function doForceAddWithType(type) {
   const key = parts[parts.length - 1];
   if (!(key in cur)) cur[key] = defaultForType(type);
   inp.value = '';
+  _closeFloatingAddPanel();
   renderAll();
   setTimeout(() => {
     const pathKey = raw;
@@ -1249,6 +1251,7 @@ function doAdd() {
   inp.value = '';
   addSelectedType = 'string';
   addSelectedOption = null;
+  _closeFloatingAddPanel();
   renderAll();
 
   // Focus and highlight the newly added field
@@ -1796,15 +1799,75 @@ function buildTooltip(opt, typeLabel) {
   return tt;
 }
 
-// Focuses the add-input prefilled with "path.", used by both the section header's click-to-add
-// text and the "Add option" context-menu item.
-function triggerAddUnder(path) {
+// Detaches `el` from its current parent, returning a function that reinserts it in the exact
+// spot it started from (immediately before its original next-sibling, or at the end of its
+// original parent if it had none).
+function _detachForFloat(el) {
+  const parent = el.parentNode, next = el.nextSibling;
+  return () => { if (next && next.parentNode === parent) parent.insertBefore(el, next); else parent.appendChild(el); };
+}
+
+// Right-click "Add option…": rather than a separate/duplicate implementation, this temporarily
+// relocates the real topbar add-input (+ its autocomplete dropdown, Add button, and force-type
+// bar) to a floating panel at the cursor — so search, wildcard hints, Tab-completion, force-add,
+// etc. all behave identically to the global add bar, just prefilled to start under `path` and
+// positioned where the user right-clicked instead of requiring a trip to the topbar.
+let _floatingAddState = null;
+
+function _closeFloatingAddPanel() {
+  if (!_floatingAddState) return;
+  const { wrap, restoreWrap, restoreBtn, restoreForce, outsideHandler, container } = _floatingAddState;
+  document.removeEventListener('mousedown', outsideHandler, true);
+  hideForcebar();
+  wrap.classList.remove('floating-add');
+  restoreWrap();
+  restoreBtn();
+  restoreForce();
+  container.remove();
+  document.getElementById('add-ac-list').classList.add('hidden');
+  _floatingAddState = null;
+}
+
+function showAddOptionMenu(event, path) {
   if (isDisabled(getAtPath(config, path))) return; // adding into a disabled section would corrupt its wrapper
+  _closeFloatingAddPanel();
+
+  const wrap = document.querySelector('.topbar .autocomplete-wrap');
+  const btn = document.getElementById('add-commit-btn');
+  const forceBar = document.getElementById('force-type-bar');
+  const restoreWrap = _detachForFloat(wrap);
+  const restoreBtn = _detachForFloat(btn);
+  const restoreForce = _detachForFloat(forceBar);
+
+  const container = document.createElement('div');
+  container.className = 'floating-add-container';
+  const W = 340;
+  let x = event.clientX, y = event.clientY;
+  if (x + W > window.innerWidth) x = Math.max(4, window.innerWidth - W - 4);
+  if (y + 40 > window.innerHeight) y = Math.max(4, window.innerHeight - 44);
+  container.style.left = x + 'px';
+  container.style.top = y + 'px';
+
+  const row = document.createElement('div');
+  row.className = 'floating-add-row';
+  wrap.classList.add('floating-add');
+  row.appendChild(wrap);
+  row.appendChild(btn);
+  container.appendChild(row);
+  container.appendChild(forceBar);
+  document.body.appendChild(container);
+
+  function outsideHandler(e) { if (!container.contains(e.target)) _closeFloatingAddPanel(); }
+  setTimeout(() => document.addEventListener('mousedown', outsideHandler, true), 0);
+
+  _floatingAddState = { wrap, restoreWrap, restoreBtn, restoreForce, outsideHandler, container };
+
   const inp = document.getElementById('add-input');
-  inp.value = path.join('.') + '.';
+  inp.value = path.length ? path.join('.') + '.' : '';
+  addSelectedType = 'string';
+  addSelectedOption = null;
   inp.focus();
   inp.dispatchEvent(new Event('input'));
-  inp.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
 
 function makeSectionHeader(key, path, extraType) {
@@ -1882,7 +1945,7 @@ function renderSection(container, key, obj, path) {
   // so a right-click on a child still shows the child's menu, not this one.
   section.oncontextmenu = e => {
     const items = isDisabled(getAtPath(config, path)) ? [] : [
-      { label: 'Add option…', onclick: () => triggerAddUnder(path) },
+      { label: 'Add option…', onclick: () => showAddOptionMenu(e, path) },
       { label: 'Convert to Nix expression', onclick: () => { setAtPath(config, path, { _expr: jsonToNix(getAtPath(config, path)) }); renderAll(); } },
     ];
     showContextMenu(e, [...items, ..._commonMenuItems(path)]);
@@ -2249,20 +2312,13 @@ function renderArray(container, arr, path) {
     if (v !== null && typeof v === 'object' && !Array.isArray(v) && !isExprPkg(v)) {
       const wrap = document.createElement('div');
       wrap.className = 'array-obj-item';
-      const triggerAdd = () => {
-        const inp = document.getElementById('add-input');
-        inp.value = itemPath.join('.') + '.';
-        inp.focus();
-        inp.dispatchEvent(new Event('input'));
-        inp.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-      };
       const fields = document.createElement('div');
       fields.className = 'array-obj-fields';
       renderObj(fields, v, itemPath);
       wrap.appendChild(fields);
       wrap.oncontextmenu = e => {
         const disabled = isDisabled(getAtPath(config, itemPath));
-        const items = disabled ? [] : [{ label: 'Add field', onclick: triggerAdd }];
+        const items = disabled ? [] : [{ label: 'Add field', onclick: () => showAddOptionMenu(e, itemPath) }];
         // _commonMenuItems already omits Disable for array-indexed paths like this one.
         showContextMenu(e, [...items, ..._commonMenuItems(itemPath)]);
       };
@@ -2982,7 +3038,6 @@ function _makeTab(name) {
   tab.addEventListener('click', () => { if (!suppressClick) switchFile(name); });
   tab.addEventListener('dblclick', e => { e.preventDefault(); _startTabRename(name); });
   tab.oncontextmenu = e => {
-    if (files.length <= 1) return; // can't delete the last file — bubble up to the tab-bar's New file/New folder menu instead
     showContextMenu(e, [{ label: 'Delete', danger: true, onclick: () => deleteFile(name) }]);
   };
   return tab;
@@ -3145,8 +3200,7 @@ function renderFileSelector() {
 
   // Right-click anywhere else in the tab bar (blank space in the root row, or below every
   // group) offers to create something new; a tab's own contextmenu stops propagation before
-  // reaching here, except when it deliberately lets a click on the sole remaining file bubble
-  // up (nothing to offer there but Delete, which doesn't apply to the last file).
+  // reaching here, so this only ever fires on genuinely empty space.
   bar.oncontextmenu = e => {
     showContextMenu(e, [
       { label: 'New file', onclick: () => createFile() },
@@ -3242,7 +3296,16 @@ async function deleteFile(name) {
   delete fileHistories[name];
   if (name === activeFile) {
     activeFile = null;
-    await switchFile(files[0]);
+    if (files.length) {
+      await switchFile(files[0]);
+    } else {
+      // Deleted the last file — zero files is a fully supported state (see the
+      // .editor-empty-state message in renderEditor()), not an error to avoid.
+      config = {};
+      localStorage.removeItem('ezconf-active-file');
+      renderFileSelector();
+      renderAll();
+    }
   } else {
     renderFileSelector();
     renderButtons();
@@ -3252,17 +3315,11 @@ async function deleteFile(name) {
 }
 
 // Deletes a folder and everything in it (files, never-saved or not, and any nested subfolders).
-// Refuses if that would leave zero files anywhere — mirrors deleteFile()'s "can't delete the
-// last remaining file" rule, just computed over every file the folder contains at once. The
-// backend independently refuses too (based on what's actually on disk), but that alone wouldn't
-// catch a folder holding only never-saved files, which the server doesn't know about.
+// Zero files afterward is fine — see renderEditor()'s .editor-empty-state — so there's nothing
+// to refuse here even if this folder holds every remaining file.
 async function deleteFolder(name) {
   const prefix = name + '/';
   const filesInside = files.filter(f => f.startsWith(prefix));
-  if (filesInside.length === files.length) {
-    setStatus('Cannot delete the only folder with files in it', 4000, 'err');
-    return;
-  }
   const msg = filesInside.length
     ? `Delete folder "${name}" and its ${filesInside.length} file${filesInside.length === 1 ? '' : 's'}?\n\nThis does not create a backup and cannot be undone.`
     : `Delete empty folder "${name}"?`;
@@ -3287,7 +3344,14 @@ async function deleteFolder(name) {
   folders = folders.filter(f => f !== name && !f.startsWith(prefix));
   if (filesInside.includes(activeFile)) {
     activeFile = null;
-    await switchFile(files[0]);
+    if (files.length) {
+      await switchFile(files[0]);
+    } else {
+      config = {};
+      localStorage.removeItem('ezconf-active-file');
+      renderFileSelector();
+      renderAll();
+    }
   } else {
     renderFileSelector();
     renderButtons();
