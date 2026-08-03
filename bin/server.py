@@ -9,12 +9,11 @@ ezconf server — single listener bound to 127.0.0.1:
     POST /api/v1/backup/create    backs up a config file's current on-disk contents on demand
     POST /api/v1/backup/restore   restores a backup over a config file
     POST /api/v1/backup/delete    deletes a backup file
-    POST /api/v1/file/delete      deletes a whole config file (refuses to delete the last one)
+    POST /api/v1/file/delete      deletes a whole config file (zero files afterward is fine)
     POST /api/v1/file/rename      renames/moves a config file (same op — moving between
                                    subfolders is just a path change)
     POST /api/v1/folder/create    creates an (initially empty) subfolder under CONFIG_DIR
-    POST /api/v1/folder/delete    deletes a subfolder and everything in it (refuses if that
-                                   would leave zero config files anywhere)
+    POST /api/v1/folder/delete    deletes a subfolder and everything in it
 
 Every *.json file in CONFIG_DIR (except custom-options.json) is a
 separately editable/saveable "tab" in the UI, merged together only at
@@ -609,14 +608,6 @@ class StaticHandler(http.server.SimpleHTTPRequestHandler):
                     self.end_headers()
                     self.wfile.write(resp)
                     return
-                if len(list_config_files()) <= 1:
-                    resp = b'{"error":"cannot delete the last remaining file"}'
-                    self.send_response(400)
-                    self.send_header('Content-Type', 'application/json')
-                    self.send_header('Content-Length', str(len(resp)))
-                    self.end_headers()
-                    self.wfile.write(resp)
-                    return
                 os.remove(target)
                 self.send_response(200)
                 self.send_header('Content-Type', 'application/json')
@@ -690,16 +681,6 @@ class StaticHandler(http.server.SimpleHTTPRequestHandler):
                 target = resolve_folder_path(folder)
                 if not target or not os.path.isdir(target):
                     resp = b'{"error":"invalid folder name"}'
-                    self.send_response(400)
-                    self.send_header('Content-Type', 'application/json')
-                    self.send_header('Content-Length', str(len(resp)))
-                    self.end_headers()
-                    self.wfile.write(resp)
-                    return
-                prefix = folder.rstrip('/') + '/'
-                remaining = [f for f in list_config_files() if not f.startswith(prefix)]
-                if not remaining:
-                    resp = b'{"error":"cannot delete the only files that exist"}'
                     self.send_response(400)
                     self.send_header('Content-Type', 'application/json')
                     self.send_header('Content-Length', str(len(resp)))
