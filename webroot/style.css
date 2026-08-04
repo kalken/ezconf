@@ -140,7 +140,7 @@ body {
   gap: 8px;
   flex-shrink: 0;
 }
-.topbar .autocomplete-wrap { flex: 1; max-width: 700px; }
+.topbar .autocomplete-wrap { flex: 1; }
 .topbar .autocomplete-wrap input { width: 100%; }
 .topbar-right { display: flex; align-items: center; gap: 8px; margin-left: auto; }
 
