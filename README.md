@@ -22,7 +22,7 @@ inputs.ezconf.url = "github:kalken/ezconf";
 inputs.ezconf.inputs.nixpkgs.follows = "nixpkgs";
 ```
 
-Enable the service directly in your `flake.nix`'s module list, not in `configuration.nix` — `configuration.nix` is meant to go away once you migrate (see below), so anything that needs to survive that has to live elsewhere:
+Add the module import to your `flake.nix`'s module list — it defines the `services.ezconf.*` options, so it needs to live somewhere that survives migrating away from `configuration.nix` (see below), unlike the option values themselves:
 
 ```nix
 nixosConfigurations.myhostname = nixpkgs.lib.nixosSystem {
@@ -30,17 +30,22 @@ nixosConfigurations.myhostname = nixpkgs.lib.nixosSystem {
     inputs.ezconf.nixosModules.default
     ./configuration.nix
     ./ezconf   # created automatically on first start
-    {
-      services.ezconf = {
-        enable = true;
-        auth.allowedUsers = [ "alice" ];
-        buttons = [
-          { label = "Rebuild"; command = "nixos-rebuild switch --flake /etc/nixos"; save_first = true; }
-        ];
-      };
-    }
   ];
 };
+```
+
+Then enable the service in your NixOS configuration (e.g. `configuration.nix`), same as any other option:
+
+```nix
+{ ... }: {
+  services.ezconf = {
+    enable = true;
+    auth.allowedUsers = [ "alice" ];
+    buttons = [
+      { label = "Rebuild"; command = "nixos-rebuild switch --flake /etc/nixos"; save_first = true; }
+    ];
+  };
+}
 ```
 
 After `nixos-rebuild switch` the editor is at `https://localhost:9090`. A local CA and certificate are generated automatically, and installed into the browser trust store for each user in `allowedUsers`.
