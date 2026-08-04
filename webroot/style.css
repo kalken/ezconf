@@ -253,12 +253,12 @@ body {
   max-height: 260px;
   overflow-y: auto;
 }
-/* Show tooltip on hover. .tt-anchor wraps just the rendered title text (nested inside the
-   block-level .section-key-text / .key-label that own the ellipsis truncation) so the hover
-   target — and the tooltip's anchor point — is the text itself, not the whole reserved-width
-   key column (which is wider than short titles, leaving dead space that used to also trigger it). */
-.tt-anchor:hover > .tooltip,
-.tt-anchor > .tooltip:hover,
+/* Tooltip visibility: .tt-anchor wraps just the rendered title text so the hover target is the
+   text itself, not the whole reserved-width key column (which is wider than short titles). It's
+   JS-driven (_wireTooltipAnchor toggles .tt-visible) rather than plain :hover because .tt-anchor
+   sits inside .key-label's overflow:hidden (needed for ellipsis truncation of long names), which
+   would otherwise clip a :hover-shown absolutely-positioned child too. */
+.tooltip.tt-visible,
 .pkg-name:hover > .tooltip,
 .pkg-name > .tooltip:hover { display: block; }
 .tt-anchor { position: relative; }

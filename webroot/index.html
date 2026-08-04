@@ -1799,6 +1799,21 @@ function buildTooltip(opt, typeLabel) {
   return tt;
 }
 
+// Shows/hides `tooltip` based on hovering `anchor`, via a class toggle rather than CSS :hover —
+// `anchor` (the tight-fit .tt-anchor span wrapping just the title text) sits inside .key-label,
+// which has overflow:hidden for ellipsis truncation of long names; a :hover-only rule would have
+// its absolutely-positioned child clipped right along with the truncated text, so `tooltip` is
+// kept as a sibling of .key-label instead (still positioned relative to the shared .field-key-text/
+// .section-key-text ancestor) and shown/hidden explicitly here.
+function _wireTooltipAnchor(anchor, tooltip) {
+  const show = () => tooltip.classList.add('tt-visible');
+  const hide = () => tooltip.classList.remove('tt-visible');
+  anchor.addEventListener('mouseenter', show);
+  anchor.addEventListener('mouseleave', hide);
+  tooltip.addEventListener('mouseenter', show);
+  tooltip.addEventListener('mouseleave', hide);
+}
+
 // Detaches `el` from its current parent, returning a function that reinserts it in the exact
 // spot it started from (immediately before its original next-sibling, or at the end of its
 // original parent if it had none).
@@ -1889,7 +1904,9 @@ function makeSectionHeader(key, path, extraType) {
   typeEl.textContent = extraType;
 
   const opt = findOption(path);
-  keyTextInner.appendChild(buildTooltip(opt, extraType));
+  const sectionTooltip = buildTooltip(opt, extraType);
+  keyText.appendChild(sectionTooltip);
+  _wireTooltipAnchor(keyTextInner, sectionTooltip);
 
   const sub = document.createElement('span');
   sub.className = 'section-key-sub';
@@ -1979,7 +1996,9 @@ function renderArrayField(container, key, arr, path) {
   keyLabelInner.className = 'tt-anchor'; keyLabelInner.textContent = key;
   keyLabel.appendChild(keyLabelInner);
   keyText.appendChild(keyLabel);
-  keyLabelInner.appendChild(buildTooltip(opt, getTypeLabel(arr)));
+  const arrTooltip = buildTooltip(opt, getTypeLabel(arr));
+  keyText.appendChild(arrTooltip);
+  _wireTooltipAnchor(keyLabelInner, arrTooltip);
   const keyInner = document.createElement('span');
   keyInner.className = 'field-key-inner';
   keyInner.appendChild(keyText);
@@ -2126,7 +2145,9 @@ function renderField(container, key, val, path) {
   keyLabelInner.className = 'tt-anchor'; keyLabelInner.textContent = key;
   keyLabel.appendChild(keyLabelInner);
   keyText.appendChild(keyLabel);
-  keyLabelInner.appendChild(buildTooltip(opt, getTypeLabel(val)));
+  const valTooltip = buildTooltip(opt, getTypeLabel(val));
+  keyText.appendChild(valTooltip);
+  _wireTooltipAnchor(keyLabelInner, valTooltip);
   const keyInner = document.createElement('span');
   keyInner.className = 'field-key-inner';
   keyInner.appendChild(keyText);
