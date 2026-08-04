@@ -43,8 +43,10 @@ const _DEFAULT_THEME = '%%EZCONF_THEME%%';
     <div class="autocomplete-list hidden" id="add-ac-list"></div>
   </div>
   <button class="btn" id="add-commit-btn" onclick="doAdd()">Add</button>
-  <button class="btn" id="flat-mode-btn" onclick="toggleFlatMode()" title="Toggle flat / nested view">≡</button>
-  <button class="btn" id="tree-toggle-btn" onclick="toggleTree()" title="Show/hide the configuration tree">Tree</button>
+  <div class="topbar-right">
+    <button class="btn" id="flat-mode-btn" onclick="toggleFlatMode()" title="Toggle flat / nested view">≡</button>
+    <button class="btn" id="tree-toggle-btn" onclick="toggleTree()" title="Show/hide the configuration tree">Tree</button>
+  </div>
 </div>
 <div class="force-type-bar hidden" id="force-type-bar">
   <span class="force-type-label">Pick type to force add:</span>
