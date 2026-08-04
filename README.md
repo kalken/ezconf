@@ -55,7 +55,7 @@ After `nixos-rebuild switch` the editor is at `https://localhost:9090`. A local 
 ## 🔁 Migrating from configuration.nix
 
 1. Enable the service and rebuild — this creates `/etc/nixos/ezconf/` (empty; nothing is seeded automatically)
-2. Open the editor and use the import button to import your existing `configuration.nix` — name the target `configuration.json` in the "Import into" field and it's created for you in one step
+2. Open the editor and use the import button to import your existing `configuration.nix` — the "Import into" field accepts any name (e.g. `configuration.json`) and creates that file for you in one step
 3. In your `flake.nix`, comment out `./configuration.nix` in the modules list — `./ezconf` and the `ezconf.nixosModules.default` import are already there from Quick Start and don't depend on it
 4. Rebuild — your config is now managed through the editor
 
