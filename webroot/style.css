@@ -253,13 +253,15 @@ body {
   max-height: 260px;
   overflow-y: auto;
 }
-/* Show tooltip on hover */
-.section-key-text:hover > .tooltip,
-.section-key-text > .tooltip:hover,
-.field-key-text:hover > .tooltip,
-.field-key-text > .tooltip:hover,
+/* Show tooltip on hover. .tt-anchor wraps just the rendered title text (nested inside the
+   block-level .section-key-text / .key-label that own the ellipsis truncation) so the hover
+   target — and the tooltip's anchor point — is the text itself, not the whole reserved-width
+   key column (which is wider than short titles, leaving dead space that used to also trigger it). */
+.tt-anchor:hover > .tooltip,
+.tt-anchor > .tooltip:hover,
 .pkg-name:hover > .tooltip,
 .pkg-name > .tooltip:hover { display: block; }
+.tt-anchor { position: relative; }
 .field-key-text { position: relative; cursor: default; display: block; width: 100%; }
 .key-label { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
 

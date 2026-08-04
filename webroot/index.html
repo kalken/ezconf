@@ -1879,7 +1879,9 @@ function makeSectionHeader(key, path, extraType) {
 
   const keyText = document.createElement('span');
   keyText.className = 'section-key-text';
-  keyText.textContent = key;
+  const keyTextInner = document.createElement('span');
+  keyTextInner.className = 'tt-anchor'; keyTextInner.textContent = key;
+  keyText.appendChild(keyTextInner);
   keyEl.appendChild(keyText);
 
   const typeEl = document.createElement('span');
@@ -1887,7 +1889,7 @@ function makeSectionHeader(key, path, extraType) {
   typeEl.textContent = extraType;
 
   const opt = findOption(path);
-  keyText.appendChild(buildTooltip(opt, extraType));
+  keyTextInner.appendChild(buildTooltip(opt, extraType));
 
   const sub = document.createElement('span');
   sub.className = 'section-key-sub';
@@ -1972,9 +1974,12 @@ function renderArrayField(container, key, arr, path) {
   const keyText = document.createElement('span');
   keyText.className = 'field-key-text';
   const keyLabel = document.createElement('span');
-  keyLabel.className = 'key-label'; keyLabel.textContent = key;
+  keyLabel.className = 'key-label';
+  const keyLabelInner = document.createElement('span');
+  keyLabelInner.className = 'tt-anchor'; keyLabelInner.textContent = key;
+  keyLabel.appendChild(keyLabelInner);
   keyText.appendChild(keyLabel);
-  keyText.appendChild(buildTooltip(opt, getTypeLabel(arr)));
+  keyLabelInner.appendChild(buildTooltip(opt, getTypeLabel(arr)));
   const keyInner = document.createElement('span');
   keyInner.className = 'field-key-inner';
   keyInner.appendChild(keyText);
@@ -2116,9 +2121,12 @@ function renderField(container, key, val, path) {
   const keyText = document.createElement('span');
   keyText.className = 'field-key-text';
   const keyLabel = document.createElement('span');
-  keyLabel.className = 'key-label'; keyLabel.textContent = key;
+  keyLabel.className = 'key-label';
+  const keyLabelInner = document.createElement('span');
+  keyLabelInner.className = 'tt-anchor'; keyLabelInner.textContent = key;
+  keyLabel.appendChild(keyLabelInner);
   keyText.appendChild(keyLabel);
-  keyText.appendChild(buildTooltip(opt, getTypeLabel(val)));
+  keyLabelInner.appendChild(buildTooltip(opt, getTypeLabel(val)));
   const keyInner = document.createElement('span');
   keyInner.className = 'field-key-inner';
   keyInner.appendChild(keyText);
