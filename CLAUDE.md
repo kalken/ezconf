@@ -197,7 +197,7 @@ Key options:
 - `terminal` — enable terminal panel and `ezconf-terminal.service` (default `true`)
 - `shell` — shell for the terminal panel (default: login shell of `user`)
 - `nixosTarget` — flake path passed to `ezconf-mkoptions` (default `/etc/nixos`)
-- `backupDir` / `backupCount` — directory and retention count for `configuration.json` backups (defaults `/var/lib/ezconf/backups`, `5`; `backupCount = 0` disables backups)
+- `backupDir` / `backupCount` — directory and per-file retention count for config file backups (defaults `/var/lib/ezconf/backups`, `5`; `backupCount = 0` disables backups)
 - `listen` — IP address to bind to (default `127.0.0.1`; use `0.0.0.0` for all interfaces); `openFirewall` is enabled automatically for non-localhost addresses
 - `interface` — network interface to open firewall ports on (e.g. `"eth0"`); when set, uses `networking.firewall.interfaces.<name>.allowedTCPPorts` instead of the global `allowedTCPPorts`; works with both iptables and nftables backends
 - `ports.web` / `ports.terminal` — service ports (defaults `9090` / `9091`)

@@ -7,6 +7,7 @@ Graphical editor for nix configurations. Zero dependencies, no build step, no fr
 ## ✨ Features
 
 - Edit NixOS configuration through a clean web UI with option autocomplete
+- Split config across multiple files and folders — organize however you like, merged only at Nix-eval time
 - Inline terminal panel with configurable shortcut buttons
 - PAM auth (system credentials) or custom username/password
 - HTTPS with automatic local CA generation and browser trust store installation
@@ -60,6 +61,21 @@ After `nixos-rebuild switch` the editor is at `https://localhost:9090`. A local 
 4. Rebuild — your config is now managed through the editor
 
 > **Note:** Any `imports` you had in `configuration.nix` should be moved to your `flake.nix` after migrating — the JSON-based config does not support `imports`.
+
+## 📑 Multiple Config Files
+
+Configuration doesn't have to live in one big `configuration.json` — split it across as many `*.json` files as you like, each one an independent tab in the header with its own save/undo/backup history. Files are only combined at Nix-eval time (via `lib.mkMerge`), the same as splitting a hand-written `configuration.nix` across modules: lists and attribute sets merge normally, and a scalar option set differently in two files is a plain Nix eval error, not something ezconf tries to resolve for you. Group files into folders for your own organization (e.g. `services/nginx.json`) — folders are just cosmetic grouping in the tab bar, not part of the Nix module structure.
+
+There's no "+" button anywhere — file and folder management is entirely right-click:
+
+- Right-click empty space in the tab bar (or the empty editor area, if there are no files yet) for **New file** / **New folder**.
+- Right-click a folder for **New file here** or **Delete folder** (removes everything inside it).
+- Right-click a tab for **Delete**.
+- Double-click a tab to rename it inline.
+- Drag a tab into a folder (or back out to the root) to move it.
+- Drag a section or option onto a different file's tab to move it there, or use **Copy** / **Cut** / **Paste** (also right-click) to duplicate or relocate a section or option to the same path in another file.
+
+A fresh install starts with zero files — the empty editor area explains how to create the first one, and the Import modal's "Import into" field can create a new file on the spot.
 
 ## 🖥️ Standalone
 
@@ -233,9 +249,9 @@ TARGET=/path/to/flake nix run .#ezconf-mkoptions -- all myhostname
 
 ## 💾 Backups
 
-Every time `configuration.json` is saved, the server copies the previous contents into a backup directory, keeping the `backup_count` most recent copies (default 5; set to 0 to disable). The `🕐 Backups` button appears in the header automatically once backups are enabled — it lists past saves with their timestamp and size, and lets you restore any of them with one click. Restoring overwrites `configuration.json` directly and does not itself create a backup.
+Every time a config file is saved, the server copies its previous contents into a backup directory, keeping the `backup_count` most recent copies *per file* (default 5; set to 0 to disable). Backups are per-tab — with multiple config files, each gets its own independent history. The `🕐 Backups` button appears in the header automatically once backups are enabled — it lists past saves of whichever tab is currently active, with their timestamp and size, and lets you restore any of them with one click. Restoring overwrites that file directly and does not itself create a backup. You can also back up a file's current on-disk contents on demand at any time, without waiting for a save.
 
-Standalone: set `backup_dir` / `backup_count` in `ezconf.toml`, or pass `--backup-dir` / `--backup-count`. Backups default to `.ezconf-backups/` next to `configuration.json`. The NixOS module stores them in `/var/lib/ezconf/backups` by default (`backupDir` / `backupCount` options).
+Standalone: set `backup_dir` / `backup_count` in `ezconf.toml`, or pass `--backup-dir` / `--backup-count`. Backups default to a shared `.ezconf-backups/` directory inside the config directory (one subset per file). The NixOS module stores them in `/var/lib/ezconf/backups` by default (`backupDir` / `backupCount` options).
 
 ## 🎨 Theme
 
@@ -273,7 +289,7 @@ services.ezconf = {
 | `interface` | str or null | `null` | Network interface to open firewall ports on (e.g. `"eth0"`); when set, ports are opened only on that interface instead of all interfaces |
 | `trustedHosts` | list of str | `[]` | Extra hostnames trusted for CSRF check — required when behind a reverse proxy; `listen` and `certNames` are trusted automatically |
 | `nixosTarget` | str | `"/etc/nixos"` | Flake path passed to `ezconf-mkoptions` |
-| `backupDir` | str | `"/var/lib/ezconf/backups"` | Directory to store `configuration.json` backups |
+| `backupDir` | str | `"/var/lib/ezconf/backups"` | Directory to store config file backups (one subset per file) |
 | `backupCount` | int | `5` | Number of backups to keep, made on every save; `0` disables backups |
 | `ports.web` | port | `9090` | Web server port |
 | `ports.terminal` | port | `9091` | Terminal WebSocket port |
