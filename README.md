@@ -269,6 +269,7 @@ services.ezconf = {
 | `user` / `group` | str | `"root"` | User and group for the services |
 | `configDir` | str | `"/etc/nixos/ezconf"` | Directory for the `*.json` tabs and `default.nix`; starts empty — create your first file in the editor |
 | `defaultFile` | str | `"configuration.json"` | File (relative to `configDir`) preselected in the editor when a browser has no prior tab remembered; a hint only, nothing creates it automatically |
+| `webroot` | str | `"${package}/share/ezconf"` | Directory to serve static assets from |
 | `auth.method` | str | `"auto"` | `auto`, `pam`, or `custom` |
 | `auth.username` | str or null | `null` | Username for `custom` auth |
 | `auth.password` | str or null | `null` | Password for `custom` auth (stored in Nix store — prefer `passwordFile`) |
@@ -285,6 +286,7 @@ services.ezconf = {
 | `cert` | str or null | `null` | Path to TLS certificate (PEM) |
 | `key` | str or null | `null` | Path to TLS private key (PEM) |
 | `listen` | str or null | `null` | IP address to listen on (default: `127.0.0.1`; use `0.0.0.0` for all interfaces) |
+| `openFirewall` | bool | `false` | Open firewall ports for the web and terminal services; enabled automatically when `listen` is set to a non-localhost address |
 | `interface` | str or null | `null` | Network interface to open firewall ports on (e.g. `"eth0"`); when set, ports are opened only on that interface instead of all interfaces |
 | `trustedHosts` | list of str | `[]` | Extra hostnames trusted for CSRF check — required when behind a reverse proxy; `listen` and `certNames` are trusted automatically |
 | `nixosTarget` | str | `"/etc/nixos"` | Flake path passed to `ezconf-mkoptions` |
