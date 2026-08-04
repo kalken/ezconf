@@ -475,6 +475,13 @@ class StaticHandler(http.server.SimpleHTTPRequestHandler):
         self.directory = WEBROOT
         return super().translate_path(path)
 
+    def end_headers(self):
+        # Files served from WEBROOT often come from the Nix store, where mtimes are normalized
+        # to a fixed value for build reproducibility — Last-Modified-based conditional caching
+        # would then treat genuinely new content as unchanged. Disable caching outright instead.
+        self.send_header('Cache-Control', 'no-store')
+        super().end_headers()
+
     def _deny(self, error=''):
         accept = self.headers.get('Accept', '')
         if 'text/html' in accept:
