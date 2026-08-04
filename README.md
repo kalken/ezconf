@@ -22,29 +22,23 @@ inputs.ezconf.url = "github:kalken/ezconf";
 inputs.ezconf.inputs.nixpkgs.follows = "nixpkgs";
 ```
 
-Enable the service in your NixOS configuration:
-
-```nix
-{ inputs, ... }: {
-  imports = [ inputs.ezconf.nixosModules.default ];
-
-  services.ezconf = {
-    enable = true;
-    auth.allowedUsers = [ "alice" ];
-    buttons = [
-      { label = "Rebuild"; command = "nixos-rebuild switch --flake /etc/nixos"; save_first = true; }
-    ];
-  };
-}
-```
-
-Then add the generated config as a module in your `flake.nix`:
+Enable the service directly in your `flake.nix`'s module list, not in `configuration.nix` — `configuration.nix` is meant to go away once you migrate (see below), so anything that needs to survive that has to live elsewhere:
 
 ```nix
 nixosConfigurations.myhostname = nixpkgs.lib.nixosSystem {
   modules = [
+    inputs.ezconf.nixosModules.default
     ./configuration.nix
     ./ezconf   # created automatically on first start
+    {
+      services.ezconf = {
+        enable = true;
+        auth.allowedUsers = [ "alice" ];
+        buttons = [
+          { label = "Rebuild"; command = "nixos-rebuild switch --flake /etc/nixos"; save_first = true; }
+        ];
+      };
+    }
   ];
 };
 ```
@@ -57,7 +51,7 @@ After `nixos-rebuild switch` the editor is at `https://localhost:9090`. A local 
 
 1. Enable the service and rebuild — this creates `/etc/nixos/ezconf/` (empty; nothing is seeded automatically)
 2. Open the editor and use the import button to import your existing `configuration.nix` — name the target `configuration.json` in the "Import into" field and it's created for you in one step
-3. In your `flake.nix`, comment out `./configuration.nix` and add `./ezconf` instead
+3. In your `flake.nix`, comment out `./configuration.nix` in the modules list — `./ezconf` and the `ezconf.nixosModules.default` import are already there from Quick Start and don't depend on it
 4. Rebuild — your config is now managed through the editor
 
 > **Note:** Any `imports` you had in `configuration.nix` should be moved to your `flake.nix` after migrating — the JSON-based config does not support `imports`.
