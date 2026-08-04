@@ -99,15 +99,15 @@ Open `http://localhost:9090`. Authentication is always required — without PAM 
 
 Optional Python dependencies: `python-pam` (PAM auth), `cryptography` (`--generate-cert`), `tomli` (TOML config on Python < 3.11).
 
-## `{ }` Nix Expressions
+## Nix Expressions
 
-Any field in the editor has a `{ }` button that switches it to raw Nix expression mode. In this mode you can type any valid Nix expression directly — useful for freeform options that don't map cleanly to a structured form, such as Samba shares or `extraConfig` strings.
+Right-click any field for **Convert to Nix expression**, which switches it to raw Nix expression mode. In this mode you can type any valid Nix expression directly — useful for freeform options that don't map cleanly to a structured form, such as Samba shares or `extraConfig` strings.
 
-Press `⌫` on the field to convert it back to its native type.
+Right-click the field again for **Convert to [type]** to turn it back into its native type.
 
-## `#` Disable Toggle
+## Disable Toggle
 
-Any option or section has a `#` button that disables it. Disabled options remain fully visible in the editor (dimmed with the key struck through) but are excluded from the Nix configuration at evaluation time — the value is preserved and can be re-enabled at any time by pressing `#` again.
+Right-click any option or section for **Disable**. Disabled options remain fully visible in the editor (dimmed with the key struck through) but are excluded from the Nix configuration at evaluation time — the value is preserved and can be re-enabled at any time via the same menu's **Re-enable** item.
 
 Disabling a section disables all of its children at once.
 
