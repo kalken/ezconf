@@ -2902,8 +2902,11 @@ function setTerminalSize(size) {
   const panel = document.getElementById('terminal-panel');
   let h;
   if (size === 'full') {
-    const taken = (document.querySelector('.header')?.offsetHeight || 0)
-                + (document.querySelector('.statusbar')?.offsetHeight || 0);
+    const taken = ['.header', '.tab-bar', '.topbar', '.force-type-bar', '.statusbar']
+      .reduce((sum, sel) => {
+        const el = document.querySelector(sel);
+        return sum + (el && !el.classList.contains('hidden') ? el.offsetHeight : 0);
+      }, 0);
     h = `calc(100vh - ${taken}px)`;
   } else {
     h = size === 'half' ? '50vh' : '25vh';
