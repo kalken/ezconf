@@ -1598,6 +1598,17 @@ function renderFlatLeaves(container, obj, path, depth) {
       content.appendChild(makeFlatSubHeader(k, childPath, depth));
       renderFlatLeaves(content, v, childPath, depth + 1);
       sub.appendChild(content);
+      // Mirrors renderSection's binding on the whole section (not just the header) so
+      // right-clicking anywhere inside — including blank space — offers Add option.
+      // Nested rows/subsections have their own handler + stopPropagation, so a right-click
+      // on a child still shows the child's menu, not this one.
+      sub.oncontextmenu = e => {
+        const items = isDisabled(getAtPath(config, childPath)) ? [] : [
+          { label: 'Add option…', onclick: () => showAddOptionMenu(e, childPath) },
+          { label: 'Convert to Nix expression', onclick: () => { setAtPath(config, childPath, { _expr: jsonToNix(getAtPath(config, childPath)) }); renderAll(); } },
+        ];
+        showContextMenu(e, [...items, ..._commonMenuItems(childPath)]);
+      };
       container.appendChild(sub);
       makeDraggable(sub, k, path);
     } else if (Array.isArray(v)) {
@@ -1661,6 +1672,13 @@ function renderFlat(container, obj, path) {
       content.appendChild(makeFlatGroupHeader(k, childPath));
       renderFlatLeaves(content, v, childPath, 0);
       group.appendChild(content);
+      group.oncontextmenu = e => {
+        const items = isDisabled(getAtPath(config, childPath)) ? [] : [
+          { label: 'Add option…', onclick: () => showAddOptionMenu(e, childPath) },
+          { label: 'Convert to Nix expression', onclick: () => { setAtPath(config, childPath, { _expr: jsonToNix(getAtPath(config, childPath)) }); renderAll(); } },
+        ];
+        showContextMenu(e, [...items, ..._commonMenuItems(childPath)]);
+      };
       container.appendChild(group);
       makeDraggable(group, k, path);
     } else if (Array.isArray(v)) {
