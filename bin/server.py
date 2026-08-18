@@ -12,8 +12,14 @@ ezconf server — single listener bound to 127.0.0.1:
     POST /api/v1/file/delete      deletes a whole config file (zero files afterward is fine)
     POST /api/v1/file/rename      renames/moves a config file (same op — moving between
                                    subfolders is just a path change)
+    POST /api/v1/file/disable     disables a config file (renamed to NAME.json.disabled, so
+                                   json2nix.nix's *.json glob skips it)
+    POST /api/v1/file/enable      re-enables a config file disabled via file/disable
     POST /api/v1/folder/create    creates an (initially empty) subfolder under CONFIG_DIR
     POST /api/v1/folder/delete    deletes a subfolder and everything in it
+    POST /api/v1/folder/disable   disables a whole subfolder (renamed to .NAME.disabled, so
+                                   json2nix.nix's walk skips it, same as dotdirs)
+    POST /api/v1/folder/enable    re-enables a subfolder disabled via folder/disable
 
 Every *.json file in CONFIG_DIR (except custom-options.json) is a
 separately editable/saveable "tab" in the UI, merged together only at
@@ -366,6 +372,15 @@ def resolve_backup_path(name):
     return full
 
 
+def _is_disabled_folder_name(name):
+    """True for a single path segment marking a disabled folder, e.g. '.services.disabled'.
+
+    The leading dot piggybacks on the dotdir skip that already excludes .ezconf-backups from
+    both list_config_folders() and json2nix.nix's walk() — no change to json2nix.nix needed for
+    a disabled folder (and everything nested inside it) to drop out of the Nix merge."""
+    return name.startswith('.') and name.endswith('.disabled') and len(name) > len('..disabled')
+
+
 def resolve_config_path(name):
     """Return the absolute path for a config file name inside CONFIG_DIR, or None if invalid.
 
@@ -375,9 +390,15 @@ def resolve_config_path(name):
     allowed for organizing tabs into folders; this only keeps writes inside CONFIG_DIR by
     construction (an authenticated user here already has full terminal access to the machine,
     so this is a correctness guard against typos, not a security boundary).
+
+    A name ending in ".json.disabled" (a file disabled via /api/v1/file/disable — see
+    list_config_files()) resolves just like its ".json" counterpart, since disabling only
+    renames the file; its content is still read/saved the same way.
     """
     name = name or DEFAULT_FILE
-    if not name or not name.endswith('.json') or os.path.basename(name) == 'custom-options.json':
+    if not name or os.path.basename(name) == 'custom-options.json':
+        return None
+    if not (name.endswith('.json') or name.endswith('.json.disabled')):
         return None
     parts = name.replace('\\', '/').split('/')
     if os.path.isabs(name) or any(p in ('', '.', '..') for p in parts):
@@ -393,14 +414,20 @@ def list_config_files():
     """Recursively list the *.json tabs under CONFIG_DIR as relative POSIX paths.
 
     Skips dotdirs (in particular BACKUP_DIR's default name, .ezconf-backups, when it lives
-    inside CONFIG_DIR) so backup files never show up as tabs.
+    inside CONFIG_DIR) so backup files never show up as tabs — except a disabled folder
+    (_is_disabled_folder_name()), which is still walked so its files keep showing up (as
+    disabled tabs) in the UI even though json2nix.nix skips it at eval time. Also includes
+    *.json.disabled files (individually disabled tabs, see /api/v1/file/disable) alongside
+    their *.json siblings.
     """
     base = os.path.realpath(CONFIG_DIR)
     names = []
     for root, dirs, filenames in os.walk(base):
-        dirs[:] = [d for d in dirs if not d.startswith('.')]
+        dirs[:] = [d for d in dirs if not d.startswith('.') or _is_disabled_folder_name(d)]
         for fn in filenames:
-            if not fn.endswith('.json') or fn == 'custom-options.json':
+            if fn == 'custom-options.json':
+                continue
+            if not (fn.endswith('.json') or fn.endswith('.json.disabled')):
                 continue
             rel = os.path.relpath(os.path.join(root, fn), base).replace(os.sep, '/')
             names.append(rel)
@@ -413,12 +440,14 @@ def list_config_folders():
 
     Unlike the folders implied by list_config_files(), this also reports directories that
     don't (yet) contain any *.json file, so a folder created via /api/v1/folder/create still
-    shows up as an (empty) tab group after a reload.
+    shows up as an (empty) tab group after a reload. A disabled folder (dot-prefixed, see
+    _is_disabled_folder_name()) is listed too — and still walked into, so any subfolders
+    nested inside it are listed as well.
     """
     base = os.path.realpath(CONFIG_DIR)
     names = []
     for root, dirs, _filenames in os.walk(base):
-        dirs[:] = [d for d in dirs if not d.startswith('.')]
+        dirs[:] = [d for d in dirs if not d.startswith('.') or _is_disabled_folder_name(d)]
         for d in dirs:
             rel = os.path.relpath(os.path.join(root, d), base).replace(os.sep, '/')
             names.append(rel)
@@ -652,6 +681,71 @@ class StaticHandler(http.server.SimpleHTTPRequestHandler):
                 self.wfile.write(b'{"ok":true}')
             except Exception as e:
                 self.send_error(500, str(e))
+        elif parsed.path == '/api/v1/file/disable':
+            try:
+                length = int(self.headers.get('Content-Length', 0))
+                body = json.loads(self.rfile.read(length))
+                src = resolve_config_path(body.get('file', ''))
+                if not src or not os.path.isfile(src) or src.endswith('.disabled'):
+                    resp = b'{"error":"invalid file name"}'
+                    self.send_response(400)
+                    self.send_header('Content-Type', 'application/json')
+                    self.send_header('Content-Length', str(len(resp)))
+                    self.end_headers()
+                    self.wfile.write(resp)
+                    return
+                dst = src + '.disabled'
+                if os.path.exists(dst):
+                    resp = b'{"error":"a disabled version already exists"}'
+                    self.send_response(400)
+                    self.send_header('Content-Type', 'application/json')
+                    self.send_header('Content-Length', str(len(resp)))
+                    self.end_headers()
+                    self.wfile.write(resp)
+                    return
+                os.rename(src, dst)
+                rel = os.path.relpath(dst, os.path.realpath(CONFIG_DIR)).replace(os.sep, '/')
+                resp = json.dumps({'ok': True, 'file': rel}).encode()
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.send_header('Content-Length', str(len(resp)))
+                self.end_headers()
+                self.wfile.write(resp)
+            except Exception as e:
+                self.send_error(500, str(e))
+        elif parsed.path == '/api/v1/file/enable':
+            try:
+                length = int(self.headers.get('Content-Length', 0))
+                body = json.loads(self.rfile.read(length))
+                name = body.get('file', '')
+                src = resolve_config_path(name)
+                if not src or not os.path.isfile(src) or not name.endswith('.json.disabled'):
+                    resp = b'{"error":"invalid file name"}'
+                    self.send_response(400)
+                    self.send_header('Content-Type', 'application/json')
+                    self.send_header('Content-Length', str(len(resp)))
+                    self.end_headers()
+                    self.wfile.write(resp)
+                    return
+                dst = src[:-len('.disabled')]
+                if os.path.exists(dst):
+                    resp = b'{"error":"a file already exists at the destination"}'
+                    self.send_response(400)
+                    self.send_header('Content-Type', 'application/json')
+                    self.send_header('Content-Length', str(len(resp)))
+                    self.end_headers()
+                    self.wfile.write(resp)
+                    return
+                os.rename(src, dst)
+                rel = os.path.relpath(dst, os.path.realpath(CONFIG_DIR)).replace(os.sep, '/')
+                resp = json.dumps({'ok': True, 'file': rel}).encode()
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.send_header('Content-Length', str(len(resp)))
+                self.end_headers()
+                self.wfile.write(resp)
+            except Exception as e:
+                self.send_error(500, str(e))
         elif parsed.path == '/api/v1/folder/create':
             try:
                 length = int(self.headers.get('Content-Length', 0))
@@ -699,6 +793,73 @@ class StaticHandler(http.server.SimpleHTTPRequestHandler):
                 self.send_header('Content-Type', 'application/json')
                 self.end_headers()
                 self.wfile.write(b'{"ok":true}')
+            except Exception as e:
+                self.send_error(500, str(e))
+        elif parsed.path == '/api/v1/folder/disable':
+            try:
+                length = int(self.headers.get('Content-Length', 0))
+                body = json.loads(self.rfile.read(length))
+                target = resolve_folder_path(body.get('folder', ''))
+                if not target or not os.path.isdir(target) or _is_disabled_folder_name(os.path.basename(target)):
+                    resp = b'{"error":"invalid folder name"}'
+                    self.send_response(400)
+                    self.send_header('Content-Type', 'application/json')
+                    self.send_header('Content-Length', str(len(resp)))
+                    self.end_headers()
+                    self.wfile.write(resp)
+                    return
+                dst = os.path.join(os.path.dirname(target), '.' + os.path.basename(target) + '.disabled')
+                if os.path.exists(dst):
+                    resp = b'{"error":"a disabled version already exists"}'
+                    self.send_response(400)
+                    self.send_header('Content-Type', 'application/json')
+                    self.send_header('Content-Length', str(len(resp)))
+                    self.end_headers()
+                    self.wfile.write(resp)
+                    return
+                os.rename(target, dst)
+                rel = os.path.relpath(dst, os.path.realpath(CONFIG_DIR)).replace(os.sep, '/')
+                resp = json.dumps({'ok': True, 'folder': rel}).encode()
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.send_header('Content-Length', str(len(resp)))
+                self.end_headers()
+                self.wfile.write(resp)
+            except Exception as e:
+                self.send_error(500, str(e))
+        elif parsed.path == '/api/v1/folder/enable':
+            try:
+                length = int(self.headers.get('Content-Length', 0))
+                body = json.loads(self.rfile.read(length))
+                folder = body.get('folder', '')
+                target = resolve_folder_path(folder)
+                base_name = os.path.basename(target) if target else ''
+                if not target or not os.path.isdir(target) or not _is_disabled_folder_name(base_name):
+                    resp = b'{"error":"invalid folder name"}'
+                    self.send_response(400)
+                    self.send_header('Content-Type', 'application/json')
+                    self.send_header('Content-Length', str(len(resp)))
+                    self.end_headers()
+                    self.wfile.write(resp)
+                    return
+                inner = base_name[1:-len('.disabled')]
+                dst = os.path.join(os.path.dirname(target), inner)
+                if os.path.exists(dst):
+                    resp = b'{"error":"a folder already exists at the destination"}'
+                    self.send_response(400)
+                    self.send_header('Content-Type', 'application/json')
+                    self.send_header('Content-Length', str(len(resp)))
+                    self.end_headers()
+                    self.wfile.write(resp)
+                    return
+                os.rename(target, dst)
+                rel = os.path.relpath(dst, os.path.realpath(CONFIG_DIR)).replace(os.sep, '/')
+                resp = json.dumps({'ok': True, 'folder': rel}).encode()
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.send_header('Content-Length', str(len(resp)))
+                self.end_headers()
+                self.wfile.write(resp)
             except Exception as e:
                 self.send_error(500, str(e))
         elif parsed.path == '/api/v1/backup/delete':
