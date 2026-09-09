@@ -1796,10 +1796,12 @@ function renderEditor() {
   area.scrollTop = scroll;
   // Right-clicking any actual row shows that row's own menu (stopPropagation in
   // showContextMenu), so this only ever fires on genuinely empty space — most importantly a
-  // blank file with nothing rendered in it yet, which otherwise has nowhere to right-click.
+  // blank (or not-yet-populated) file, which otherwise has nowhere to right-click to add a
+  // top-level option. Paste is only offered when there's something to paste.
   area.oncontextmenu = e => {
-    if (!_clipboard) return; // nothing to paste — let the browser's native menu show instead
-    showContextMenu(e, [{ label: 'Paste', onclick: pastePath }]);
+    const items = [{ label: 'Add option…', onclick: () => showAddOptionMenu(e, []) }];
+    if (_clipboard) items.push({ separator: true }, { label: 'Paste', onclick: pastePath });
+    showContextMenu(e, items);
   };
 }
 
