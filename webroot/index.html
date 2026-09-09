@@ -1668,7 +1668,7 @@ function renderFlatLeaves(container, obj, path, depth) {
       // on a child still shows the child's menu, not this one.
       sub.oncontextmenu = e => {
         const items = isDisabled(getAtPath(config, childPath)) ? [] : [
-          { label: 'Add option…', onclick: () => showAddOptionMenu(e, childPath) },
+          ..._addOptionMenuItems(e, childPath),
           { label: 'Convert to Nix expression', onclick: () => { setAtPath(config, childPath, { _expr: jsonToNix(getAtPath(config, childPath)) }); renderAll(); } },
         ];
         showContextMenu(e, [...items, ..._commonMenuItems(childPath)]);
@@ -1738,7 +1738,7 @@ function renderFlat(container, obj, path) {
       group.appendChild(content);
       group.oncontextmenu = e => {
         const items = isDisabled(getAtPath(config, childPath)) ? [] : [
-          { label: 'Add option…', onclick: () => showAddOptionMenu(e, childPath) },
+          ..._addOptionMenuItems(e, childPath),
           { label: 'Convert to Nix expression', onclick: () => { setAtPath(config, childPath, { _expr: jsonToNix(getAtPath(config, childPath)) }); renderAll(); } },
         ];
         showContextMenu(e, [...items, ..._commonMenuItems(childPath)]);
@@ -1908,6 +1908,17 @@ function _detachForFloat(el) {
   return () => { if (next && next.parentNode === parent) parent.insertBefore(el, next); else parent.appendChild(el); };
 }
 
+// Two add-option entries for a context menu targeting `path`: `subLabel` (default "Add sub
+// option…", prefilled to add under `path`) listed first since it's the more relevant action when
+// you've right-clicked something specific, followed by a plain "Add option…" prefilled empty (a
+// root-level option) so you don't have to back out to blank editor space just to add one of those.
+function _addOptionMenuItems(event, path, subLabel = 'Add sub option…') {
+  return [
+    { label: subLabel, onclick: () => showAddOptionMenu(event, path) },
+    { label: 'Add option…', onclick: () => showAddOptionMenu(event, []) },
+  ];
+}
+
 // Right-click "Add option…": rather than a separate/duplicate implementation, this temporarily
 // relocates the real topbar add-input (+ its autocomplete dropdown, Add button, and force-type
 // bar) to a floating panel at the cursor — so search, wildcard hints, Tab-completion, force-add,
@@ -2050,7 +2061,7 @@ function renderSection(container, key, obj, path) {
   // so a right-click on a child still shows the child's menu, not this one.
   section.oncontextmenu = e => {
     const items = isDisabled(getAtPath(config, path)) ? [] : [
-      { label: 'Add option…', onclick: () => showAddOptionMenu(e, path) },
+      ..._addOptionMenuItems(e, path),
       { label: 'Convert to Nix expression', onclick: () => { setAtPath(config, path, { _expr: jsonToNix(getAtPath(config, path)) }); renderAll(); } },
     ];
     showContextMenu(e, [...items, ..._commonMenuItems(path)]);
@@ -2433,7 +2444,7 @@ function renderArray(container, arr, path) {
       wrap.appendChild(fields);
       wrap.oncontextmenu = e => {
         const disabled = isDisabled(getAtPath(config, itemPath));
-        const items = disabled ? [] : [{ label: 'Add field', onclick: () => showAddOptionMenu(e, itemPath) }];
+        const items = disabled ? [] : _addOptionMenuItems(e, itemPath, 'Add field');
         // _commonMenuItems already omits Disable for array-indexed paths like this one.
         showContextMenu(e, [...items, ..._commonMenuItems(itemPath)]);
       };
