@@ -287,10 +287,13 @@ body {
 .tt-inline { background: var(--bg4); border-radius: 3px; padding: 0 3px; font-family: var(--font); font-size: 10px; color: var(--accent); }
 .tt-block { background: var(--bg4); border-radius: var(--radius-sm); padding: 5px 8px; margin: 4px 0; font-size: 10px; white-space: pre; overflow-x: auto; color: var(--green); }
 .tt-meta {
-  display: flex; flex-wrap: wrap; gap: 4px 10px;
+  display: flex; flex-direction: column; gap: 4px;
   margin-top: 4px; padding-top: 4px;
   border-top: 1px solid var(--border2);
 }
+/* One label+value pair (default/example/type) — its own row, so a long or multi-line value
+   (e.g. a multi-line Nix example string) never runs into the next label on the same line. */
+.tt-meta-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; }
 .tt-label {
   color: var(--text3); font-size: 10px;
   text-transform: uppercase; letter-spacing: 0.5px;

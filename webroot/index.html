@@ -1916,14 +1916,14 @@ function buildTooltip(opt, typeLabel) {
     const hasExample = opt.example !== undefined && opt.example !== null;
     if (hasDefault || hasExample) {
       html += '<div class="tt-meta">';
-      if (hasDefault) html += `<span class="tt-label">default</span><span class="tt-val">${opt.default}</span>`;
-      if (hasExample) html += `<span class="tt-label">example</span><span class="tt-val">${typeof opt.example === 'object' ? JSON.stringify(opt.example) : opt.example}</span>`;
+      if (hasDefault) html += `<div class="tt-meta-row"><span class="tt-label">default</span><span class="tt-val">${opt.default}</span></div>`;
+      if (hasExample) html += `<div class="tt-meta-row"><span class="tt-label">example</span><span class="tt-val">${typeof opt.example === 'object' ? JSON.stringify(opt.example) : opt.example}</span></div>`;
       html += '</div>';
     }
   }
   const type = (opt && opt.type) || typeLabel;
   if (type) {
-    html += `<div class="tt-meta tt-type"><span class="tt-label">type</span><span class="tt-val">${type}</span></div>`;
+    html += `<div class="tt-meta tt-type"><div class="tt-meta-row"><span class="tt-label">type</span><span class="tt-val">${type}</span></div></div>`;
   }
   tt.innerHTML = html;
   return tt;
