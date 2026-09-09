@@ -1626,7 +1626,7 @@ function makeFlatSubHeader(k, childPath, depth) {
   const lbl = document.createElement('span');
   lbl.className = 'flat-sublevel-label';
   lbl.textContent = k;
-  lbl.onclick = () => { const inp = document.getElementById('add-input'); inp.value = childPath.join('.') + '.'; inp.focus(); inp.dispatchEvent(new Event('input')); };
+  lbl.onclick = e => showAddOptionMenu(e, childPath);
   wrap.appendChild(lbl);
 
   const actions = document.createElement('div');
@@ -1705,7 +1705,7 @@ function makeFlatGroupHeader(k, childPath) {
   row.appendChild(makeFlatDragHandle());
   const lbl = document.createElement('span');
   lbl.className = 'flat-group-label'; lbl.textContent = k;
-  lbl.onclick = () => { const inp = document.getElementById('add-input'); inp.value = childPath.join('.') + '.'; inp.focus(); inp.dispatchEvent(new Event('input')); };
+  lbl.onclick = e => showAddOptionMenu(e, childPath);
   row.appendChild(lbl);
   const actions = document.createElement('div');
   actions.className = 'flat-sublevel-actions';

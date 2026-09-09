@@ -144,8 +144,10 @@ body {
   gap: 8px;
   flex-shrink: 0;
 }
-.topbar .autocomplete-wrap { flex: 1; }
-.topbar .autocomplete-wrap input { width: 100%; }
+/* The add-input/button live in the topbar in markup only so showAddOptionMenu() has a home to
+   detach them from and restore them to — right-click "Add option..."/"Add sub option..." (and
+   flat-mode header clicks) are the only way to open them now, via the floating panel below. */
+.topbar .autocomplete-wrap, .topbar #add-commit-btn { display: none; }
 .topbar-right { display: flex; align-items: center; gap: 8px; margin-left: auto; }
 
 /* ── Autocomplete ── */
