@@ -219,6 +219,64 @@ function deleteAtPath(obj, path) {
   if (Array.isArray(cur)) cur.splice(parseInt(last), 1);
   else delete cur[last];
 }
+// Renames the key at path's last segment, preserving the sibling ordering and the value —
+// a plain delete+re-set would instead move the entry to the end of the object. Used for
+// wildcard-named entries (e.g. systemd.services.<name>, users.users.<name>) whose name needs to
+// change without deleting and recreating the whole section/field.
+function renameKeyAtPath(path, newKey) {
+  const oldKey = path[path.length - 1];
+  if (newKey === oldKey) return true;
+  const parentPath = path.slice(0, -1);
+  const parent = parentPath.length ? getAtPath(config, parentPath) : config;
+  if (!parent || typeof parent !== 'object' || Array.isArray(parent)) return false;
+  if (Object.prototype.hasOwnProperty.call(parent, newKey)) {
+    setStatus(`"${newKey}" already exists here`, 4000, 'err');
+    return false;
+  }
+  const renamed = {};
+  for (const [k, v] of Object.entries(parent)) renamed[k === oldKey ? newKey : k] = v;
+  if (parentPath.length) setAtPath(config, parentPath, renamed);
+  else config = renamed; // root-level key — renderAll() resyncs fileConfigs[activeFile]
+  return true;
+}
+
+// Inline-renames the key at `path`: swaps its label for a live <input>, same pattern as
+// _startTabRename/_startFolderRename. Works for both a section header (.section-header) and a
+// field/array-field row (.field-key) — the selector below covers whichever one `path` is.
+function _startKeyRename(path) {
+  const pathKey = path.join('.');
+  const el = document.querySelector('[data-path="' + CSS.escape(pathKey) + '"]');
+  if (!el) return;
+  const anchor = el.querySelector(':scope > .section-header .tt-anchor, :scope > .field-key .tt-anchor');
+  if (!anchor) return;
+  const oldKey = path[path.length - 1];
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.className = 'key-rename-input';
+  input.value = oldKey;
+  anchor.replaceWith(input);
+  _autosizeInput(input);
+  input.focus();
+  input.select();
+
+  let done = false;
+  function commit() {
+    if (done) return;
+    done = true;
+    const raw = input.value.trim();
+    if (raw) renameKeyAtPath(path, raw);
+    renderAll();
+  }
+  function cancel() { if (!done) { done = true; renderAll(); } }
+  input.addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
+    else if (e.key === 'Escape') { e.preventDefault(); cancel(); }
+  });
+  input.addEventListener('blur', commit);
+  input.addEventListener('mousedown', e => e.stopPropagation());
+  input.addEventListener('click', e => e.stopPropagation());
+}
+
 function typeOf(val) {
   if (val === null) return 'null';
   if (Array.isArray(val)) return 'array';
@@ -350,8 +408,13 @@ function showContextMenu(event, items) {
 // renderDisabled() renders the *inner* value at the same path as the {_disabled,_value} wrapper.
 function _commonMenuItems(path, { skipDisable = false } = {}) {
   const cur = getAtPath(config, path);
+  // Renaming (like disabling) only makes sense for a real object key — a numeric index into an
+  // array has no stable "name" to edit, so skip it under the same condition as Disable below.
+  const parent = path.length ? getAtPath(config, path.slice(0, -1)) : null;
+  const isArrayItem = Array.isArray(parent);
   if (isDisabled(cur)) {
     return [
+      ...(isArrayItem ? [] : [{ label: 'Rename', onclick: () => _startKeyRename(path) }]),
       { label: 'Re-enable', onclick: () => { setAtPath(config, path, cur._value); renderAll(); } },
       { separator: true },
       { label: 'Delete', danger: true, onclick: () => { deleteAtPath(config, path); renderAll(); } },
@@ -361,9 +424,10 @@ function _commonMenuItems(path, { skipDisable = false } = {}) {
   // filters _disabled out of attrsets, not array elements), so skip that option whenever the
   // path's last segment names an index into an array rather than a real object key — determined
   // by the actual parent container's type, not by guessing from the segment's own shape.
-  const parent = path.length ? getAtPath(config, path.slice(0, -1)) : null;
-  const isArrayItem = Array.isArray(parent);
   const items = [];
+  if (!isArrayItem) {
+    items.push({ label: 'Rename', onclick: () => _startKeyRename(path) });
+  }
   if (!skipDisable && !isArrayItem) {
     items.push({ label: 'Disable', onclick: () => { setAtPath(config, path, { _disabled: true, _value: getAtPath(config, path) }); renderAll(); } });
   }

@@ -77,6 +77,10 @@ body {
 .tab-folder-label-input {
   font-size: 11px; text-transform: uppercase; letter-spacing: .04em; padding: 1px 4px;
 }
+.key-rename-input {
+  background: var(--bg); border: 1px solid var(--accent2); color: var(--text);
+  border-radius: var(--radius-sm); font: inherit; outline: none; padding: 0 3px;
+}
 
 /* ── Layout ── */
 .layout { display: flex; flex: 1; overflow: hidden; flex-direction: row-reverse; }
