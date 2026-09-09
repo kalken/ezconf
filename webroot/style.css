@@ -260,6 +260,11 @@ body {
   max-height: 260px;
   overflow-y: auto;
 }
+/* Add-option autocomplete's info popup: position:fixed (set inline, computed from
+   #add-ac-list's bounding rect — see _showAcTooltip) rather than the anchor-relative absolute
+   positioning above, and above .floating-add-container (z-index 2000) since that's usually
+   where #add-ac-list lives while this is shown. */
+.ac-tooltip { z-index: 2100; }
 /* Tooltip visibility: .tt-anchor wraps just the rendered title text so the hover target is the
    text itself, not the whole reserved-width key column (which is wider than short titles). It's
    JS-driven (_wireTooltipAnchor toggles .tt-visible) rather than plain :hover because .tt-anchor

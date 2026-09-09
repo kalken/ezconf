@@ -1008,20 +1008,54 @@ function getWildcardBoundary(query) {
 let addSelectedType = 'string';
 let addSelectedOption = null; // the matched option entry
 
+// Reuses buildTooltip() — the same required/description/default/example/type popup shown when
+// hovering a field or section's title — for the add-option autocomplete's results, so hovering
+// (or keyboard-highlighting) a matched option shows exactly the same info. Kept as one detached
+// element positioned via getBoundingClientRect() rather than nested inside #add-ac-list, since
+// the list's own overflow-y:auto would clip anything positioned outside its box (the same reason
+// the field/section tooltip is kept as a sibling of .key-label instead of a descendant).
+let _acTooltipEl = null;
+function _showAcTooltip(opt) {
+  if (!opt) { _hideAcTooltip(); return; }
+  if (!_acTooltipEl) {
+    _acTooltipEl = document.createElement('div');
+    _acTooltipEl.className = 'tooltip ac-tooltip';
+    _acTooltipEl.style.position = 'fixed';
+    document.body.appendChild(_acTooltipEl);
+  }
+  _acTooltipEl.innerHTML = buildTooltip(opt, opt.type).innerHTML;
+  _acTooltipEl.classList.add('tt-visible');
+  const listRect = document.getElementById('add-ac-list').getBoundingClientRect();
+  const ttRect = _acTooltipEl.getBoundingClientRect();
+  let left = listRect.right + 8;
+  if (left + ttRect.width > window.innerWidth) left = Math.max(4, listRect.left - ttRect.width - 8);
+  let top = listRect.top;
+  if (top + ttRect.height > window.innerHeight) top = Math.max(4, window.innerHeight - ttRect.height - 4);
+  _acTooltipEl.style.left = left + 'px';
+  _acTooltipEl.style.top = top + 'px';
+}
+function _hideAcTooltip() {
+  if (_acTooltipEl) _acTooltipEl.classList.remove('tt-visible');
+}
+
 function initAddPanel() {
   const inp = document.getElementById('add-input');
   const acList = document.getElementById('add-ac-list');
   let acIdx = -1;
   let acSaved = null;
+  // Wraps the plain acList.classList.add('hidden') used throughout below so the tooltip never
+  // outlives the item it describes.
+  function hideAcList() { acList.classList.add('hidden'); _hideAcTooltip(); }
 
   function showAC() {
+    _hideAcTooltip();
     const hits = optionSearch(inp.value);
     acList.innerHTML = '';
     acIdx = -1;
     acSaved = null;
     const wildcard = getWildcardBoundary(inp.value);
     if (!hits.length && !wildcard) {
-      acList.classList.add('hidden');
+      hideAcList();
       if (inp.value.trim()) doForceAdd();
       return;
     }
@@ -1041,7 +1075,7 @@ function initAddPanel() {
           e.preventDefault();
           inp.value = prefix + k + '.';
           addSelectedOption = null;
-          acList.classList.add('hidden');
+          hideAcList();
           inp.focus();
           showAC();
         });
@@ -1052,9 +1086,12 @@ function initAddPanel() {
     hits.forEach(o => {
       const item = document.createElement('div');
       item.className = 'autocomplete-item';
+      item._acOpt = o;
       const desc = (o.description || '').split('\n')[0];
       const reqBadge = o.required ? `<span class="ac-required">required</span>` : '';
       item.innerHTML = `<span class="ac-name">${o.displayPath}</span><span class="ac-desc">${desc}</span>${reqBadge}<span class="ac-type">${o.type || ''}</span>`;
+      item.addEventListener('mouseenter', () => _showAcTooltip(o));
+      item.addEventListener('mouseleave', _hideAcTooltip);
       item.addEventListener('mousedown', e => {
         e.preventDefault();
         // If the displayPath is not a valid leaf option (e.g. a fuzzy match like
@@ -1064,7 +1101,7 @@ function initAddPanel() {
           inp.value = o.displayPath;
           addSelectedType = typeFromNix(o.type);
           addSelectedOption = o;
-          acList.classList.add('hidden');
+          hideAcList();
           inp.focus();
         } else {
           inp.value = o.displayPath + '.';
@@ -1097,8 +1134,10 @@ function initAddPanel() {
         items[acIdx].scrollIntoView({ block: 'nearest' });
         if (!items[acIdx].classList.contains('ac-wildcard-hint'))
           inp.value = items[acIdx].querySelector('.ac-name').textContent;
+        _showAcTooltip(items[acIdx]._acOpt);
       } else {
         inp.value = acSaved;
+        _hideAcTooltip();
       }
       e.preventDefault();
     } else if (e.key === 'Enter') {
@@ -1108,7 +1147,7 @@ function initAddPanel() {
         // If the item was a leaf, the input now holds a valid path — add it immediately
         if (isValidOptionPath(inp.value.trim())) doAdd();
       } else {
-        acList.classList.add('hidden');
+        hideAcList();
         doAdd();
       }
       e.preventDefault();
@@ -1153,12 +1192,17 @@ function initAddPanel() {
       segs.forEach(({ segPath, isLeaf, hit }) => {
         const item = document.createElement('div');
         item.className = 'autocomplete-item';
+        if (isLeaf) item._acOpt = hit;
         const desc = isLeaf ? (hit.description || '').split('\n')[0] : '';
         item.innerHTML = `<span class="ac-name">${segPath}</span><span class="ac-desc">${desc}</span><span class="ac-type">${isLeaf ? (hit.type || '') : ''}</span>`;
+        if (isLeaf) {
+          item.addEventListener('mouseenter', () => _showAcTooltip(hit));
+          item.addEventListener('mouseleave', _hideAcTooltip);
+        }
         item.addEventListener('mousedown', ev => {
           ev.preventDefault();
           inp.value = segPath;
-          if (isLeaf) { addSelectedType = typeFromNix(hit.type); addSelectedOption = hit; acList.classList.add('hidden'); }
+          if (isLeaf) { addSelectedType = typeFromNix(hit.type); addSelectedOption = hit; hideAcList(); }
           else { addSelectedOption = null; inp.dispatchEvent(new Event('input')); }
           inp.focus();
         });
@@ -1167,12 +1211,12 @@ function initAddPanel() {
       acList.classList.remove('hidden');
     } else if (e.key === 'Escape') {
       if (acSaved !== null) { inp.value = acSaved; acSaved = null; }
-      acList.classList.add('hidden');
+      hideAcList();
       hideForcebar();
       _closeFloatingAddPanel();
     }
   });
-  inp.addEventListener('blur', () => { acHideTimer = setTimeout(() => { acList.classList.add('hidden'); acHideTimer = null; hideForcebar(); }, 150); });
+  inp.addEventListener('blur', () => { acHideTimer = setTimeout(() => { hideAcList(); acHideTimer = null; hideForcebar(); }, 150); });
 }
 
 // Return the default empty container for a path segment based on option type, falling back
@@ -1937,6 +1981,7 @@ function _closeFloatingAddPanel() {
   restoreForce();
   container.remove();
   document.getElementById('add-ac-list').classList.add('hidden');
+  _hideAcTooltip();
   _floatingAddState = null;
 }
 
