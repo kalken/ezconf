@@ -137,6 +137,7 @@ networking.hostName = "myhost";</pre>
         <button class="btn" onclick="closeBackupsModal()">✕</button>
       </div>
     </div>
+    <div class="modal-error hidden" id="backups-error"></div>
     <div class="backups-list" id="backups-list"></div>
   </div>
 </div>
@@ -3817,9 +3818,20 @@ async function showBackupsModal() {
   const modal = document.getElementById('backups-modal');
   modal.classList.remove('hidden');
   modal.querySelector('h2').textContent = activeFile ? `Backups — ${activeFile}` : 'Configuration backups';
+  _clearBackupsError();
   await refreshBackupsList();
 }
 function closeBackupsModal() { document.getElementById('backups-modal').classList.add('hidden'); }
+
+// setStatus()'s toast renders in .statusbar, which a full-screen .modal-overlay (z-index 300)
+// sits on top of — so while this modal is open, setStatus() alone is invisible. Mirrors
+// #import-error's in-modal error box for the same reason.
+function _showBackupsError(msg) {
+  const el = document.getElementById('backups-error');
+  el.textContent = msg;
+  el.classList.remove('hidden');
+}
+function _clearBackupsError() { document.getElementById('backups-error').classList.add('hidden'); }
 
 async function refreshBackupsList() {
   const list = document.getElementById('backups-list');
@@ -3871,12 +3883,15 @@ async function createBackup() {
     });
     if (!res.ok) {
       const data = await res.json().catch(() => ({}));
+      _showBackupsError('Backup failed: ' + (data.error || res.status));
       setStatus('Backup failed: ' + (data.error || res.status), 4000, 'err');
       return;
     }
+    _clearBackupsError();
     await refreshBackupsList();
     setStatus('Backup created', 2000, 'ok');
   } catch (e) {
+    _showBackupsError('Backup failed: ' + e.message);
     setStatus('Backup failed: ' + e.message, 4000, 'err');
   }
 }
@@ -3889,7 +3904,7 @@ async function restoreBackup(name) {
       method: 'POST',
       body: JSON.stringify({ name, file: activeFile }),
     });
-    if (!res.ok) { setStatus('Restore failed (' + res.status + ')', 4000, 'err'); return; }
+    if (!res.ok) { _showBackupsError('Restore failed (' + res.status + ')'); setStatus('Restore failed (' + res.status + ')', 4000, 'err'); return; }
     config = normalizeConfig(await fetch(_cfgPathBust()).then(r => r.json()));
     fileConfigs[activeFile] = config;
     renderAll();
@@ -3897,6 +3912,7 @@ async function restoreBackup(name) {
     closeBackupsModal();
     setStatus('Restored backup', 3000, 'ok');
   } catch (e) {
+    _showBackupsError('Restore failed: ' + e.message);
     setStatus('Restore failed: ' + e.message, 4000, 'err');
   }
 }
@@ -3907,10 +3923,12 @@ async function deleteBackup(name) {
       method: 'POST',
       body: JSON.stringify({ name }),
     });
-    if (!res.ok) { setStatus('Delete failed (' + res.status + ')', 4000, 'err'); return; }
+    if (!res.ok) { _showBackupsError('Delete failed (' + res.status + ')'); setStatus('Delete failed (' + res.status + ')', 4000, 'err'); return; }
+    _clearBackupsError();
     await refreshBackupsList();
     setStatus('Deleted backup', 2000, 'ok');
   } catch (e) {
+    _showBackupsError('Delete failed: ' + e.message);
     setStatus('Delete failed: ' + e.message, 4000, 'err');
   }
 }

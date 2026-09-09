@@ -490,7 +490,7 @@ textarea { resize: vertical; min-height: unset; line-height: 1.5; }
 .import-target-row input:focus { border-color: var(--accent2); }
 .import-hint { margin: 0 0 10px; font-size: 12px; color: var(--text3); line-height: 1.5; }
 .import-hint code { font-family: var(--font); color: var(--text2); }
-.import-error { background: var(--error-bg); border: 1px solid var(--required-bg); color: var(--required-text); border-radius: var(--radius-sm); padding: 8px 12px; font-size: 12px; font-family: var(--font); white-space: pre-wrap; word-break: break-all; }
+.import-error, .modal-error { background: var(--error-bg); border: 1px solid var(--required-bg); color: var(--required-text); border-radius: var(--radius-sm); padding: 8px 12px; font-size: 12px; font-family: var(--font); white-space: pre-wrap; word-break: break-all; }
 .import-error.import-valid { background: #1a2e1a; border-color: #2d5a2d; color: var(--green); }
 .import-examples { display: flex; gap: 8px; align-items: flex-start; }
 .import-example-label { color: var(--text3); font-size: 10px; text-transform: uppercase; letter-spacing: .06em; padding-top: 6px; flex-shrink: 0; }
