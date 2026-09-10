@@ -497,8 +497,15 @@ function typeFromNix(t) {
   if (t.includes('or (list of') || t.includes('or (list of')) return 'array';
   // "list of X or Y convertible to it" patterns that don't start with "list"
   if (t.includes('convertible to it') && t.includes('list')) return 'array';
-  // Pure attribute set / submodule → object
-  if (t.includes('attribute set') || t.includes('submodule')) return 'object';
+  // Attribute set / submodule → object, but only when it's the PRIMARY type (the string starts
+  // with it, optionally after a leading "null or "), not merely one alternative inside a wider
+  // union like "string or (attribute set of string)" — forcing 'object' there discarded
+  // whatever scalar alternative was actually intended, and since a plain "attribute set of X"
+  // isn't a submodule, there are no required fields to seed it with either: doAdd() ended up
+  // creating a dead, empty {} with nothing to edit. Falls through to the string/number checks
+  // below for those wider unions instead.
+  const primaryType = t.startsWith('null or ') ? t.slice('null or '.length) : t;
+  if (primaryType.startsWith('attribute set') || primaryType.startsWith('submodule')) return 'object';
   // Pure integer types (not mixed with string/boolean)
   const hasInt = t.includes('integer') || t.includes('number') || t.includes('float');
   const hasMix = t.includes(' or string') || t.includes('string or ') || t.includes(' or boolean') || t.includes('boolean or ') || t.includes(' or value "') || t.includes('value "');
