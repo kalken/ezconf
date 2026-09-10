@@ -8,6 +8,10 @@ Do not add Claude as co-author in commit messages.
 
 All changes must be committed to `develop` first. Only merge `develop` into `master` — never commit directly to `master`.
 
+## Documentation
+
+When a change adds, removes, or changes user-facing behavior, check whether `README.md` needs updating too, not just this file — README documents features/usage for end users, this file documents architecture/implementation for future Claude sessions, and they drift independently. A removed feature (button, endpoint, config option) especially needs its README mention removed, not just its code — a stale "you can also do X" is worse than no mention at all.
+
 ## What this is
 
 A zero-dependency, single-page NixOS configuration editor. No build step, no framework, no package manager. The app is served by `bin/server.py` and edits the `*.json` config files under a directory specified via `--file`, discovered recursively (except `custom-options.json`, a schema-extension sidecar, and dotdirs like the default `.ezconf-backups`) — each one an independently editable/saveable/backed-up "file," chosen via a dropdown in the header, merged together only at Nix-eval time via `lib.mkMerge` in `json2nix.nix`. Files can be nested in subfolders (e.g. `services/nginx.json`) purely for the user's own organization — root-level files are plain entries in the dropdown, files in a folder are grouped under an `<optgroup>`. `--file` can also name a specific `*.json` file inside that directory (kept for compatibility with older invocations) — its directory becomes the working set and it's preselected initially.
