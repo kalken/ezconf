@@ -3898,16 +3898,27 @@ function _formatBackupSize(n) {
 // editor (see loadBackup), no confirmation — showContextMenu doesn't care whether it's triggered
 // by a right-click or a plain click, so it's reused here as a left-click dropdown menu.
 async function showBackupsMenu(event) {
+  // showContextMenu positions itself at event.clientX/clientY — for a right-click that's exactly
+  // the cursor, which is fine, but for this left-click button it'd be wherever inside the button
+  // you happened to click. Anchor to the button's own bottom-left corner instead, like a normal
+  // dropdown, by capturing its rect now (currentTarget is only valid during dispatch, so this
+  // has to happen before the await below empties it out) and feeding showContextMenu a
+  // lookalike event with that position instead of the real click coordinates.
+  const rect = event.currentTarget.getBoundingClientRect();
+  const anchor = {
+    clientX: rect.left, clientY: rect.bottom + 4,
+    preventDefault: () => event.preventDefault(), stopPropagation: () => event.stopPropagation(),
+  };
   let backups = [];
   try {
     const res = await apiFetch('/backups' + _fileQuery());
     if (res.ok) backups = (await res.json()).backups || [];
   } catch (e) { /* falls through to the empty-state item below */ }
   if (!backups.length) {
-    showContextMenu(event, [{ label: 'No backups yet — one is made on every save.', disabled: true }]);
+    showContextMenu(anchor, [{ label: 'No backups yet — one is made on every save.', disabled: true }]);
     return;
   }
-  showContextMenu(event, backups.map(b => ({
+  showContextMenu(anchor, backups.map(b => ({
     label: new Date(b.mtime * 1000).toLocaleString() + '  ·  ' + _formatBackupSize(b.size),
     onclick: () => loadBackup(b.name),
   })));
