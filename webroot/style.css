@@ -270,9 +270,7 @@ body {
    JS-driven (_wireTooltipAnchor toggles .tt-visible) rather than plain :hover because .tt-anchor
    sits inside .key-label's overflow:hidden (needed for ellipsis truncation of long names), which
    would otherwise clip a :hover-shown absolutely-positioned child too. */
-.tooltip.tt-visible,
-.pkg-name:hover > .tooltip,
-.pkg-name > .tooltip:hover { display: block; }
+.tooltip.tt-visible { display: block; }
 .tt-anchor { position: relative; }
 .field-key-text { position: relative; cursor: default; display: block; width: 100%; }
 .key-label { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
@@ -319,7 +317,6 @@ body {
   position: relative; display: flex; flex-direction: row; align-items: flex-start; gap: 4px; padding-top: 2px;
 }
 .field-key-inner { display: flex; flex-direction: column; align-items: flex-start; flex: 1; min-width: 0; }
-.field-key .type-hint { display: none; }
 .field-value { flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: center; gap: 4px; align-self: stretch; }
 
 /* ── Flat mode ── */
@@ -352,7 +349,6 @@ body {
   min-width: 80px;
 }
 .flat-mode .field-key-text { align-self: flex-start; overflow: visible; }
-.flat-mode .field-key .type-hint { display: none; }
 .flat-mode .field-value { flex: 1; min-width: 0; }
 .flat-col-handle {
   flex-shrink: 0;
@@ -430,8 +426,6 @@ textarea { resize: vertical; min-height: unset; line-height: 1.5; }
   padding: 4px 12px;
 }
 .array-obj-fields { flex: 1; display: flex; flex-direction: column; gap: 4px; }
-.array-obj-index { font-size: 0.75em; color: var(--fg3); cursor: pointer; min-width: 1.2em; text-align: center; user-select: none; }
-.array-obj-index:hover { color: var(--green); }
 
 /* Package items: side-by-side chips */
 .pkg-items { display: flex; flex-wrap: wrap; gap: 4px; }
@@ -445,11 +439,6 @@ textarea { resize: vertical; min-height: unset; line-height: 1.5; }
 }
 .pkg-items .array-item .pkg-label:hover > .tooltip { display: block; }
 .expr-value { color: var(--purple) !important; }
-.expr-badge {
-  display: inline-flex; align-items: center; gap: 4px;
-  background: var(--expr-bg); border: 1px solid var(--expr-border);
-  border-radius: var(--radius); padding: 2px 6px; font-size: 11px; color: var(--green);
-}
 
 /* ── Status bar ── */
 .statusbar {
@@ -548,12 +537,6 @@ textarea { resize: vertical; min-height: unset; line-height: 1.5; }
 /* ── Expr field (object rendered as _expr) ── */
 .expr-field-wrap {
   display: flex; align-items: flex-start; gap: 6px; width: 100%;
-}
-.expr-field-wrap .expr-badge {
-  flex-shrink: 0;
-  margin-top: 6px;
-  /* Strip the pill styling — just show the icon inline */
-  background: none; border: none; padding: 0;
 }
 .expr-input {
   flex: 1;
@@ -655,9 +638,6 @@ textarea { resize: vertical; min-height: unset; line-height: 1.5; }
 }
 .is-dragging { opacity: 0.3; }
 
-/* ── Unwrap button (expr → native) ── */
-.icon-btn.unwrap-btn { }
-
 /* ── Nullable string field ── */
 .nullable-string-wrap { display: flex; align-items: center; gap: 4px; min-width: 0; }
 .nullable-string-wrap input { width: 100%; }
@@ -667,12 +647,6 @@ textarea { resize: vertical; min-height: unset; line-height: 1.5; }
 
 /* ── Invalid input state ── */
 .input-error { border-color: var(--red) !important; }
-
-/* ── Array expr item input ── */
-.array-item-expr { flex: 1; min-width: 0; color: var(--purple); }
-
-/* ── Array fallback preview (complex items) ── */
-.array-preview { flex: 1; color: var(--text3); font-size: 12px; }
 
 /* ── Package array autocomplete wrap ── */
 
@@ -726,14 +700,6 @@ textarea { resize: vertical; min-height: unset; line-height: 1.5; }
 }
 .terminal-panel.collapsed .terminal-header { border-bottom: none; }
 
-.terminal-title {
-  color: var(--text2);
-  font-size: 11px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: .06em;
-  flex-shrink: 0;
-}
 .terminal-cmd-btns {
   display: flex;
   gap: 5px;
@@ -743,17 +709,6 @@ textarea { resize: vertical; min-height: unset; line-height: 1.5; }
   justify-content: flex-start;
 }
 .term-run-btn { white-space: nowrap; }
-.term-del-btn {
-  background: none;
-  border: none;
-  color: var(--text3);
-  cursor: pointer;
-  font-size: 13px;
-  padding: 0 1px;
-  line-height: 1;
-  flex-shrink: 0;
-}
-.term-del-btn:hover { color: var(--red); }
 .terminal-header-actions { display: flex; gap: 6px; margin-left: auto; }
 .btn-sm { padding: 3px 8px; font-size: 11px; }
 

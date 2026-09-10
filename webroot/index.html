@@ -557,11 +557,6 @@ function _nixSkipIndentedStr(s, i) {
   }
   throw new Error('unterminated indented string');
 }
-function _nixSkipAnyStr(s, i) {
-  if (s[i] === '"') return _nixSkipStr(s, i);
-  if (s[i] === "'" && s[i + 1] === "'") return _nixSkipIndentedStr(s, i);
-  return i + 1;
-}
 function _nixMatchBracket(s, openIdx) {
   const open = s[openIdx];
   const close = open === '{' ? '}' : open === '[' ? ']' : ')';
