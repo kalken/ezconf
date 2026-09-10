@@ -1962,26 +1962,52 @@ function buildTooltip(opt, typeLabel) {
   return tt;
 }
 
-// Shows/hides `tooltip` based on hovering `anchor`, via a class toggle rather than CSS :hover —
-// `anchor` (the tight-fit .tt-anchor span wrapping just the title text) sits inside .key-label,
-// which has overflow:hidden for ellipsis truncation of long names; a :hover-only rule would have
-// its absolutely-positioned child clipped right along with the truncated text, so `tooltip` is
-// kept as a sibling of .key-label instead (still positioned relative to the shared .field-key-text/
-// .section-key-text ancestor) and shown/hidden explicitly here.
-function _wireTooltipAnchor(anchor, tooltip) {
-  const show = () => tooltip.classList.add('tt-visible');
-  const hide = () => tooltip.classList.remove('tt-visible');
-  anchor.addEventListener('mouseenter', show);
-  anchor.addEventListener('mouseleave', hide);
-  tooltip.addEventListener('mouseenter', show);
-  tooltip.addEventListener('mouseleave', hide);
+// One shared, position:fixed tooltip element (same pattern as _showAcTooltip/_acTooltipEl) —
+// appended straight to <body> and positioned from the anchor's own getBoundingClientRect(), so
+// it floats above everything and is never clipped by an ancestor's overflow (previously it was
+// position:absolute inside .field-key-text/.section-key-text, which sits inside .editor-area's
+// overflow-y:auto — fine for the common case, but a tooltip near the bottom/edge of a scrolled
+// section could get cut off by the editor area's own bounds instead of overlapping it). Shared
+// across every field/section rather than one element per row, since only one can ever be shown
+// at a time and this avoids leaking a fresh DOM node into <body> on every renderAll() — nothing
+// here is torn down on re-render, so a per-anchor element would just accumulate.
+let _fieldTooltipEl = null;
+function _showFieldTooltip(anchor, opt, typeLabel) {
+  if (!_fieldTooltipEl) {
+    _fieldTooltipEl = document.createElement('div');
+    _fieldTooltipEl.className = 'tooltip';
+    _fieldTooltipEl.style.position = 'fixed';
+    document.body.appendChild(_fieldTooltipEl);
+  }
+  _fieldTooltipEl.innerHTML = buildTooltip(opt, typeLabel).innerHTML;
+  _fieldTooltipEl.classList.add('tt-visible');
+  const rect = anchor.getBoundingClientRect();
+  const ttRect = _fieldTooltipEl.getBoundingClientRect();
+  let left = rect.left;
+  if (left + ttRect.width > window.innerWidth) left = Math.max(4, window.innerWidth - ttRect.width - 4);
+  let top = rect.bottom + 4;
+  if (top + ttRect.height > window.innerHeight) top = Math.max(4, rect.top - ttRect.height - 4); // flip above if no room below
+  _fieldTooltipEl.style.left = left + 'px';
+  _fieldTooltipEl.style.top = top + 'px';
+}
+function _hideFieldTooltip() {
+  if (_fieldTooltipEl) _fieldTooltipEl.classList.remove('tt-visible');
+}
+
+// Shows/hides the shared tooltip based on hovering `anchor`, via a class toggle rather than CSS
+// :hover — `anchor` (the tight-fit .tt-anchor span wrapping just the title text) sits inside
+// .key-label, which has overflow:hidden for ellipsis truncation of long names; a :hover-only
+// rule would have an absolutely-positioned child clipped right along with the truncated text.
+function _wireTooltipAnchor(anchor, opt, typeLabel) {
+  anchor.addEventListener('mouseenter', () => _showFieldTooltip(anchor, opt, typeLabel));
+  anchor.addEventListener('mouseleave', _hideFieldTooltip);
   // The tooltip sits near the anchor, not under it, so scrolling while still hovering the
   // anchor text (rather than having moved onto the tooltip itself) would otherwise scroll
   // whatever's actually under the cursor — the editor area — instead. Forward the wheel delta
   // to the tooltip's own scroll (it has max-height/overflow-y: auto) and stop it there.
   anchor.addEventListener('wheel', e => {
-    if (!tooltip.classList.contains('tt-visible')) return;
-    tooltip.scrollTop += e.deltaY;
+    if (!_fieldTooltipEl || !_fieldTooltipEl.classList.contains('tt-visible')) return;
+    _fieldTooltipEl.scrollTop += e.deltaY;
     e.preventDefault();
   }, { passive: false });
 }
@@ -2088,9 +2114,7 @@ function makeSectionHeader(key, path, extraType) {
   typeEl.textContent = extraType;
 
   const opt = findOption(path);
-  const sectionTooltip = buildTooltip(opt, extraType);
-  keyText.appendChild(sectionTooltip);
-  _wireTooltipAnchor(keyTextInner, sectionTooltip);
+  _wireTooltipAnchor(keyTextInner, opt, extraType);
 
   const sub = document.createElement('span');
   sub.className = 'section-key-sub';
@@ -2180,9 +2204,7 @@ function renderArrayField(container, key, arr, path) {
   keyLabelInner.className = 'tt-anchor'; keyLabelInner.textContent = key;
   keyLabel.appendChild(keyLabelInner);
   keyText.appendChild(keyLabel);
-  const arrTooltip = buildTooltip(opt, getTypeLabel(arr));
-  keyText.appendChild(arrTooltip);
-  _wireTooltipAnchor(keyLabelInner, arrTooltip);
+  _wireTooltipAnchor(keyLabelInner, opt, getTypeLabel(arr));
   const keyInner = document.createElement('span');
   keyInner.className = 'field-key-inner';
   keyInner.appendChild(keyText);
@@ -2335,9 +2357,7 @@ function renderField(container, key, val, path) {
   keyLabelInner.className = 'tt-anchor'; keyLabelInner.textContent = key;
   keyLabel.appendChild(keyLabelInner);
   keyText.appendChild(keyLabel);
-  const valTooltip = buildTooltip(opt, getTypeLabel(val));
-  keyText.appendChild(valTooltip);
-  _wireTooltipAnchor(keyLabelInner, valTooltip);
+  _wireTooltipAnchor(keyLabelInner, opt, getTypeLabel(val));
   const keyInner = document.createElement('span');
   keyInner.className = 'field-key-inner';
   keyInner.appendChild(keyText);
