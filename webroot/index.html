@@ -455,18 +455,36 @@ function getTypeLabel(val) {
 function isFreeformType(t) {
   if (!t) return false;
   const tl = t.toLowerCase();
+  // Strip a leading "null or " so e.g. "null or json value" is still recognized —
+  // only the `.startsWith` checks below need this; `.includes` checks already match regardless.
+  const inner = tl.startsWith('null or ') ? tl.slice('null or '.length) : tl;
   // open submodule is freeform; plain submodule is structured
-  if (tl.startsWith('open submodule') || tl.includes('open submodule of')) return true;
+  if (inner.startsWith('open submodule') || tl.includes('open submodule of')) return true;
   // lazy attribute sets are freeform (e.g. "lazy attribute set of raw value")
-  if (tl.startsWith('lazy attribute set')) return true;
+  if (inner.startsWith('lazy attribute set')) return true;
   // lists of non-serializable things (overlays, functions, etc)
-  if (tl.startsWith('list of (nixpkgs ') || tl.startsWith('list of (') && tl.includes('overlay')) return true;
+  if (inner.startsWith('list of (nixpkgs ') || inner.startsWith('list of (') && inner.includes('overlay')) return true;
   // catch-all freeform type names
   const FREEFORM = ['nixpkgs config', 'anything', 'json value', 'toml value', 'yaml 1.1 value', 'yaml 1.2 value', 'raw', 'unspecified'];
-  if (FREEFORM.some(f => tl === f || tl.startsWith(f + ' '))) return true;
+  if (FREEFORM.some(f => inner === f || inner.startsWith(f + ' '))) return true;
   // types that describe Nix-level evaluations / functions
-  if (tl.startsWith('an evaluation of') || tl.includes('nixpkgs overlay')) return true;
+  if (inner.startsWith('an evaluation of') || tl.includes('nixpkgs overlay')) return true;
   return false;
+}
+// Strips one layer of wrapping parens, but only when they span the ENTIRE string (balanced
+// depth returns to 0 exactly at the last character) — "(a) or (b)" must NOT be unwrapped, since
+// its two paren groups don't represent a single wrapped type.
+function _stripWrappingParens(s) {
+  if (s[0] !== '(' || s[s.length - 1] !== ')') return s;
+  let depth = 0;
+  for (let i = 0; i < s.length; i++) {
+    if (s[i] === '(') depth++;
+    else if (s[i] === ')') {
+      depth--;
+      if (depth === 0) return i === s.length - 1 ? s.slice(1, -1) : s;
+    }
+  }
+  return s;
 }
 // Returns true for "null or string", "null or absolute path", etc. (not enum, not list, not object)
 function isNullableString(nixType) {
@@ -498,13 +516,15 @@ function typeFromNix(t) {
   // "list of X or Y convertible to it" patterns that don't start with "list"
   if (t.includes('convertible to it') && t.includes('list')) return 'array';
   // Attribute set / submodule → object, but only when it's the PRIMARY type (the string starts
-  // with it, optionally after a leading "null or "), not merely one alternative inside a wider
-  // union like "string or (attribute set of string)" — forcing 'object' there discarded
-  // whatever scalar alternative was actually intended, and since a plain "attribute set of X"
-  // isn't a submodule, there are no required fields to seed it with either: doAdd() ended up
-  // creating a dead, empty {} with nothing to edit. Falls through to the string/number checks
-  // below for those wider unions instead.
-  const primaryType = t.startsWith('null or ') ? t.slice('null or '.length) : t;
+  // with it, optionally after a leading "null or " and/or a single wrapping "(...)" — nixpkgs'
+  // doc generator writes plain "null or (submodule)" for a nullable submodule), not merely one
+  // alternative inside a wider union like "string or (attribute set of string)" — forcing
+  // 'object' there discarded whatever scalar alternative was actually intended, and since a
+  // plain "attribute set of X" isn't a submodule, there are no required fields to seed it with
+  // either: doAdd() ended up creating a dead, empty {} with nothing to edit. Falls through to
+  // the string/number checks below for those wider unions instead.
+  let primaryType = t.startsWith('null or ') ? t.slice('null or '.length) : t;
+  primaryType = _stripWrappingParens(primaryType);
   if (primaryType.startsWith('attribute set') || primaryType.startsWith('submodule')) return 'object';
   // Pure integer types (not mixed with string/boolean)
   const hasInt = t.includes('integer') || t.includes('number') || t.includes('float');
