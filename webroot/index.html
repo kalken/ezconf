@@ -2146,9 +2146,15 @@ function renderArrayField(container, key, arr, path) {
   keyInner.appendChild(keyText);
   keyEl.appendChild(keyInner);
 
+  // "list of (one of "a", "b", ...)" — parseEnumOptions doesn't care about the "list of"
+  // wrapper, it just pulls quoted values out of any type string containing "one of", so it
+  // works unchanged here even though every other caller passes it a scalar field's type.
+  const enumOpts = opt ? parseEnumOptions(opt.type) : null;
+
   const valEl = document.createElement('div');
   valEl.className = 'field-value';
   if (isPkgArrayPath(path)) renderPkgArray(valEl, arr, path);
+  else if (enumOpts) renderEnumArray(valEl, arr, path, enumOpts);
   else renderArray(valEl, arr, path);
 
   function addItem() {
@@ -2174,7 +2180,7 @@ function renderArrayField(container, key, arr, path) {
   row.oncontextmenu = e => {
     const disabled = isDisabled(getAtPath(config, path));
     const items = disabled ? [] : [
-      ...(isPkgArrayPath(path) ? [] : [{ label: 'Add item', onclick: addItem }]),
+      ...(isPkgArrayPath(path) || enumOpts ? [] : [{ label: 'Add item', onclick: addItem }]),
       { label: 'Convert to Nix expression', onclick: () => { setAtPath(config, path, { _expr: jsonToNix(getAtPath(config, path)) }); renderAll(); } },
     ];
     showContextMenu(e, [...items, ..._commonMenuItems(path)]);
@@ -2476,12 +2482,6 @@ function isKernelPath(path) {
 }
 
 function renderArray(container, arr, path) {
-  // "list of (one of "a", "b", ...)" — parseEnumOptions doesn't care about the "list of"
-  // wrapper, it just pulls quoted values out of any type string containing "one of", so it
-  // works unchanged here even though every other caller passes it a scalar field's type.
-  const opt = findOption(path);
-  const enumOpts = opt ? parseEnumOptions(opt.type) : null;
-
   arr.forEach((v, i) => {
     const itemPath = [...path, i];
 
@@ -2507,25 +2507,6 @@ function renderArray(container, arr, path) {
     const item = document.createElement('div');
     item.className = 'array-item';
     const isExpr = isExprPkg(v);
-
-    // Enum-typed list (e.g. emulatedSystems): a dropdown constrained to the known values,
-    // same as a scalar enum field gets in renderField, instead of freeform text.
-    if (!isExpr && enumOpts && typeof v === 'string') {
-      const select = makeCustomSelect(
-        enumOpts.values.map(val => ({ value: val, label: val })),
-        v, val => setAtPath(config, itemPath, val),
-      );
-      item.appendChild(select);
-      item.oncontextmenu = e => {
-        showContextMenu(e, [
-          { label: 'Convert to Nix expression', onclick: () => { setAtPath(config, itemPath, { _expr: v }); renderAll(); } },
-          { label: 'Delete', danger: true, onclick: () => { deleteAtPath(config, itemPath); renderAll(); } },
-        ]);
-      };
-      container.appendChild(item);
-      return;
-    }
-
     const strVal = isExpr ? v._expr : (typeof v === 'string' || typeof v === 'number') ? String(v) : preview(v);
     let editor;
     if (strVal.includes('\n')) {
@@ -2643,6 +2624,101 @@ function renderPkgArray(container, arr, path) {
   });
   inp.addEventListener('blur', () => setTimeout(() => acList.classList.add('hidden'), 150));
   arr.forEach(pkg => items.appendChild(makePkgRow(pkg)));
+  container.appendChild(items);
+  acWrap.appendChild(inp); acWrap.appendChild(acList);
+  container.appendChild(acWrap);
+}
+
+// Enum-typed list (e.g. emulatedSystems — "list of (one of "a", "b", ...)"): same chip +
+// single add-dropdown UI as renderPkgArray, just picking from the option's own enum values
+// instead of the global packages list, and appending plain strings instead of _expr objects.
+function renderEnumArray(container, arr, path, enumOpts) {
+  const items = document.createElement('div');
+  items.className = 'pkg-items';
+
+  function makeChip(v) {
+    const item = document.createElement('div');
+    item.className = 'array-item';
+    const label = document.createElement('span');
+    label.className = 'pkg-label';
+    label.textContent = isExprPkg(v) ? v._expr : v;
+    const del = document.createElement('button');
+    del.className = 'icon-btn del'; del.textContent = '✕';
+    del.onclick = () => {
+      const cur = getAtPath(config, path);
+      const liveIdx = Array.isArray(cur) ? cur.indexOf(v) : -1;
+      if (liveIdx !== -1) deleteAtPath(config, [...path, liveIdx]);
+      item.remove();
+      _pushHistory();
+      _updateDirty();
+    };
+    item.appendChild(label);
+    item.appendChild(del);
+    return item;
+  }
+
+  const acWrap = document.createElement('div');
+  acWrap.className = 'autocomplete-wrap';
+  const inp = document.createElement('input');
+  inp.type = 'text'; inp.placeholder = 'Add value…';
+  const acList = document.createElement('div');
+  acList.className = 'autocomplete-list hidden';
+  let acIdx = -1;
+
+  // Unlike packages (too many to list unfiltered), the enum's value set is small and fully
+  // known, so show every not-yet-added value on focus — not just once the user starts typing.
+  function showValueAC() {
+    const cur = getAtPath(config, path);
+    const have = new Set(Array.isArray(cur) ? cur.filter(v => typeof v === 'string') : []);
+    const q = inp.value.trim().toLowerCase();
+    const pool = enumOpts.values.filter(v => !have.has(v));
+    const hits = (q ? pool.filter(v => v.toLowerCase().includes(q)) : pool).slice(0, 30);
+    acList.innerHTML = ''; acIdx = -1;
+    if (!hits.length) { acList.classList.add('hidden'); return; }
+    hits.forEach(v => {
+      const it = document.createElement('div');
+      it.className = 'autocomplete-item';
+      it.innerHTML = `<span class="ac-name">${v}</span>`;
+      it.addEventListener('mousedown', e => { e.preventDefault(); addValue(v); });
+      acList.appendChild(it);
+    });
+    acList.classList.remove('hidden');
+  }
+
+  function addValue(val) {
+    const cur = getAtPath(config, path);
+    if (!Array.isArray(cur)) return;
+    if (cur.includes(val)) {
+      inp.value = ''; acList.classList.add('hidden');
+      inp.placeholder = val + ' already added';
+      setTimeout(() => inp.placeholder = 'Add value…', 2000);
+      inp.focus(); return;
+    }
+    cur.push(val);
+    items.innerHTML = '';
+    cur.forEach(v => {
+      const row = makeChip(v);
+      if (v === val) row.classList.add('flash-added');
+      items.appendChild(row);
+    });
+    inp.value = ''; acList.classList.add('hidden'); inp.focus();
+    _pushHistory();
+    _updateDirty();
+  }
+
+  inp.addEventListener('focus', showValueAC);
+  inp.addEventListener('input', showValueAC);
+  inp.addEventListener('keydown', e => {
+    const its = acList.querySelectorAll('.autocomplete-item');
+    if (e.key === 'ArrowDown') { acIdx = Math.min(acIdx + 1, its.length - 1); its.forEach((el, i) => el.classList.toggle('active', i === acIdx)); its[acIdx]?.scrollIntoView({ block: 'nearest' }); e.preventDefault(); }
+    else if (e.key === 'ArrowUp') { acIdx = Math.max(acIdx - 1, -1); its.forEach((el, i) => el.classList.toggle('active', i === acIdx)); if (acIdx >= 0) its[acIdx].scrollIntoView({ block: 'nearest' }); e.preventDefault(); }
+    // Unlike packages, Enter with nothing selected doesn't free-text add — every value here
+    // must be one of the known enum values, which is the whole point of this picker.
+    else if (e.key === 'Enter') { if (acIdx >= 0) its[acIdx].dispatchEvent(new MouseEvent('mousedown')); e.preventDefault(); }
+    else if (e.key === 'Escape') acList.classList.add('hidden');
+  });
+  inp.addEventListener('blur', () => setTimeout(() => acList.classList.add('hidden'), 150));
+  arr.forEach(v => items.appendChild(makeChip(v)));
   container.appendChild(items);
   acWrap.appendChild(inp); acWrap.appendChild(acList);
   container.appendChild(acWrap);
