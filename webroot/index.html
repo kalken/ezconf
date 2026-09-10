@@ -529,9 +529,14 @@ function defaultForType(type) {
 
 // Parse the subset of Nix that jsonToNix produces back to a JS value.
 // Returns undefined if unparseable.
-function nixToJs(src) {
+// `cautious`, when true, treats a quoted string whose content contains whitespace as a raw
+// expression instead of unwrapping it to a literal — see _nixParse for why. Only doAdd()'s
+// direct use of an option's documented default passes this; genuine user Nix source (import,
+// converting an expr field back to its native type) is parsed faithfully either way, since a
+// real multi-word string value (e.g. a description) is completely normal there.
+function nixToJs(src, cautious) {
   src = (src || '').trim();
-  try { return _nixParse(src); } catch(e) { return undefined; }
+  try { return _nixParse(src, cautious); } catch(e) { return undefined; }
 }
 function _nixSkipStr(s, i) {
   // i points at opening "; returns index after closing "
@@ -722,7 +727,7 @@ function _nixParseIndentedStr(s) {
   // Remove trailing newline before closing ''
   return stripped.endsWith('\n') ? stripped.slice(0, -1) : stripped;
 }
-function _nixParse(s) {
+function _nixParse(s, cautious) {
   s = s.trim();
   if (s === 'null') return null;
   if (s === 'true') return true;
@@ -730,6 +735,18 @@ function _nixParse(s) {
   if (/^-?\d+(\.\d+)?$/.test(s)) return Number(s);
   if (s[0] === '"') {
     if (s.includes('${')) return { _expr: s }; // Nix string interpolation
+    // A documented "default" is sometimes prose/pseudo-code that just happens to be wrapped in
+    // quotes for readability rather than real Nix string syntax to unwrap — e.g. NixOS renders
+    // nixpkgs.flake.source's default as the literal text '"if (using
+    // nixpkgsFlake.lib.nixosSystem) then self.outPath else null"', quotes included. In cautious
+    // (default-parsing) mode, a multi-word/whitespace-containing result is almost certainly that
+    // kind of prose, not a real value — keep the original text as a raw expression instead of a
+    // misleadingly "valid" literal string.
+    if (cautious) {
+      let parsed;
+      try { parsed = JSON.parse(s); } catch (_) { return { _expr: s }; }
+      return (typeof parsed === 'string' && /\s/.test(parsed)) ? { _expr: s } : parsed;
+    }
     return JSON.parse(s);
   }
   if (s.startsWith("''")) {
@@ -796,10 +813,18 @@ function parseNixDefault(nixDefault, jsType) {
   if (s === 'false') return false;
   // Plain number
   if (/^-?\d+(\.\d+)?$/.test(s)) return Number(s);
-  // Quoted string: "foo" — but if it contains ${} it's Nix interpolation, keep as expr
+  // Quoted string: "foo" — but if it contains ${} it's Nix interpolation, keep as expr. A
+  // documented default can also be prose/pseudo-code that just happens to be wrapped in quotes
+  // for readability rather than real Nix string syntax (e.g. nixpkgs.flake.source's default
+  // renders as the literal text '"if (using nixpkgsFlake.lib.nixosSystem) then self.outPath
+  // else null"', quotes included) — a multi-word/whitespace-containing result is almost
+  // certainly that, not a real value, so keep the original text as a raw expression instead.
   if (s.startsWith('"') && s.endsWith('"')) {
     if (s.includes('${')) return { _expr: s };
-    try { return JSON.parse(s); } catch (_) { return { _expr: s }; }
+    try {
+      const parsed = JSON.parse(s);
+      return (typeof parsed === 'string' && /\s/.test(parsed)) ? { _expr: s } : parsed;
+    } catch (_) { return { _expr: s }; }
   }
   // Freeform/expr type always becomes _expr
   if (jsType === 'expr') return { _expr: s };
@@ -1370,7 +1395,7 @@ function doAdd() {
         if (addSelectedType === 'expr') {
           initialVal = { _expr: defStr };
         } else {
-          initialVal = nixToJs(defStr);
+          initialVal = nixToJs(defStr, true);
         }
       }
     }
