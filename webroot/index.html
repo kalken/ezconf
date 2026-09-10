@@ -849,6 +849,13 @@ function optionSearch(query) {
   for (const o of options) {
     const op = o.path.split('.');
     if (!o.custom && op.some(isInternalSegment)) continue;
+    // "*" marks a list-of-submodule element (e.g. forwardPorts.*.host) — unlike <name>/<n>,
+    // there's no name to type in its place; you add an item to the array instead (see
+    // blankObjectFromOptions/renderArrayField's addItem, which still look these entries up
+    // directly, unaffected by this filter). Offering it here as a path to type/select would
+    // suggest something like "forwardPorts.*.host" is itself a valid addable option, which it
+    // isn't — selecting it would set a literal "*" key.
+    if (op.includes('*')) continue;
     if (op.length < confirmed.length + 1) continue;
 
     // Confirmed segments must match exactly (wildcards in option path match anything)
@@ -968,7 +975,9 @@ function getWildcardBoundary(query) {
     if (!match) continue;
 
     const nextSeg = optParts[confirmedParts.length];
-    if (!WILDCARDS.has(nextSeg)) continue;
+    // "*" (a list-of-submodule index) has no name to type, unlike <name>/<n> — see the matching
+    // skip in optionSearch above.
+    if (!WILDCARDS.has(nextSeg) || nextSeg === '*') continue;
 
     const prefix = confirmedParts.join('.');
     let cur = config;
