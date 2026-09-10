@@ -812,7 +812,13 @@ function parseNixDefault(nixDefault, jsType) {
   }
   // Plain unquoted string that looks like an enum value (no spaces/special chars)
   if (jsType === 'string' && /^[\w./-]+$/.test(s)) return s;
-  return undefined;
+  // Anything else unparseable — e.g. a string/number/boolean-typed option whose documented
+  // default is actually a computed Nix expression (common for values that depend on other
+  // options, like "if (using nixpkgsFlake.lib.nixosSystem) then self.outPath else null") —
+  // keep it as a raw expression instead of silently discarding it to defaultForType's bare
+  // zero-value, the same fallback the array/object branch above (and nixToJs()/_nixParse(),
+  // used by doAdd()'s own direct-path adds) already use for exactly this situation.
+  return { _expr: s };
 }
 
 // ── Option matching ───────────────────────────────────────────────────────────
