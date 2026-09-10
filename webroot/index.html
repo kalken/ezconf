@@ -873,6 +873,17 @@ function optionSearch(query) {
     if (!isWild && !nextSeg.toLowerCase().startsWith(partial)) continue;
     if (isWild && !partial) continue; // let getWildcardBoundary handle the empty-partial case
 
+    // Skip options with a wildcard deeper than the segment currently being typed — e.g. typing
+    // "services.ezrouter.vlan" while vlan.<name>.address exists shouldn't suggest that whole
+    // path with a literal, unresolved "<name>" sitting in the middle of it. You have to provide
+    // the name first (via the wildcard-hint flow, once you're actually at that segment) before
+    // anything nested under it becomes a real, completable path.
+    let hasDeeperWildcard = false;
+    for (let i = confirmed.length + 1; i < op.length; i++) {
+      if (WILDCARDS.has(op[i])) { hasDeeperWildcard = true; break; }
+    }
+    if (hasDeeperWildcard) continue;
+
     // Resolve wildcards to what the user typed so the display path looks concrete
     const displayParts = op.map((seg, i) => {
       if (!WILDCARDS.has(seg)) return seg;
