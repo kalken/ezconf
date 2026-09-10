@@ -961,7 +961,22 @@ function isValidOptionPath(raw) {
   // Exact match
   if (options.some(o => o.path === raw)) return true;
   // Wildcard match
-  return options.some(o => concreteMatchesOption(parts, o.path));
+  if (options.some(o => concreteMatchesOption(parts, o.path))) return true;
+  // Container match: `raw` isn't a leaf option itself, but is a valid prefix (its own trailing
+  // segment standing in for a <name>/<n> wildcard) with real fields beneath it — e.g.
+  // "services.ezrouter.vlan.test2" for a vlan.<name>.address/.enable/... submodule instance.
+  // attrsOf-submodule wildcards don't get a doc entry of their own (only the outer attrset, and
+  // each concrete field within an instance), so there's no leaf/exact match to find above —
+  // doAdd() treats this the same as any other object-type add, seeding it via
+  // requiredChildDefaults(parts).
+  return options.some(o => {
+    const op = o.path.split('.');
+    if (op.length <= parts.length) return false;
+    for (let i = 0; i < parts.length; i++) {
+      if (!WILDCARDS.has(op[i]) && op[i] !== parts[i]) return false;
+    }
+    return true;
+  });
 }
 
 // Detect if the query is at a wildcard segment boundary
@@ -1317,7 +1332,14 @@ function doAdd() {
   if (!matchedOpt) {
     matchedOpt = options.find(o => o.path === raw) || options.find(o => concreteMatchesOption(rawParts, o.path));
   }
-  if (matchedOpt) addSelectedType = typeFromNix(matchedOpt.type);
+  if (matchedOpt) {
+    addSelectedType = typeFromNix(matchedOpt.type);
+  } else {
+    // No leaf/exact option matches raw itself, yet isValidOptionPath accepted it — it must be a
+    // container match (a fresh <name>/<n> instance with no doc entry of its own, see
+    // isValidOptionPath). Treat it as an object add so the required-children seeding below runs.
+    addSelectedType = 'object';
+  }
 
   const parts = raw.split('.');
   const cur = traverseForSet(config, parts);
