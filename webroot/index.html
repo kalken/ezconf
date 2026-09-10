@@ -1926,6 +1926,15 @@ function _wireTooltipAnchor(anchor, tooltip) {
   anchor.addEventListener('mouseleave', hide);
   tooltip.addEventListener('mouseenter', show);
   tooltip.addEventListener('mouseleave', hide);
+  // The tooltip sits near the anchor, not under it, so scrolling while still hovering the
+  // anchor text (rather than having moved onto the tooltip itself) would otherwise scroll
+  // whatever's actually under the cursor — the editor area — instead. Forward the wheel delta
+  // to the tooltip's own scroll (it has max-height/overflow-y: auto) and stop it there.
+  anchor.addEventListener('wheel', e => {
+    if (!tooltip.classList.contains('tt-visible')) return;
+    tooltip.scrollTop += e.deltaY;
+    e.preventDefault();
+  }, { passive: false });
 }
 
 // Detaches `el` from its current parent, returning a function that reinserts it in the exact
