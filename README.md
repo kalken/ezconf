@@ -252,7 +252,7 @@ TARGET=/path/to/flake nix run .#ezconf-mkoptions -- all myhostname
 
 ## 💾 Backups
 
-Every time a config file is saved, the server copies its previous contents into a backup directory, keeping the `backup_count` most recent copies *per file* (default 5; set to 0 to disable). Backups are per-tab — with multiple config files, each gets its own independent history. The `🕐 Backups` button appears in the header automatically once backups are enabled — it lists past saves of whichever tab is currently active, with their timestamp and size, and lets you **Load** any of them with one click. Loading brings that backup's content into the editor as an unsaved edit — nothing is written to disk until you hit Save, and you can review or tweak it first (or Undo to go back).
+Every time a config file is saved, the server copies its previous contents into a backup directory, keeping the `backup_count` most recent copies *per file* (default 5; set to 0 to disable). Backups are per-tab — with multiple config files, each gets its own independent history. The `🕐 Backups` button appears in the header automatically once backups are enabled — click it for a dropdown of past saves of whichever tab is currently active, each labeled with its timestamp and size; picking one loads it straight into the editor as an unsaved edit, no confirmation prompt. Nothing is written to disk until you hit Save, and you can review or tweak it first (or Undo to go back).
 
 Standalone: set `backup_dir` / `backup_count` in `ezconf.toml`, or pass `--backup-dir` / `--backup-count`. Backups default to a shared `.ezconf-backups/` directory inside the config directory (one subset per file). The NixOS module stores them in `/var/lib/ezconf/backups` by default (`backupDir` / `backupCount` options).
 

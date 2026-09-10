@@ -467,7 +467,6 @@ textarea { resize: vertical; min-height: unset; line-height: 1.5; }
 .modal h2 { color: var(--text); font-size: 14px; font-weight: 600; }
 .modal-title-row { display: flex; align-items: center; justify-content: space-between; }
 .modal-title-row h2 { margin: 0; }
-.modal-title-actions { display: flex; align-items: center; gap: 8px; }
 .modal textarea { height: 300px; }
 .modal-actions { display: flex; gap: 8px; justify-content: flex-end; }
 .import-target-row { display: flex; align-items: center; gap: 8px; }
@@ -479,17 +478,12 @@ textarea { resize: vertical; min-height: unset; line-height: 1.5; }
 .import-target-row input:focus { border-color: var(--accent2); }
 .import-hint { margin: 0 0 10px; font-size: 12px; color: var(--text3); line-height: 1.5; }
 .import-hint code { font-family: var(--font); color: var(--text2); }
-.import-error, .modal-error { background: var(--error-bg); border: 1px solid var(--required-bg); color: var(--required-text); border-radius: var(--radius-sm); padding: 8px 12px; font-size: 12px; font-family: var(--font); white-space: pre-wrap; word-break: break-all; }
+.import-error { background: var(--error-bg); border: 1px solid var(--required-bg); color: var(--required-text); border-radius: var(--radius-sm); padding: 8px 12px; font-size: 12px; font-family: var(--font); white-space: pre-wrap; word-break: break-all; }
 .import-error.import-valid { background: #1a2e1a; border-color: #2d5a2d; color: var(--green); }
 .import-examples { display: flex; gap: 8px; align-items: flex-start; }
 .import-example-label { color: var(--text3); font-size: 10px; text-transform: uppercase; letter-spacing: .06em; padding-top: 6px; flex-shrink: 0; }
 .import-example-code { flex: 1; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 6px 9px; font-family: var(--font); font-size: 10px; color: var(--text2); line-height: 1.5; white-space: pre; overflow-x: auto; margin: 0; cursor: pointer; transition: border-color .15s, background .15s; }
 .import-example-code:hover { border-color: var(--accent); background: var(--bg2); }
-.backups-list { display: flex; flex-direction: column; gap: 6px; max-height: 400px; overflow-y: auto; }
-.backup-row { display: flex; align-items: center; gap: 12px; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 8px 12px; }
-.backup-label { color: var(--text2); font-size: 12px; flex: 1; }
-.backup-size { color: var(--text3); font-size: 11px; }
-.backups-empty { color: var(--text3); font-size: 12px; padding: 12px 0; text-align: center; }
 
 .hidden { display: none !important; }
 

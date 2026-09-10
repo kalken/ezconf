@@ -7,7 +7,6 @@ ezconf server — single listener bound to 127.0.0.1:
     POST /api/v1/file/save        writes a config file (backs up first); creates it if new
     GET  /api/v1/backups          lists backups for a config file
     GET  /api/v1/backup/content   serves a backup file's raw JSON content
-    POST /api/v1/backup/delete    deletes a backup file
     POST /api/v1/file/delete      deletes a whole config file (zero files afterward is fine)
     POST /api/v1/file/rename      renames/moves a config file (same op — moving between
                                    subfolders is just a path change)
@@ -802,26 +801,6 @@ class StaticHandler(http.server.SimpleHTTPRequestHandler):
                 self.send_header('Content-Length', str(len(resp)))
                 self.end_headers()
                 self.wfile.write(resp)
-            except Exception as e:
-                self.send_error(500, str(e))
-        elif parsed.path == '/api/v1/backup/delete':
-            try:
-                length = int(self.headers.get('Content-Length', 0))
-                body = json.loads(self.rfile.read(length))
-                target = resolve_backup_path(body.get('name', ''))
-                if not target:
-                    resp = b'{"error":"invalid backup name"}'
-                    self.send_response(400)
-                    self.send_header('Content-Type', 'application/json')
-                    self.send_header('Content-Length', str(len(resp)))
-                    self.end_headers()
-                    self.wfile.write(resp)
-                    return
-                os.remove(target)
-                self.send_response(200)
-                self.send_header('Content-Type', 'application/json')
-                self.end_headers()
-                self.wfile.write(b'{"ok":true}')
             except Exception as e:
                 self.send_error(500, str(e))
         elif parsed.path == '/api/v1/autocomplete/update':

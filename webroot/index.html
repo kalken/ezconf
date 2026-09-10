@@ -128,19 +128,6 @@ networking.hostName = "myhost";</pre>
   </div>
 </div>
 
-<div class="modal-overlay hidden" id="backups-modal">
-  <div class="modal">
-    <div class="modal-title-row">
-      <h2>Configuration backups</h2>
-      <div class="modal-title-actions">
-        <button class="btn" onclick="closeBackupsModal()">✕</button>
-      </div>
-    </div>
-    <div class="modal-error hidden" id="backups-error"></div>
-    <div class="backups-list" id="backups-list"></div>
-  </div>
-</div>
-
 <script>
 // ── Theme ─────────────────────────────────────────────────────────────────────
 function _buildTermTheme() {
@@ -3214,10 +3201,6 @@ function _cfgPathFor(name) {
 function _cfgPath() {
   return _cfgPathFor(activeFile);
 }
-function _cfgPathBust() {
-  const base = _cfgPath();
-  return base + (base.includes('?') ? '&' : '?') + '_=' + Date.now();
-}
 
 // Every file gets its own tab — root-level files on the first row, then one row per top-level
 // folder, labeled with that folder's name, so nested files stay visible without opening
@@ -3911,99 +3894,39 @@ function _formatBackupSize(n) {
   return (n / 1024 / 1024).toFixed(1) + ' MB';
 }
 
-async function showBackupsModal() {
-  const modal = document.getElementById('backups-modal');
-  modal.classList.remove('hidden');
-  modal.querySelector('h2').textContent = activeFile ? `Backups — ${activeFile}` : 'Configuration backups';
-  _clearBackupsError();
-  await refreshBackupsList();
-}
-function closeBackupsModal() { document.getElementById('backups-modal').classList.add('hidden'); }
-
-// setStatus()'s toast renders in .statusbar, which a full-screen .modal-overlay (z-index 300)
-// sits on top of — so while this modal is open, setStatus() alone is invisible. Mirrors
-// #import-error's in-modal error box for the same reason.
-function _showBackupsError(msg) {
-  const el = document.getElementById('backups-error');
-  el.textContent = msg;
-  el.classList.remove('hidden');
-}
-function _clearBackupsError() { document.getElementById('backups-error').classList.add('hidden'); }
-
-async function refreshBackupsList() {
-  const list = document.getElementById('backups-list');
-  list.innerHTML = '<div class="backups-empty">Loading…</div>';
+// The Backups button opens a dropdown, not a modal: pick a backup and it loads straight into the
+// editor (see loadBackup), no confirmation — showContextMenu doesn't care whether it's triggered
+// by a right-click or a plain click, so it's reused here as a left-click dropdown menu.
+async function showBackupsMenu(event) {
+  let backups = [];
   try {
     const res = await apiFetch('/backups' + _fileQuery());
-    if (!res.ok) throw new Error(String(res.status));
-    const data = await res.json();
-    const backups = data.backups || [];
-    if (!backups.length) {
-      list.innerHTML = '<div class="backups-empty">No backups yet — one is made on every save.</div>';
-      return;
-    }
-    list.innerHTML = '';
-    backups.forEach(b => {
-      const row = document.createElement('div');
-      row.className = 'backup-row';
-      const label = document.createElement('span');
-      label.className = 'backup-label';
-      label.textContent = new Date(b.mtime * 1000).toLocaleString();
-      const size = document.createElement('span');
-      size.className = 'backup-size';
-      size.textContent = _formatBackupSize(b.size);
-      const btn = document.createElement('button');
-      btn.className = 'btn btn-sm';
-      btn.textContent = 'Load';
-      btn.onclick = () => loadBackup(b.name);
-      const delBtn = document.createElement('button');
-      delBtn.className = 'btn btn-sm';
-      delBtn.title = 'Delete this backup';
-      delBtn.textContent = '✕';
-      delBtn.onclick = () => deleteBackup(b.name);
-      row.append(label, size, btn, delBtn);
-      list.appendChild(row);
-    });
-  } catch (e) {
-    list.innerHTML = '<div class="backups-empty">Failed to load backups.</div>';
+    if (res.ok) backups = (await res.json()).backups || [];
+  } catch (e) { /* falls through to the empty-state item below */ }
+  if (!backups.length) {
+    showContextMenu(event, [{ label: 'No backups yet — one is made on every save.', disabled: true }]);
+    return;
   }
+  showContextMenu(event, backups.map(b => ({
+    label: new Date(b.mtime * 1000).toLocaleString() + '  ·  ' + _formatBackupSize(b.size),
+    onclick: () => loadBackup(b.name),
+  })));
 }
 
-// Loads a backup's content into the editor as an unsaved edit — unlike the old restore-over-disk
-// behavior, this never touches the file on disk; it only replaces the in-memory config, same as
-// switching files/importing does. Nothing is written until the user hits Save, and the load
-// itself is undo-able (renderAll()'s _pushHistory() snapshots it) since it's just a normal
-// wholesale `config` reassignment.
+// Loads a backup's content into the editor as an unsaved edit — never touches the file on disk,
+// only replaces the in-memory config, same as switching files/importing does. Nothing is written
+// until the user hits Save, and the load itself is undo-able (renderAll()'s _pushHistory()
+// snapshots it) since it's just a normal wholesale `config` reassignment — so no confirmation.
 async function loadBackup(name) {
-  const targetLabel = activeFile || 'configuration.json';
-  if (!confirm(`Load this backup into the editor?\n\n${name}\n\nThis replaces your current view of ${targetLabel}. Nothing is saved to disk until you hit Save, and you can Undo (Ctrl+Z) to go back.`)) return;
   try {
     const res = await apiFetch('/backup/content?name=' + encodeURIComponent(name));
-    if (!res.ok) { _showBackupsError('Load failed (' + res.status + ')'); setStatus('Load failed (' + res.status + ')', 4000, 'err'); return; }
+    if (!res.ok) { setStatus('Load failed (' + res.status + ')', 4000, 'err'); return; }
     config = normalizeConfig(await res.json());
     fileConfigs[activeFile] = config;
     renderAll();
-    closeBackupsModal();
     setStatus('Loaded backup — review and Save to keep it', 3500, 'ok');
   } catch (e) {
-    _showBackupsError('Load failed: ' + e.message);
     setStatus('Load failed: ' + e.message, 4000, 'err');
-  }
-}
-
-async function deleteBackup(name) {
-  try {
-    const res = await apiFetch('/backup/delete', {
-      method: 'POST',
-      body: JSON.stringify({ name }),
-    });
-    if (!res.ok) { _showBackupsError('Delete failed (' + res.status + ')'); setStatus('Delete failed (' + res.status + ')', 4000, 'err'); return; }
-    _clearBackupsError();
-    await refreshBackupsList();
-    setStatus('Deleted backup', 2000, 'ok');
-  } catch (e) {
-    _showBackupsError('Delete failed: ' + e.message);
-    setStatus('Delete failed: ' + e.message, 4000, 'err');
   }
 }
 
@@ -4079,9 +4002,9 @@ async function loadSiblingFiles() {
   if (BACKUP_ENABLED) {
     const btn = document.createElement('button');
     btn.className = 'btn'; btn.id = 'backups-btn';
-    btn.title = 'View and restore config file backups';
+    btn.title = 'Load a backup of the active file';
     btn.textContent = '🕐 Backups';
-    btn.onclick = showBackupsModal;
+    btn.onclick = showBackupsMenu;
     const actions = document.querySelector('.header-actions');
     actions.insertBefore(btn, actions.firstChild);
   }
