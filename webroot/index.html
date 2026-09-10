@@ -1078,8 +1078,9 @@ function initAddPanel() {
       const item = document.createElement('div');
       item.className = 'autocomplete-item';
       item._acOpt = o;
+      const desc = (o.description || '').split('\n')[0];
       const reqBadge = o.required ? `<span class="ac-required">required</span>` : '';
-      item.innerHTML = `<span class="ac-name">${o.displayPath}</span>${reqBadge}<span class="ac-type">${o.type || ''}</span>`;
+      item.innerHTML = `<span class="ac-name">${o.displayPath}</span><span class="ac-desc">${desc}</span>${reqBadge}<span class="ac-type">${o.type || ''}</span>`;
       item.addEventListener('mouseenter', () => _showAcTooltip(o));
       item.addEventListener('mouseleave', _hideAcTooltip);
       item.addEventListener('mousedown', e => {
@@ -1183,7 +1184,8 @@ function initAddPanel() {
         const item = document.createElement('div');
         item.className = 'autocomplete-item';
         if (isLeaf) item._acOpt = hit;
-        item.innerHTML = `<span class="ac-name">${segPath}</span><span class="ac-type">${isLeaf ? (hit.type || '') : ''}</span>`;
+        const desc = isLeaf ? (hit.description || '').split('\n')[0] : '';
+        item.innerHTML = `<span class="ac-name">${segPath}</span><span class="ac-desc">${desc}</span><span class="ac-type">${isLeaf ? (hit.type || '') : ''}</span>`;
         if (isLeaf) {
           item.addEventListener('mouseenter', () => _showAcTooltip(hit));
           item.addEventListener('mouseleave', _hideAcTooltip);
