@@ -3954,8 +3954,8 @@ async function refreshBackupsList() {
       size.textContent = _formatBackupSize(b.size);
       const btn = document.createElement('button');
       btn.className = 'btn btn-sm';
-      btn.textContent = 'Restore';
-      btn.onclick = () => restoreBackup(b.name);
+      btn.textContent = 'Load';
+      btn.onclick = () => loadBackup(b.name);
       const delBtn = document.createElement('button');
       delBtn.className = 'btn btn-sm';
       delBtn.title = 'Delete this backup';
@@ -3969,24 +3969,25 @@ async function refreshBackupsList() {
   }
 }
 
-async function restoreBackup(name) {
+// Loads a backup's content into the editor as an unsaved edit — unlike the old restore-over-disk
+// behavior, this never touches the file on disk; it only replaces the in-memory config, same as
+// switching files/importing does. Nothing is written until the user hits Save, and the load
+// itself is undo-able (renderAll()'s _pushHistory() snapshots it) since it's just a normal
+// wholesale `config` reassignment.
+async function loadBackup(name) {
   const targetLabel = activeFile || 'configuration.json';
-  if (!confirm(`Restore this backup?\n\n${name}\n\nThis overwrites the currently saved ${targetLabel}. This cannot be undone.`)) return;
+  if (!confirm(`Load this backup into the editor?\n\n${name}\n\nThis replaces your current view of ${targetLabel}. Nothing is saved to disk until you hit Save, and you can Undo (Ctrl+Z) to go back.`)) return;
   try {
-    const res = await apiFetch('/backup/restore', {
-      method: 'POST',
-      body: JSON.stringify({ name, file: activeFile }),
-    });
-    if (!res.ok) { _showBackupsError('Restore failed (' + res.status + ')'); setStatus('Restore failed (' + res.status + ')', 4000, 'err'); return; }
-    config = normalizeConfig(await fetch(_cfgPathBust()).then(r => r.json()));
+    const res = await apiFetch('/backup/content?name=' + encodeURIComponent(name));
+    if (!res.ok) { _showBackupsError('Load failed (' + res.status + ')'); setStatus('Load failed (' + res.status + ')', 4000, 'err'); return; }
+    config = normalizeConfig(await res.json());
     fileConfigs[activeFile] = config;
     renderAll();
-    markSaved();
     closeBackupsModal();
-    setStatus('Restored backup', 3000, 'ok');
+    setStatus('Loaded backup — review and Save to keep it', 3500, 'ok');
   } catch (e) {
-    _showBackupsError('Restore failed: ' + e.message);
-    setStatus('Restore failed: ' + e.message, 4000, 'err');
+    _showBackupsError('Load failed: ' + e.message);
+    setStatus('Load failed: ' + e.message, 4000, 'err');
   }
 }
 

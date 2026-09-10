@@ -6,7 +6,7 @@ ezconf server — single listener bound to 127.0.0.1:
     GET  /api/v1/file             serves a resolved config file's raw JSON content
     POST /api/v1/file/save        writes a config file (backs up first); creates it if new
     GET  /api/v1/backups          lists backups for a config file
-    POST /api/v1/backup/restore   restores a backup over a config file
+    GET  /api/v1/backup/content   serves a backup file's raw JSON content
     POST /api/v1/backup/delete    deletes a backup file
     POST /api/v1/file/delete      deletes a whole config file (zero files afterward is fine)
     POST /api/v1/file/rename      renames/moves a config file (same op — moving between
@@ -573,35 +573,6 @@ class StaticHandler(http.server.SimpleHTTPRequestHandler):
                 self.wfile.write(b'{"ok":true}')
             except Exception as e:
                 self.send_error(500, str(e))
-        elif parsed.path == '/api/v1/backup/restore':
-            try:
-                length = int(self.headers.get('Content-Length', 0))
-                body = json.loads(self.rfile.read(length))
-                target = resolve_config_path(body.get('file'))
-                if not target:
-                    resp = b'{"error":"invalid file name"}'
-                    self.send_response(400)
-                    self.send_header('Content-Type', 'application/json')
-                    self.send_header('Content-Length', str(len(resp)))
-                    self.end_headers()
-                    self.wfile.write(resp)
-                    return
-                src = resolve_backup_path(body.get('name', ''))
-                if not src:
-                    resp = b'{"error":"invalid backup name"}'
-                    self.send_response(400)
-                    self.send_header('Content-Type', 'application/json')
-                    self.send_header('Content-Length', str(len(resp)))
-                    self.end_headers()
-                    self.wfile.write(resp)
-                    return
-                shutil.copy2(src, target)
-                self.send_response(200)
-                self.send_header('Content-Type', 'application/json')
-                self.end_headers()
-                self.wfile.write(b'{"ok":true}')
-            except Exception as e:
-                self.send_error(500, str(e))
         elif parsed.path == '/api/v1/file/delete':
             try:
                 length = int(self.headers.get('Content-Length', 0))
@@ -953,6 +924,12 @@ class StaticHandler(http.server.SimpleHTTPRequestHandler):
             except Exception as e:
                 self.send_error(500, str(e))
             return
+        if parsed.path == '/api/v1/backup/content':
+            qs = parse_qs(parsed.query)
+            target = resolve_backup_path(qs.get('name', [''])[0])
+            if not target:
+                self.send_error(400); return
+            self._serve_raw(target); return
         # A resolved config file's content and custom-options.json live in CONFIG_DIR, not WEBROOT
         if parsed.path == '/api/v1/file':
             qs = parse_qs(parsed.query)
