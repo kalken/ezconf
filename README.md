@@ -111,6 +111,10 @@ Right-click any option or section for **Disable**. Disabled options remain fully
 
 Disabling a section disables all of its children at once.
 
+## ✏️ Rename
+
+Right-click any option or section for **Rename**, which swaps its key for an inline text field — handy for a wildcard-named entry (e.g. `systemd.services.<name>`, `users.users.<name>`) whose name needs to change without deleting and recreating the whole thing. Sibling order and the value are preserved; renaming to a name that already exists at that level is rejected.
+
 ## 🔐 Authentication
 
 Three modes, set via `auth.method`:
@@ -248,7 +252,7 @@ TARGET=/path/to/flake nix run .#ezconf-mkoptions -- all myhostname
 
 ## 💾 Backups
 
-Every time a config file is saved, the server copies its previous contents into a backup directory, keeping the `backup_count` most recent copies *per file* (default 5; set to 0 to disable). Backups are per-tab — with multiple config files, each gets its own independent history. The `🕐 Backups` button appears in the header automatically once backups are enabled — it lists past saves of whichever tab is currently active, with their timestamp and size, and lets you restore any of them with one click. Restoring overwrites that file directly and does not itself create a backup. You can also back up a file's current on-disk contents on demand at any time, without waiting for a save.
+Every time a config file is saved, the server copies its previous contents into a backup directory, keeping the `backup_count` most recent copies *per file* (default 5; set to 0 to disable). Backups are per-tab — with multiple config files, each gets its own independent history. The `🕐 Backups` button appears in the header automatically once backups are enabled — it lists past saves of whichever tab is currently active, with their timestamp and size, and lets you restore any of them with one click. Restoring overwrites that file directly and does not itself create a backup.
 
 Standalone: set `backup_dir` / `backup_count` in `ezconf.toml`, or pass `--backup-dir` / `--backup-count`. Backups default to a shared `.ezconf-backups/` directory inside the config directory (one subset per file). The NixOS module stores them in `/var/lib/ezconf/backups` by default (`backupDir` / `backupCount` options).
 
