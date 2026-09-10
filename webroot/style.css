@@ -585,6 +585,13 @@ textarea { resize: vertical; min-height: unset; line-height: 1.5; }
   box-shadow: 0 4px 16px var(--shadow);
   padding: 4px;
   min-width: 170px;
+  /* A long menu (e.g. many backups) previously had no cap and could grow taller than the
+     viewport, so hovering it and scrolling just scrolled the page underneath instead — this
+     caps its height and scrolls internally, and overscroll-behavior stops that internal scroll
+     from "spilling over" into the page once you hit the top/bottom. */
+  max-height: calc(100vh - 20px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 .context-menu-item {
   display: block;
