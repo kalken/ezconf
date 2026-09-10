@@ -2476,12 +2476,6 @@ function isKernelPath(path) {
 }
 
 function renderArray(container, arr, path) {
-  // "list of (one of "a", "b", ...)" — parseEnumOptions doesn't care about the "list of"
-  // wrapper, it just pulls quoted values out of any type string containing "one of", so it
-  // works unchanged here even though every other caller passes it a scalar field's type.
-  const opt = findOption(path);
-  const enumOpts = opt ? parseEnumOptions(opt.type) : null;
-
   arr.forEach((v, i) => {
     const itemPath = [...path, i];
 
@@ -2507,25 +2501,6 @@ function renderArray(container, arr, path) {
     const item = document.createElement('div');
     item.className = 'array-item';
     const isExpr = isExprPkg(v);
-
-    // Enum-typed list (e.g. emulatedSystems): a dropdown constrained to the known values,
-    // same as a scalar enum field gets in renderField, instead of freeform text.
-    if (!isExpr && enumOpts && typeof v === 'string') {
-      const select = makeCustomSelect(
-        enumOpts.values.map(val => ({ value: val, label: val })),
-        v, val => setAtPath(config, itemPath, val),
-      );
-      item.appendChild(select);
-      item.oncontextmenu = e => {
-        showContextMenu(e, [
-          { label: 'Convert to Nix expression', onclick: () => { setAtPath(config, itemPath, { _expr: v }); renderAll(); } },
-          { label: 'Delete', danger: true, onclick: () => { deleteAtPath(config, itemPath); renderAll(); } },
-        ]);
-      };
-      container.appendChild(item);
-      return;
-    }
-
     const strVal = isExpr ? v._expr : (typeof v === 'string' || typeof v === 'number') ? String(v) : preview(v);
     let editor;
     if (strVal.includes('\n')) {
