@@ -1344,8 +1344,10 @@ function doAdd() {
       if (Object.keys(required).length) initialVal = required;
     }
     // For empty arrays, always add one blank item so the user can start filling in immediately
-    // (skip for pkg arrays — they manage their own items via the package input)
-    if (Array.isArray(initialVal) && initialVal.length === 0 && !isPkgArrayPath(parts)) {
+    // (skip for pkg arrays and enum-typed arrays — both manage their own items via a dedicated
+    // add-dropdown, where a blank/invalid placeholder item has nothing useful to seed)
+    const isEnumArray = matchedOpt && parseEnumOptions(matchedOpt.type);
+    if (Array.isArray(initialVal) && initialVal.length === 0 && !isPkgArrayPath(parts) && !isEnumArray) {
       const blank = blankObjectFromOptions(parts);
       if (blank !== null) {
         initialVal = [blank];
