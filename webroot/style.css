@@ -498,6 +498,19 @@ textarea { resize: vertical; min-height: unset; line-height: 1.5; }
 /* Dragging a section/field over a file tab to move it there */
 .tab-drop-target { outline: 2px solid var(--accent2); background: var(--selected-bg) !important; }
 
+/* Shown over the whole window while dragging OS files/folders/a zip in, to import — see
+   initImportDrop(). pointer-events: none so it never blocks hit-testing for the drag events
+   themselves (bubbling to window is unaffected either way). */
+.file-drop-overlay {
+  position: fixed; inset: 0; background: var(--overlay); z-index: 5000;
+  display: flex; align-items: center; justify-content: center; pointer-events: none;
+}
+.file-drop-overlay-box {
+  border: 2px dashed var(--accent2); border-radius: var(--radius);
+  background: var(--bg2); color: var(--text);
+  padding: 32px 48px; font-size: 14px; font-weight: 600; text-align: center;
+}
+
 /* ── Force-type bar ── */
 .force-type-bar {
   background: var(--bg3); border-bottom: 1px solid var(--border);

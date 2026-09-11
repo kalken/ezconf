@@ -3122,6 +3122,352 @@ async function exportJSON() {
   }
 }
 
+// ── Zip (client-side, zero-dependency) ──────────────────────────────────────────
+// Hand-rolled ZIP reader/writer using the browser's native Compression Streams API
+// (CompressionStream/DecompressionStream 'deflate-raw') for the DEFLATE method, so exporting
+// many files as one download — and reading a dropped zip back in — needs no external library.
+// Falls back to storing entries uncompressed when CompressionStream isn't available. The
+// reader accepts both stored and deflated entries, so it can also open a zip made by any
+// normal zip tool (as long as it doesn't use a fancier method than deflate, which virtually
+// none do by default).
+
+let _crc32Table = null;
+function _crc32(bytes) {
+  if (!_crc32Table) {
+    _crc32Table = new Uint32Array(256);
+    for (let n = 0; n < 256; n++) {
+      let c = n;
+      for (let k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+      _crc32Table[n] = c >>> 0;
+    }
+  }
+  let crc = 0xFFFFFFFF;
+  for (let i = 0; i < bytes.length; i++) crc = _crc32Table[(crc ^ bytes[i]) & 0xFF] ^ (crc >>> 8);
+  return (crc ^ 0xFFFFFFFF) >>> 0;
+}
+
+async function _pumpStream(stream, input) {
+  const writer = stream.writable.getWriter();
+  writer.write(input);
+  writer.close();
+  const chunks = [];
+  let total = 0;
+  const reader = stream.readable.getReader();
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value);
+    total += value.length;
+  }
+  const out = new Uint8Array(total);
+  let off = 0;
+  for (const c of chunks) { out.set(c, off); off += c.length; }
+  return out;
+}
+function _deflateRaw(bytes) {
+  if (typeof CompressionStream === 'undefined') return null;
+  return _pumpStream(new CompressionStream('deflate-raw'), bytes);
+}
+function _inflateRaw(bytes) {
+  return _pumpStream(new DecompressionStream('deflate-raw'), bytes);
+}
+
+function _dosDateTime(date) {
+  const dosTime = (date.getHours() << 11) | (date.getMinutes() << 5) | Math.floor(date.getSeconds() / 2);
+  const dosDate = ((date.getFullYear() - 1980) << 9) | ((date.getMonth() + 1) << 5) | date.getDate();
+  return { dosTime, dosDate };
+}
+
+// entries: [{ name, text }] — builds a standard zip Blob (UTF-8 filenames, deflate when
+// available and it actually helps, stored otherwise).
+async function createZip(entries) {
+  const enc = new TextEncoder();
+  const prepared = [];
+  for (const { name, text } of entries) {
+    const raw = enc.encode(text);
+    const crc = _crc32(raw);
+    let method = 0, data = raw;
+    const deflated = await _deflateRaw(raw);
+    if (deflated && deflated.length < raw.length) { method = 8; data = deflated; }
+    prepared.push({ name: enc.encode(name), method, crc, uncompSize: raw.length, compSize: data.length, data });
+  }
+  const { dosTime, dosDate } = _dosDateTime(new Date());
+  const localParts = [];
+  const offsets = [];
+  let offset = 0;
+  for (const e of prepared) {
+    offsets.push(offset);
+    const header = new Uint8Array(30);
+    const dv = new DataView(header.buffer);
+    dv.setUint32(0, 0x04034b50, true);
+    dv.setUint16(4, 20, true);
+    dv.setUint16(6, 0x0800, true); // UTF-8 filename flag
+    dv.setUint16(8, e.method, true);
+    dv.setUint16(10, dosTime, true);
+    dv.setUint16(12, dosDate, true);
+    dv.setUint32(14, e.crc, true);
+    dv.setUint32(18, e.compSize, true);
+    dv.setUint32(22, e.uncompSize, true);
+    dv.setUint16(26, e.name.length, true);
+    dv.setUint16(28, 0, true);
+    localParts.push(header, e.name, e.data);
+    offset += 30 + e.name.length + e.data.length;
+  }
+  const cdParts = [];
+  let cdSize = 0;
+  for (let i = 0; i < prepared.length; i++) {
+    const e = prepared[i];
+    const rec = new Uint8Array(46);
+    const dv = new DataView(rec.buffer);
+    dv.setUint32(0, 0x02014b50, true);
+    dv.setUint16(4, 20, true);
+    dv.setUint16(6, 20, true);
+    dv.setUint16(8, 0x0800, true);
+    dv.setUint16(10, e.method, true);
+    dv.setUint16(12, dosTime, true);
+    dv.setUint16(14, dosDate, true);
+    dv.setUint32(16, e.crc, true);
+    dv.setUint32(20, e.compSize, true);
+    dv.setUint32(24, e.uncompSize, true);
+    dv.setUint16(28, e.name.length, true);
+    dv.setUint16(30, 0, true);
+    dv.setUint16(32, 0, true);
+    dv.setUint16(34, 0, true);
+    dv.setUint16(36, 0, true);
+    dv.setUint32(38, 0, true);
+    dv.setUint32(42, offsets[i], true);
+    cdParts.push(rec, e.name);
+    cdSize += 46 + e.name.length;
+  }
+  const eocd = new Uint8Array(22);
+  const dv = new DataView(eocd.buffer);
+  dv.setUint32(0, 0x06054b50, true);
+  dv.setUint16(4, 0, true);
+  dv.setUint16(6, 0, true);
+  dv.setUint16(8, prepared.length, true);
+  dv.setUint16(10, prepared.length, true);
+  dv.setUint32(12, cdSize, true);
+  dv.setUint32(16, offset, true);
+  dv.setUint16(20, 0, true);
+  return new Blob([...localParts, ...cdParts, eocd], { type: 'application/zip' });
+}
+
+// Reads a zip Blob/File back into [{ name, text }]. Scans backward for the end-of-central-
+// directory signature (handles a zero/absent comment, which covers every zip we produce and
+// virtually every zip a normal tool produces).
+async function readZip(blob) {
+  const buf = new Uint8Array(await blob.arrayBuffer());
+  const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
+  let eocdOff = -1;
+  const start = Math.max(0, buf.length - 22 - 65536);
+  for (let i = buf.length - 22; i >= start; i--) {
+    if (dv.getUint32(i, true) === 0x06054b50) { eocdOff = i; break; }
+  }
+  if (eocdOff < 0) throw new Error('Not a valid zip file');
+  const totalEntries = dv.getUint16(eocdOff + 10, true);
+  let cdOffset = dv.getUint32(eocdOff + 16, true);
+  const dec = new TextDecoder();
+  const results = [];
+  for (let i = 0; i < totalEntries; i++) {
+    if (dv.getUint32(cdOffset, true) !== 0x02014b50) break;
+    const method = dv.getUint16(cdOffset + 10, true);
+    const compSize = dv.getUint32(cdOffset + 20, true);
+    const nameLen = dv.getUint16(cdOffset + 28, true);
+    const extraLen = dv.getUint16(cdOffset + 30, true);
+    const commentLen = dv.getUint16(cdOffset + 32, true);
+    const localOffset = dv.getUint32(cdOffset + 42, true);
+    const name = dec.decode(buf.subarray(cdOffset + 46, cdOffset + 46 + nameLen));
+    const lNameLen = dv.getUint16(localOffset + 26, true);
+    const lExtraLen = dv.getUint16(localOffset + 28, true);
+    const dataStart = localOffset + 30 + lNameLen + lExtraLen;
+    const raw = buf.subarray(dataStart, dataStart + compSize);
+    let outBytes;
+    if (method === 0) outBytes = raw;
+    else if (method === 8) outBytes = await _inflateRaw(raw);
+    else throw new Error('Unsupported compression method (' + method + ') in ' + name);
+    if (!name.endsWith('/')) results.push({ name, text: dec.decode(outBytes) });
+    cdOffset += 46 + nameLen + extraLen + commentLen;
+  }
+  return results;
+}
+
+// ── Export / Import (many files) ─────────────────────────────────────────────────
+// "Export"/"Export all" (tab, folder, and blank tab-bar right-click menus) package the current
+// in-memory state of one or more files — including unsaved edits, same as the single-file
+// "⬆ Export" button — into a zip a user can keep as a portable backup. Dropping that zip (or a
+// loose selection of .json files, or a whole folder) back onto the window imports it the same
+// way a backup is loaded: straight into fileConfigs as an unsaved edit, nothing touches disk
+// until Save.
+function _exportableConfig(cfg) {
+  const { _gui, ...rest } = cfg || {};
+  return rest;
+}
+function _exportTimestamp() {
+  const d = new Date(), p = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
+}
+function _triggerDownload(blob, filename) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
+function exportFile(name) {
+  const json = JSON.stringify(_exportableConfig(fileConfigs[name]), null, 2);
+  _triggerDownload(new Blob([json], { type: 'application/json' }), name.slice(name.lastIndexOf('/') + 1));
+  setStatus('Exported ' + name, 2000, 'ok');
+}
+
+async function exportAll() {
+  if (!files.length) { setStatus('No files to export', 3000, 'err'); return; }
+  const entries = files.map(name => ({ name, text: JSON.stringify(_exportableConfig(fileConfigs[name]), null, 2) }));
+  const blob = await createZip(entries);
+  _triggerDownload(blob, `ezconf-export-${_exportTimestamp()}.zip`);
+  setStatus(`Exported ${entries.length} file(s)`, 3000, 'ok');
+}
+
+async function exportFolder(folder) {
+  const prefix = folder + '/';
+  const names = files.filter(f => f.startsWith(prefix));
+  if (!names.length) { setStatus('No files in this folder to export', 3000, 'err'); return; }
+  const entries = names.map(name => ({ name, text: JSON.stringify(_exportableConfig(fileConfigs[name]), null, 2) }));
+  const blob = await createZip(entries);
+  _triggerDownload(blob, `${_folderLabel(folder)}-${_exportTimestamp()}.zip`);
+  setStatus(`Exported ${entries.length} file(s) from ${_folderLabel(folder)}`, 3000, 'ok');
+}
+
+// Recursively reads a dropped FileSystemEntry (file or directory, from item.webkitGetAsEntry())
+// into a flat [{ relPath, file }] list — relPath includes the dropped folder's own name as its
+// first segment, the same way a real subfolder is named inside CONFIG_DIR. A directory reader
+// can return results in batches, so readEntries() is called repeatedly until it comes back empty
+// (per spec — a single call isn't guaranteed to return everything).
+function _readDroppedEntry(entry, prefix) {
+  return new Promise((resolve, reject) => {
+    if (entry.isFile) {
+      entry.file(file => resolve([{ relPath: prefix + entry.name, file }]), reject);
+    } else if (entry.isDirectory) {
+      const reader = entry.createReader();
+      const all = [];
+      const readBatch = () => {
+        reader.readEntries(async batch => {
+          if (!batch.length) { resolve(all); return; }
+          for (const child of batch) all.push(...await _readDroppedEntry(child, prefix + entry.name + '/'));
+          readBatch();
+        }, reject);
+      };
+      readBatch();
+    } else {
+      resolve([]);
+    }
+  });
+}
+
+// Applies parsed { name, text } entries (from a dropped zip, or loose/folder-dropped .json
+// files) the same way loadBackup() applies a backup: straight into fileConfigs as an unsaved,
+// dirty edit. Nothing is written to disk until the user hits Save.
+function _importFiles(entries) {
+  let imported = 0, failed = 0;
+  const badNames = [];
+  let touchedActive = false;
+  for (const { name, text } of entries) {
+    let parsed;
+    try { parsed = JSON.parse(text); } catch (_) { parsed = undefined; }
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+      failed++; badNames.push(name); continue;
+    }
+    if (!files.includes(name)) files.push(name);
+    fileConfigs[name] = normalizeConfig(parsed);
+    if (name === activeFile) touchedActive = true;
+    imported++;
+  }
+  if (!imported) {
+    setStatus(badNames.length ? 'Nothing imported — not valid JSON: ' + badNames.slice(0, 3).join(', ') : 'Nothing to import', 4000, 'err');
+    return;
+  }
+  files.sort();
+  if (touchedActive) config = fileConfigs[activeFile];
+  if (!activeFile) {
+    switchFile(files[0]); // renders the tab bar + editor itself
+  } else {
+    renderFileSelector();
+    renderAll(); // also updates the dirty indicator and terminal buttons
+  }
+  setStatus(`Imported ${imported} file(s)` + (failed ? `, skipped ${failed} invalid` : ''), 4000, failed ? 'err' : 'ok');
+}
+
+// Entry point for a window drop: sorts dropped items into zips (unpacked via readZip()) and
+// loose/folder-dropped .json files, then hands everything to _importFiles() in one batch.
+async function handleDroppedFiles(dataTransfer) {
+  let flat = [];
+  const items = dataTransfer.items;
+  if (items && items.length && items[0].webkitGetAsEntry) {
+    for (const item of items) {
+      if (item.kind !== 'file') continue;
+      const entry = item.webkitGetAsEntry();
+      if (entry) flat.push(...await _readDroppedEntry(entry, ''));
+      else { const file = item.getAsFile(); if (file) flat.push({ relPath: file.name, file }); }
+    }
+  } else {
+    for (const file of dataTransfer.files) flat.push({ relPath: file.name, file });
+  }
+  if (!flat.length) { setStatus('No files found in drop', 3000, 'err'); return; }
+
+  const jsonEntries = [];
+  for (const { relPath, file } of flat) {
+    if (/\.zip$/i.test(relPath)) {
+      try {
+        for (const e of await readZip(file)) {
+          if (e.name.endsWith('.json') || e.name.endsWith('.json.disabled')) jsonEntries.push(e);
+        }
+      } catch (err) {
+        setStatus('Could not read ' + relPath + ': ' + err.message, 4000, 'err');
+      }
+    } else if (relPath.endsWith('.json') || relPath.endsWith('.json.disabled')) {
+      jsonEntries.push({ name: relPath, text: await file.text() });
+    }
+  }
+  _importFiles(jsonEntries);
+}
+
+let _dropOverlayEl = null, _dropDepth = 0;
+function _showDropOverlay() {
+  if (_dropOverlayEl) return;
+  _dropOverlayEl = document.createElement('div');
+  _dropOverlayEl.className = 'file-drop-overlay';
+  _dropOverlayEl.innerHTML = '<div class="file-drop-overlay-box">Drop to import — .json file(s), a folder, or a .zip</div>';
+  document.body.appendChild(_dropOverlayEl);
+}
+function _hideDropOverlay() {
+  if (_dropOverlayEl) { _dropOverlayEl.remove(); _dropOverlayEl = null; }
+  _dropDepth = 0;
+}
+function _isFileDrag(e) {
+  return !!e.dataTransfer && Array.from(e.dataTransfer.types || []).includes('Files');
+}
+function initImportDrop() {
+  window.addEventListener('dragenter', e => {
+    if (!_isFileDrag(e)) return;
+    e.preventDefault();
+    _dropDepth++;
+    _showDropOverlay();
+  });
+  window.addEventListener('dragover', e => { if (_isFileDrag(e)) e.preventDefault(); });
+  window.addEventListener('dragleave', () => {
+    _dropDepth = Math.max(0, _dropDepth - 1);
+    if (_dropDepth === 0) _hideDropOverlay();
+  });
+  window.addEventListener('drop', e => {
+    if (!_isFileDrag(e)) return;
+    e.preventDefault();
+    _hideDropOverlay();
+    handleDroppedFiles(e.dataTransfer);
+  });
+}
+
 // ── Terminal panel ─────────────────────────────────────────────────────────────
 let _term = null;
 let _termWs = null;
@@ -3450,6 +3796,8 @@ function _makeTab(name) {
         onclick: () => _toggleFileDisabled(name, !ownDisabled),
       });
     }
+    items.push({ label: 'Export', onclick: () => exportFile(name) });
+    items.push({ separator: true });
     items.push({ label: 'Delete', danger: true, onclick: () => deleteFile(name) });
     showContextMenu(e, items);
   };
@@ -3612,6 +3960,7 @@ function renderFileSelector() {
       showContextMenu(e, [
         { label: 'New file here', onclick: () => createFile(folder) },
         { label: folderDisabled ? 'Enable folder' : 'Disable folder', onclick: () => _toggleFolderDisabled(folder, !folderDisabled) },
+        { label: 'Export', onclick: () => exportFolder(folder) },
         { separator: true },
         { label: 'Delete folder', danger: true, onclick: () => deleteFolder(folder) },
       ]);
@@ -3626,6 +3975,8 @@ function renderFileSelector() {
     showContextMenu(e, [
       { label: 'New file', onclick: () => createFile() },
       { label: 'New folder', onclick: () => createFolder() },
+      { separator: true },
+      { label: 'Export all', onclick: () => exportAll() },
     ]);
   };
 }
@@ -4166,6 +4517,7 @@ async function loadSiblingFiles() {
   if (!ok) return;
   initAddPanel();
   initLoadButton();
+  initImportDrop();
   document.getElementById('flat-mode-btn').classList.toggle('active', flatMode);
   const treeVisible = localStorage.getItem('ezconf-tree-visible') === 'true';
   document.getElementById('sidebar').classList.toggle('hidden', !treeVisible);
