@@ -2985,34 +2985,35 @@ function isAnyDirty() {
 // immediately, or has to wait for the user to finish saving/undoing back to a clean state first.
 let _restartDetected = false;
 
-// Polls GET /api/v1/ping so an already-open tab notices ezconf.service restarting (e.g. from
-// nixos-rebuild switch). Most restarts don't actually change anything the page cares about — a
+// Holds GET /api/v1/ping-stream open as an SSE connection so an already-open tab notices
+// ezconf.service restarting (e.g. from nixos-rebuild switch) the instant it happens, rather than
+// on the next poll. Most restarts don't actually change anything the page cares about — a
 // rebuild that never touched services.ezconf.* just restarts the process for unrelated reasons —
-// so a changed boot_id alone is *not* treated as "reload now": /api/v1/ping also echoes every
-// value that's otherwise only baked into index.html at load time, and each is compared against
-// what this page actually has. STATIC_BUTTONS is small enough to just patch in place and
+// so a changed boot_id alone is *not* treated as "reload now": the stream's payload also echoes
+// every value that's otherwise only baked into index.html at load time, and each is compared
+// against what this page actually has. STATIC_BUTTONS is small enough to just patch in place and
 // re-render — no visible reload for what's easily the most common thing to actually change.
 // Everything else — theme, terminal/mkoptions/backup availability, nixos_target, and
 // webroot_hash (a content hash of index.html/style.css/the theme files, so an actual ezconf
 // package upgrade — new HTML/CSS/JS, not just a settings change — is caught too, since that
 // can't be detected any other way) — genuinely can't be applied without reloading, so only
-// *those* changing still triggers one — and even then,
-// never out from under unsaved edits: if something's dirty when that's first seen, it just says
-// so and waits — _updateDirty() (run after every edit, undo, and Save) is what actually fires
-// the reload, the moment the user gets back to a clean state. A 401 always means reload — that's
-// _SESSION_KEY changing too (no --session-key-file to persist it across the restart), so the old
-// cookie won't work here again regardless of what else did or didn't change.
+// *those* changing still triggers one — and even then, never out from under unsaved edits: if
+// something's dirty when that's first seen, it just says so and waits — _updateDirty() (run
+// after every edit, undo, and Save) is what actually fires the reload, the moment the user gets
+// back to a clean state.
+//
+// The connection dying *is* the restart signal — it happens the instant the old process exits,
+// and the browser's own EventSource auto-reconnect (no code needed here for that part) is what
+// gets this tab talking to the new process, whose first event carries the fresh values above for
+// comparison. onerror exists only to catch what auto-reconnect can never fix on its own: a dead
+// session (_SESSION_KEY changed too, no --session-key-file to persist it across the restart) —
+// EventSource has no way to expose a 401 response status itself, so that's checked via a one-off
+// plain GET /api/v1/ping instead.
 let _lastSeenBootId = null; // set to BOOT_ID once it's actually declared — see initRestartWatcher()
 function initRestartWatcher() {
   _lastSeenBootId = BOOT_ID;
-  async function check() {
-    if (_restartDetected) return;
-    let res;
-    try { res = await apiFetch('/ping'); } catch (e) { return; } // network hiccup — try again later
-    if (res.status === 401) { onRestartDetected(); return; }
-    if (!res.ok) return;
-    const data = await res.json().catch(() => ({}));
-    if (!data.boot_id || data.boot_id === _lastSeenBootId) return;
+  function handlePayload(data) {
+    if (!data || !data.boot_id || data.boot_id === _lastSeenBootId) return;
     _lastSeenBootId = data.boot_id;
     if (Array.isArray(data.buttons) && JSON.stringify(data.buttons) !== JSON.stringify(STATIC_BUTTONS)) {
       STATIC_BUTTONS.length = 0;
@@ -3035,8 +3036,16 @@ function initRestartWatcher() {
       location.reload();
     }
   }
-  setInterval(check, 20000);
-  document.addEventListener('visibilitychange', () => { if (!document.hidden) check(); });
+  const es = new EventSource(API_BASE + '/ping-stream');
+  es.onmessage = e => {
+    try { handlePayload(JSON.parse(e.data)); } catch (err) { /* malformed event — ignore */ }
+  };
+  es.onerror = async () => {
+    if (_restartDetected) return; // already decided; EventSource's own retries need no help
+    let res;
+    try { res = await apiFetch('/ping'); } catch (err) { return; } // still down — auto-reconnect will keep trying
+    if (res.status === 401) onRestartDetected();
+  };
 }
 
 function _updateDirty() {
