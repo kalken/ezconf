@@ -3742,10 +3742,25 @@ function setTerminalSize(size) {
 // always_show is explicitly false, which scopes a button to only appear while its own defining
 // file is the active tab. Every tab's config is kept in fileConfigs (loaded at startup), so this
 // doesn't need a fetch.
+//
+// These two sources aren't as independent as they look: services.ezconf.buttons is one NixOS
+// option either way — setting it in a *.json file inside CONFIG_DIR isn't some ezconf-only
+// concept, that file gets merged by json2nix.nix into the very same option modules/ezconf.nix
+// reads to generate ezconf.toml's [[buttons]] in the first place. So the moment you save that
+// file and nixos-rebuild, its buttons start arriving as STATIC_BUTTONS too — the *same* button
+// definitions reaching getAllButtons() from both directions — which without deduping would just
+// show every such button twice. _buttonKey() normalizes each optional field to its real default
+// (matching runButton()'s/renderButtons()'s own reading of a missing field) so a per-file button
+// is only dropped when it's *actually* identical to a static one, not just superficially close.
+function _buttonKey(b) {
+  return JSON.stringify([b.label, b.command, !!b.save_first, b.always_show !== false, !!b.clear_first]);
+}
 function getAllButtons() {
-  return [...STATIC_BUTTONS, ...files.flatMap(f => f === activeFile
+  const staticKeys = new Set(STATIC_BUTTONS.map(_buttonKey));
+  const perFile = files.flatMap(f => f === activeFile
     ? (config.services?.ezconf?.buttons || [])
-    : ((fileConfigs[f]?.services?.ezconf?.buttons) || []).filter(b => b.always_show !== false))];
+    : ((fileConfigs[f]?.services?.ezconf?.buttons) || []).filter(b => b.always_show !== false));
+  return [...STATIC_BUTTONS, ...perFile.filter(b => !staticKeys.has(_buttonKey(b)))];
 }
 
 function renderButtons() {

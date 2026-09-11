@@ -195,6 +195,8 @@ Buttons set here (in your NixOS configuration, deploy-time) always show, regardl
 
 You can *also* set `services.ezconf.buttons` directly inside a config file — it's a regular NixOS option like any other, editable live in the app, and combines with (rather than replaces) whatever's set above. A button defined this way behaves like `always_show = true` by default, showing regardless of which tab is active; set `always_show = false` on it to only show it while its own defining file is the active tab — handy for a shortcut that only makes sense in the context of that one file.
 
+These two aren't really separate: if `services.ezconf.buttons` lives inside `configDir`, it *is* the option set above — a `.json` file there gets merged straight into it, so after you save and `nixos-rebuild`, the exact same buttons start arriving from the NixOS config too. Ezconf notices and shows each one once, not twice.
+
 By default a button runs its command in whatever's already in the terminal. Set `clear_first = true` to clear the screen (and scroll back) right before it runs.
 
 ## 🔒 HTTPS
