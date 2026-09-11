@@ -2849,24 +2849,60 @@ function renderEnumArray(container, arr, path, enumOpts) {
 }
 
 // ── Undo / Redo ───────────────────────────────────────────────────────────────
-let fileHistories = {}; // filename -> { stack: [json snapshots], index: N, lastJson: '' }
-let _skipHistory = false;
+// One global stack of full-state snapshots covers content edits AND every file/folder-list
+// action (create/delete/rename/move/disable/enable) in a single chronological timeline — Ctrl+Z
+// after deleting a file undoes the delete exactly like it undoes a field edit, since both are
+// just "the state changed" as far as this is concerned. Each entry snapshots `files`, `folders`,
+// every file's config, `fileSaved` (so dirty-tracking comes out correct after landing on an
+// older point — e.g. undoing back to before a save should show that file dirty again), and
+// `pendingFsOps`/`folderExists` (so undoing a delete also un-queues the disk delete it queued,
+// not just resurrecting the tab). This can't undo something a Save has already actually applied
+// to disk — undoing back across a completed delete resurrects the file locally, but can't make
+// the server forget it was ever removed, the same as any editor's undo vs. an already-committed
+// change elsewhere.
+let globalHistory = [];      // ordered list of snapshots, oldest first
+let globalHistoryIndex = -1; // index of the snapshot matching current live state
+let _skipHistory = false;    // guards the _pushHistory() call inside renderAll() while undo/redo
+                              // itself is applying a snapshot (renderAll() runs either way)
 
-function _historyFor(name) {
-  if (!fileHistories[name]) fileHistories[name] = { stack: [], index: -1, lastJson: '' };
-  return fileHistories[name];
+function _snapshotState() {
+  const fileConfigsJson = {};
+  for (const k of Object.keys(fileConfigs)) fileConfigsJson[k] = JSON.stringify(fileConfigs[k]);
+  return {
+    files: files.slice(),
+    folders: folders.slice(),
+    fileConfigsJson,
+    fileSaved: { ...fileSaved },
+    pendingFsOps: pendingFsOps.map(op => ({ ...op })),
+    folderExists: Array.from(folderExists),
+    activeFile,
+  };
+}
+
+// Same shape as _snapshotState()'s result, minus `activeFile` — switching tabs alone shouldn't
+// create a new undo step, only a real change to what some tab contains should.
+function _snapshotCompareKey(snap) {
+  return JSON.stringify({
+    files: snap.files, folders: snap.folders, fileConfigsJson: snap.fileConfigsJson,
+    fileSaved: snap.fileSaved, pendingFsOps: snap.pendingFsOps, folderExists: snap.folderExists,
+  });
 }
 
 function _pushHistory() {
-  if (_skipHistory || !activeFile) return;
-  const h = _historyFor(activeFile);
-  const curr = JSON.stringify(config);
-  if (curr === h.lastJson) return;
-  h.stack = h.stack.slice(0, h.index + 1);
-  h.stack.push(curr);
-  if (h.stack.length > 200) h.stack.shift();
-  h.index = h.stack.length - 1;
-  h.lastJson = curr;
+  if (_skipHistory) return;
+  const snap = _snapshotState();
+  const key = _snapshotCompareKey(snap);
+  if (globalHistoryIndex >= 0 && key === globalHistory[globalHistoryIndex]._key) {
+    // Nothing but activeFile changed (a plain tab switch) — fold it into the existing entry so
+    // a later undo lands wherever you actually were, without spending a whole undo step on it.
+    globalHistory[globalHistoryIndex].activeFile = snap.activeFile;
+    return;
+  }
+  globalHistory = globalHistory.slice(0, globalHistoryIndex + 1);
+  snap._key = key;
+  globalHistory.push(snap);
+  if (globalHistory.length > 100) globalHistory.shift();
+  globalHistoryIndex = globalHistory.length - 1;
 }
 
 // Marks the active file's current in-memory state as matching disk. Call this only right
@@ -2890,19 +2926,15 @@ function _updateDirty() {
 }
 
 function undo() {
-  if (!activeFile) return;
-  const h = _historyFor(activeFile);
-  if (h.index <= 0) return;
-  h.index--;
-  _restoreHistory();
+  if (globalHistoryIndex <= 0) return;
+  globalHistoryIndex--;
+  _restoreSnapshot(globalHistory[globalHistoryIndex]);
 }
 
 function redo() {
-  if (!activeFile) return;
-  const h = _historyFor(activeFile);
-  if (h.index >= h.stack.length - 1) return;
-  h.index++;
-  _restoreHistory();
+  if (globalHistoryIndex >= globalHistory.length - 1) return;
+  globalHistoryIndex++;
+  _restoreSnapshot(globalHistory[globalHistoryIndex]);
 }
 
 function clearConfig() {
@@ -2926,13 +2958,20 @@ async function reloadConfig() {
   }
 }
 
-function _restoreHistory() {
+function _restoreSnapshot(snap) {
   _skipHistory = true;
-  const h = _historyFor(activeFile);
-  const snap = JSON.parse(h.stack[h.index]);
-  Object.keys(config).forEach(k => delete config[k]);
-  Object.assign(config, snap);
-  h.lastJson = h.stack[h.index];
+  files = snap.files.slice();
+  folders = snap.folders.slice();
+  fileConfigs = {};
+  for (const k of Object.keys(snap.fileConfigsJson)) fileConfigs[k] = JSON.parse(snap.fileConfigsJson[k]);
+  fileSaved = { ...snap.fileSaved };
+  pendingFsOps = snap.pendingFsOps.map(op => ({ ...op }));
+  folderExists = new Set(snap.folderExists);
+  activeFile = files.includes(snap.activeFile) ? snap.activeFile : (files[0] || null);
+  config = activeFile ? fileConfigs[activeFile] : {};
+  if (activeFile) localStorage.setItem('ezconf-active-file', activeFile);
+  else localStorage.removeItem('ezconf-active-file');
+  renderFileSelector();
   renderAll();
   _skipHistory = false;
   _updateDirty();
@@ -3884,6 +3923,7 @@ function _startFolderRename(name) {
     pendingFsOps.push({ type: 'create-folder', folder: raw });
     folderExists.add(raw);
     renderFileSelector();
+    _pushHistory();
     _updateDirty();
     setStatus('Folder "' + raw + '" will be created on Save', 2500, 'ok');
   }
@@ -4043,7 +4083,6 @@ async function deleteFile(name) {
   files = files.filter(f => f !== name);
   delete fileConfigs[name];
   delete fileSaved[name];
-  delete fileHistories[name];
   if (name === activeFile) {
     activeFile = null;
     if (files.length) {
@@ -4059,6 +4098,7 @@ async function deleteFile(name) {
   } else {
     renderFileSelector();
     renderButtons();
+    _pushHistory();
     _updateDirty();
   }
   setStatus('Deleted ' + name + (existsOnDisk ? ' — Save to remove it from disk' : ''), 2500, 'ok');
@@ -4085,7 +4125,6 @@ async function deleteFolder(name) {
   filesInside.forEach(f => {
     delete fileConfigs[f];
     delete fileSaved[f];
-    delete fileHistories[f];
   });
   files = files.filter(f => !f.startsWith(prefix));
   folders = folders.filter(f => f !== name && !f.startsWith(prefix));
@@ -4102,6 +4141,7 @@ async function deleteFolder(name) {
   } else {
     renderFileSelector();
     renderButtons();
+    _pushHistory();
     _updateDirty();
   }
   setStatus('Deleted folder ' + name + (onDisk ? ' — Save to remove it from disk' : ''), 2500, 'ok');
@@ -4123,10 +4163,6 @@ async function _relocateFile(oldName, newName) {
     fileSaved[newName] = fileSaved[oldName];
     delete fileSaved[oldName];
   }
-  if (fileHistories[oldName]) {
-    fileHistories[newName] = fileHistories[oldName];
-    delete fileHistories[oldName];
-  }
   files = files.filter(f => f !== oldName);
   files.push(newName);
   files.sort();
@@ -4137,6 +4173,7 @@ async function _relocateFile(oldName, newName) {
   }
   renderFileSelector();
   renderButtons();
+  _pushHistory();
   _updateDirty();
   setStatus('Moved to ' + newName + (existsOnDisk ? ' — Save to apply on disk' : ''), 2500, 'ok');
   return true;
@@ -4163,10 +4200,6 @@ async function _toggleFileDisabled(name, disable) {
     fileSaved[newName] = fileSaved[name];
     delete fileSaved[name];
   }
-  if (fileHistories[name]) {
-    fileHistories[newName] = fileHistories[name];
-    delete fileHistories[name];
-  }
   files = files.filter(f => f !== name);
   files.push(newName);
   files.sort();
@@ -4177,6 +4210,7 @@ async function _toggleFileDisabled(name, disable) {
   }
   renderFileSelector();
   renderButtons();
+  _pushHistory();
   _updateDirty();
   setStatus((disable ? 'Disabled ' : 'Enabled ') + newName + (existsOnDisk ? ' — Save to apply on disk' : ''), 2500, 'ok');
 }
@@ -4204,7 +4238,7 @@ async function _toggleFolderDisabled(name, disable) {
   files = files.map(remap).sort();
   folders = folders.map(remap).sort();
   if (onDisk) { folderExists.delete(name); folderExists.add(target); }
-  [fileConfigs, fileSaved, fileHistories].forEach(store => {
+  [fileConfigs, fileSaved].forEach(store => {
     Object.keys(store).forEach(k => {
       if (k === name || k.startsWith(prefix)) {
         const nk = remap(k);
@@ -4220,6 +4254,7 @@ async function _toggleFolderDisabled(name, disable) {
   }
   renderFileSelector();
   renderButtons();
+  _pushHistory();
   _updateDirty();
   setStatus((disable ? 'Disabled folder ' : 'Enabled folder ') + target + (onDisk ? ' — Save to apply on disk' : ''), 2500, 'ok');
 }
