@@ -199,6 +199,8 @@ These two aren't really separate: if `services.ezconf.buttons` lives inside `con
 
 By default a button runs its command in whatever's already in the terminal. Set `clear_first = true` to clear the screen (and scroll back) right before it runs.
 
+Running that "Rebuild" button (or `nixos-rebuild switch` from anywhere) restarts `ezconf.service` itself, not just the terminal session — the page you're looking at is still running the old code. Ezconf notices on its own and reloads automatically once it's safe to (immediately if you have nothing unsaved; otherwise it waits until you save or undo back to clean, rather than reload out from under you).
+
 ## 🔒 HTTPS
 
 HTTPS is enabled by default. When no `cert` or `key` are provided a local CA and certificate are generated automatically in `/var/lib/ezconf/`. With `installCerts = true` (the default) the CA is installed into `~/.pki/nssdb` for each user in `auth.allowedUsers` so browsers trust it without a warning.

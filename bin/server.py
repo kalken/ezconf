@@ -2,6 +2,8 @@
 """
 ezconf server — single listener bound to 127.0.0.1:
   http(s)://localhost:9090  static files + API
+    GET  /api/v1/ping             {"boot_id": BOOT_ID} — polled by the frontend to notice a
+                                   restart (a 401 here means _SESSION_KEY changed too)
     GET  /api/v1/files            lists the config files (tabs) and folders in CONFIG_DIR
     GET  /api/v1/file             serves a resolved config file's raw JSON content
     POST /api/v1/file/save        writes a config file (backs up first); creates it if new
@@ -143,6 +145,12 @@ STATIC_BUTTONS   = []            # terminal panel buttons from [[buttons]] in TO
                                   # in modules/ezconf.nix, which is what generates this TOML
 
 _SESSION_KEY = secrets.token_hex(32)
+# Fresh every process start, unlike _SESSION_KEY (which can persist across restarts via
+# --session-key-file so logins survive a service restart) — this is deliberately *not*
+# persisted, since its only job is letting the frontend's periodic /api/v1/ping poll notice the
+# process restarted (e.g. nixos-rebuild switch restarting ezconf.service) so it can offer to
+# reload and pick up fresh server-injected state (STATIC_BUTTONS, THEME, etc.).
+BOOT_ID = secrets.token_hex(8)
 
 
 def make_ssl_context():
@@ -927,6 +935,17 @@ class StaticHandler(http.server.SimpleHTTPRequestHandler):
             self._deny(); return
         if parsed.path.rstrip('/') in ('', '/index.html'):
             self._serve_index(); return
+        if parsed.path == '/api/v1/ping':
+            # Polled periodically by the frontend purely to notice BOOT_ID changing (or this
+            # 401ing outright, if _SESSION_KEY wasn't persisted across the restart either) — see
+            # initRestartWatcher() in index.html.
+            data = json.dumps({'boot_id': BOOT_ID}).encode()
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Content-Length', str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+            return
         if parsed.path == '/api/v1/files':
             try:
                 data = json.dumps({
@@ -1029,6 +1048,7 @@ class StaticHandler(http.server.SimpleHTTPRequestHandler):
                 .replace('%%EZCONF_MKOPTIONS%%', 'true' if MKOPTIONS_CMD else 'false')
                 .replace('%%EZCONF_BACKUP%%', 'true' if BACKUP_COUNT > 0 else 'false')
                 .replace('%%EZCONF_NIXOS_TARGET%%', NIXOS_TARGET.replace('\\', '\\\\').replace("'", "\\'"))
+                .replace('%%EZCONF_BOOT_ID%%', BOOT_ID)
                 # Escape "</" so a command/label containing "</script>" can't prematurely close
                 # the <script> block this gets embedded into as a JS array literal.
                 .replace('%%EZCONF_BUTTONS%%', json.dumps(STATIC_BUTTONS).replace('</', '<\\/'))

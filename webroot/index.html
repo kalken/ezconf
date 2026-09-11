@@ -2917,6 +2917,41 @@ function isAnyDirty() {
   return pendingFsOps.length > 0 || Object.keys(fileConfigs).some(f => JSON.stringify(fileConfigs[f]) !== fileSaved[f]);
 }
 
+// True once a server restart has actually been observed (see initRestartWatcher()) — checked by
+// _updateDirty() to decide whether it's safe to reload immediately, or has to wait for the user
+// to finish saving/undoing back to a clean state first.
+let _restartDetected = false;
+
+// Polls GET /api/v1/ping so an already-open tab notices ezconf.service restarting (e.g. from
+// nixos-rebuild switch) and can pick up whatever changed server-side that only takes effect on
+// page load — STATIC_BUTTONS, THEME, and so on. Never reloads out from under unsaved edits: if
+// something's dirty when the restart is first seen, it just says so and waits — _updateDirty()
+// (run after every edit, undo, and Save) is what actually fires the reload, the moment the user
+// gets back to a clean state. A 401 counts as a restart too, not just a boot_id mismatch — that
+// means _SESSION_KEY changed as well (no --session-key-file to persist it across the restart),
+// so the old cookie won't work here again anyway.
+function initRestartWatcher() {
+  async function check() {
+    if (_restartDetected) return;
+    let res;
+    try { res = await apiFetch('/ping'); } catch (e) { return; } // network hiccup — try again later
+    if (res.status === 401) { onRestartDetected(); return; }
+    if (!res.ok) return;
+    const data = await res.json().catch(() => ({}));
+    if (data.boot_id && data.boot_id !== BOOT_ID) onRestartDetected();
+  }
+  function onRestartDetected() {
+    _restartDetected = true;
+    if (isAnyDirty()) {
+      setStatus('Server restarted — will reload once your changes are saved', 0, 'err');
+    } else {
+      location.reload();
+    }
+  }
+  setInterval(check, 20000);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) check(); });
+}
+
 function _updateDirty() {
   const dirty = isAnyDirty();
   document.querySelector('.status-dot').classList.toggle('dirty', dirty);
@@ -2924,6 +2959,10 @@ function _updateDirty() {
   document.querySelectorAll('.term-run-btn[data-save-first]').forEach(b => { b.disabled = dirty; });
   const saveBtn = document.getElementById('save-btn');
   if (saveBtn) saveBtn.disabled = !dirty;
+  // A restart was seen while something was unsaved (see initRestartWatcher()) — every edit,
+  // undo, or Save runs through here, so this is the one place that needs to check "is it safe
+  // to reload now" instead of trying to hook every single call site that can clear dirty state.
+  if (_restartDetected && !dirty) location.reload();
 }
 
 function undo() {
@@ -3791,6 +3830,7 @@ const MKOPTIONS_ENABLED = %%EZCONF_MKOPTIONS%%;
 const BACKUP_ENABLED    = %%EZCONF_BACKUP%%;
 const STATIC_BUTTONS    = %%EZCONF_BUTTONS%%; // from [[buttons]] in ezconf.toml — not tied to any tab
 const NIXOS_TARGET      = '%%EZCONF_NIXOS_TARGET%%'; // flake path GET /api/v1/system-export zips up
+const BOOT_ID           = '%%EZCONF_BOOT_ID%%'; // this page's server process — see initRestartWatcher()
 
 
 async function apiFetch(path, opts = {}) {
@@ -4664,6 +4704,7 @@ async function loadSiblingFiles() {
   initLoadButton();
   initSystemImportButton();
   initImportDrop();
+  initRestartWatcher();
   document.getElementById('flat-mode-btn').classList.toggle('active', flatMode);
   const treeVisible = localStorage.getItem('ezconf-tree-visible') === 'true';
   document.getElementById('sidebar').classList.toggle('hidden', !treeVisible);
