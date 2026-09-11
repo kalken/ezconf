@@ -45,7 +45,9 @@ Auth:
 
 Config file (ezconf.toml):
   file, default_file, webroot, auth, terminal_port, session_key_file, cert, key, username,
-  password, allowed_users, mkoptions, nixos_target, ports.web, backup_dir, backup_count
+  password, allowed_users, mkoptions, nixos_target, ports.web, backup_dir, backup_count,
+  buttons (list of [[buttons]] tables: label, command, save_first, always_show, clear_first —
+  shown in the terminal panel alongside any services.ezconf.buttons defined in a config file)
 """
 import argparse
 import datetime
@@ -126,6 +128,9 @@ BIND_ADDR        = '127.0.0.1'   # IP address to listen on; set by listen in TOM
 CA_FILE          = None          # path to CA cert served at /download-ca; set by --generate-ca or ca_file in TOML
 BACKUP_DIR       = None          # directory for configuration.json backups; set by --backup-dir or backup_dir in TOML (default: <config dir>/.ezconf-backups)
 BACKUP_COUNT     = 5             # number of backups to keep; 0 disables backups; set by --backup-count or backup_count in TOML
+STATIC_BUTTONS   = []            # terminal panel buttons from [[buttons]] in TOML (deploy-time,
+                                  # not tied to any config file/tab); see services.ezconf.buttons
+                                  # in modules/ezconf.nix, which is what generates this TOML
 
 _SESSION_KEY = secrets.token_hex(32)
 
@@ -892,6 +897,9 @@ class StaticHandler(http.server.SimpleHTTPRequestHandler):
                 .replace('%%EZCONF_THEME%%', THEME)
                 .replace('%%EZCONF_MKOPTIONS%%', 'true' if MKOPTIONS_CMD else 'false')
                 .replace('%%EZCONF_BACKUP%%', 'true' if BACKUP_COUNT > 0 else 'false')
+                # Escape "</" so a command/label containing "</script>" can't prematurely close
+                # the <script> block this gets embedded into as a JS array literal.
+                .replace('%%EZCONF_BUTTONS%%', json.dumps(STATIC_BUTTONS).replace('</', '<\\/'))
             )
             data = content.encode('utf-8')
             self.send_response(200)
@@ -972,6 +980,7 @@ if __name__ == '__main__':
     KEY_FILE  = _resolve(args.key,  cfg.get('key'),  None, 'localhost-key.pem')
     AUTH_MODE = _resolve(args.auth, cfg.get('auth'), None, 'auto')
     THEME     = _resolve(args.theme, cfg.get('theme'), None, 'nixos')
+    STATIC_BUTTONS = cfg.get('buttons') or []
     _term_port = args.terminal_port or cfg.get('terminal_port')
     if _term_port:
         TERMINAL_PORT    = int(_term_port)

@@ -3660,14 +3660,17 @@ function setTerminalSize(size) {
   });
 }
 
-// services.ezconf.buttons can be set in any tab. Buttons on the active tab always show (you're
-// editing that file); buttons on other tabs show too unless always_show is explicitly false,
-// which scopes a button to only appear while its own defining file is the active tab. Every
-// tab's config is kept in fileConfigs (loaded at startup), so this doesn't need a fetch.
+// STATIC_BUTTONS (from ezconf.toml's [[buttons]] — see server.py/modules/ezconf.nix) come first:
+// they're deploy-time, not tied to any config file, so they always show regardless of which tab
+// is active. After them, services.ezconf.buttons can also be set in any tab — buttons on the
+// active tab always show (you're editing that file); buttons on other tabs show too unless
+// always_show is explicitly false, which scopes a button to only appear while its own defining
+// file is the active tab. Every tab's config is kept in fileConfigs (loaded at startup), so this
+// doesn't need a fetch.
 function getAllButtons() {
-  return files.flatMap(f => f === activeFile
+  return [...STATIC_BUTTONS, ...files.flatMap(f => f === activeFile
     ? (config.services?.ezconf?.buttons || [])
-    : ((fileConfigs[f]?.services?.ezconf?.buttons) || []).filter(b => b.always_show !== false));
+    : ((fileConfigs[f]?.services?.ezconf?.buttons) || []).filter(b => b.always_show !== false))];
 }
 
 function renderButtons() {
@@ -3696,6 +3699,7 @@ const API_BASE = '/api/v1';
 const TERMINAL_ENABLED  = %%EZCONF_TERMINAL%%;
 const MKOPTIONS_ENABLED = %%EZCONF_MKOPTIONS%%;
 const BACKUP_ENABLED    = %%EZCONF_BACKUP%%;
+const STATIC_BUTTONS    = %%EZCONF_BUTTONS%%; // from [[buttons]] in ezconf.toml — not tied to any tab
 
 
 async function apiFetch(path, opts = {}) {

@@ -185,9 +185,11 @@ services.ezconf = {
 };
 ```
 
-`save_first = true` disables the button while there are unsaved changes. The terminal service has `restartIfChanged = false` so active sessions survive `nixos-rebuild switch`.
+`save_first = true` disables the button while there are unsaved changes. `clear_first = true` clears the terminal screen right before the command runs (default `false` — it runs in whatever's already there). The terminal service has `restartIfChanged = false` so active sessions survive `nixos-rebuild switch`.
 
-If you're editing multiple config files (tabs), buttons show up regardless of which tab is active by default. Set `always_show = false` on a button to only show it while its own defining file is the active tab — handy for a shortcut that only makes sense in the context of one specific file.
+Buttons set here (in your NixOS configuration, deploy-time) always show, regardless of which tab is open in the editor — they aren't tied to any one config file, so `always_show` has no effect on them.
+
+You can *also* set `services.ezconf.buttons` directly inside a config file — it's a regular NixOS option like any other, editable live in the app, and combines with (rather than replaces) whatever's set above. A button defined this way behaves like `always_show = true` by default, showing regardless of which tab is active; set `always_show = false` on it to only show it while its own defining file is the active tab — handy for a shortcut that only makes sense in the context of that one file.
 
 By default a button runs its command in whatever's already in the terminal. Set `clear_first = true` to clear the screen (and scroll back) right before it runs.
 

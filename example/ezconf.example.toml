@@ -66,3 +66,15 @@ file = "example/configuration.json"
 
 # [ports]
 # web = 9090
+
+# Buttons shown in the terminal panel, regardless of which config file (tab) is open — in
+# addition to any services.ezconf.buttons set inside a config file itself. Requires terminal_port.
+# [[buttons]]
+# label = "Rebuild"
+# command = "nixos-rebuild switch --flake /etc/nixos"
+# save_first = true
+# clear_first = true
+#
+# [[buttons]]
+# label = "Update"
+# command = "nix flake update /etc/nixos"
