@@ -74,6 +74,8 @@ There's no "+" button anywhere — file and folder management is entirely right-
 - Drag a tab into a folder (or back out to the root) to move it.
 - Drag a section or option onto a different file's tab to move it there, or use **Copy** / **Cut** / **Paste** (also right-click) to duplicate or relocate a section or option to the same path in another file.
 
+A new file or folder only exists in the browser until you hit **Save** — nothing is written to disk before that, so creating either is always safe to abandon by just not saving.
+
 A fresh install starts with zero files — the empty editor area explains how to create the first one, and the Import modal's "Import into" field can create a new file on the spot.
 
 ## 🖥️ Standalone

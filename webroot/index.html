@@ -175,6 +175,7 @@ let options = [];
 let customOptions = [];
 let files = [];
 let folders = []; // CONFIG_DIR-relative folder paths, including ones with no files in them yet
+let pendingFolders = new Set(); // folders created client-side that don't exist on disk yet — created on Save
 let activeFile = null;
 let fileConfigs = {}; // filename -> live (possibly edited) config object; config === fileConfigs[activeFile]
 let fileSaved = {};   // filename -> JSON string snapshot of the last-saved-to-disk state
@@ -2866,7 +2867,7 @@ function markSaved() {
 }
 
 function isAnyDirty() {
-  return Object.keys(fileConfigs).some(f => JSON.stringify(fileConfigs[f]) !== fileSaved[f]);
+  return pendingFolders.size > 0 || Object.keys(fileConfigs).some(f => JSON.stringify(fileConfigs[f]) !== fileSaved[f]);
 }
 
 function _updateDirty() {
@@ -3850,7 +3851,11 @@ function _startFolderRename(name) {
   input.select();
 
   let done = false;
-  async function commit() {
+  // A folder reaching this rename flow only ever comes from createFolder() (see its lone call
+  // site), so it's always still pending — there's no on-disk folder to touch here, just the
+  // in-memory placeholder name. The actual /api/v1/folder/create call happens at Save time
+  // (see saveToServer()), same as a new file only reaches disk once it's saved.
+  function commit() {
     if (done) return;
     done = true;
     const raw = input.value.trim();
@@ -3859,31 +3864,26 @@ function _startFolderRename(name) {
       if (invalid) setStatus('Invalid folder name', 4000, 'err');
       else setStatus('That folder already exists', 4000, 'err');
       folders = folders.filter(f => f !== name);
-      renderFileSelector();
-      return;
-    }
-    try {
-      const res = await apiFetch('/folder/create', { method: 'POST', body: JSON.stringify({ folder: raw }) });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        setStatus('Could not create folder: ' + (data.error || res.status), 4000, 'err');
-        folders = folders.filter(f => f !== name);
-        renderFileSelector();
-        return;
-      }
-    } catch (e) {
-      setStatus('Could not create folder: ' + e.message, 4000, 'err');
-      folders = folders.filter(f => f !== name);
+      pendingFolders.delete(name);
       renderFileSelector();
       return;
     }
     folders = folders.filter(f => f !== name);
     folders.push(raw);
     folders.sort();
+    pendingFolders.delete(name);
+    pendingFolders.add(raw);
     renderFileSelector();
-    setStatus('Created folder ' + raw, 2000, 'ok');
+    _updateDirty();
+    setStatus('Folder "' + raw + '" will be created on Save', 2500, 'ok');
   }
-  function cancel() { if (!done) { done = true; folders = folders.filter(f => f !== name); renderFileSelector(); } }
+  function cancel() {
+    if (done) return;
+    done = true;
+    folders = folders.filter(f => f !== name);
+    pendingFolders.delete(name);
+    renderFileSelector();
+  }
   input.addEventListener('keydown', e => {
     if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
     else if (e.key === 'Escape') { e.preventDefault(); cancel(); }
@@ -4019,6 +4019,7 @@ async function createFolder() {
   let name = 'new-folder', n = 1;
   while (folders.includes(name)) { name = `new-folder-${n}`; n++; }
   folders.push(name);
+  pendingFolders.add(name);
   renderFileSelector();
   _startFolderRename(name);
 }
@@ -4072,16 +4073,18 @@ async function deleteFolder(name) {
     ? `Delete folder "${name}" and its ${filesInside.length} file${filesInside.length === 1 ? '' : 's'}?\n\nThis does not create a backup and cannot be undone.`
     : `Delete empty folder "${name}"?`;
   if (!confirm(msg)) return;
-  try {
-    const res = await apiFetch('/folder/delete', { method: 'POST', body: JSON.stringify({ folder: name }) });
-    if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      setStatus('Delete failed: ' + (data.error || res.status), 4000, 'err');
+  if (!pendingFolders.has(name)) {
+    try {
+      const res = await apiFetch('/folder/delete', { method: 'POST', body: JSON.stringify({ folder: name }) });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setStatus('Delete failed: ' + (data.error || res.status), 4000, 'err');
+        return;
+      }
+    } catch (e) {
+      setStatus('Delete failed: ' + e.message, 4000, 'err');
       return;
     }
-  } catch (e) {
-    setStatus('Delete failed: ' + e.message, 4000, 'err');
-    return;
   }
   filesInside.forEach(f => {
     delete fileConfigs[f];
@@ -4090,6 +4093,7 @@ async function deleteFolder(name) {
   });
   files = files.filter(f => !f.startsWith(prefix));
   folders = folders.filter(f => f !== name && !f.startsWith(prefix));
+  pendingFolders.delete(name);
   if (filesInside.includes(activeFile)) {
     activeFile = null;
     if (files.length) {
@@ -4222,25 +4226,29 @@ async function _toggleFolderDisabled(name, disable) {
     setStatus('That folder already exists', 4000, 'err');
     return;
   }
-  try {
-    const res = await apiFetch(disable ? '/folder/disable' : '/folder/enable', {
-      method: 'POST',
-      body: JSON.stringify({ folder: name }),
-    });
-    if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      setStatus((disable ? 'Disable' : 'Enable') + ' failed: ' + (data.error || res.status), 4000, 'err');
+  const pending = pendingFolders.has(name);
+  if (!pending) {
+    try {
+      const res = await apiFetch(disable ? '/folder/disable' : '/folder/enable', {
+        method: 'POST',
+        body: JSON.stringify({ folder: name }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setStatus((disable ? 'Disable' : 'Enable') + ' failed: ' + (data.error || res.status), 4000, 'err');
+        return;
+      }
+    } catch (e) {
+      setStatus((disable ? 'Disable' : 'Enable') + ' failed: ' + e.message, 4000, 'err');
       return;
     }
-  } catch (e) {
-    setStatus((disable ? 'Disable' : 'Enable') + ' failed: ' + e.message, 4000, 'err');
-    return;
   }
 
   const prefix = name + '/';
   const remap = n => (n === name ? target : (n.startsWith(prefix) ? target + n.slice(name.length) : n));
   files = files.map(remap).sort();
   folders = folders.map(remap).sort();
+  if (pending) { pendingFolders.delete(name); pendingFolders.add(target); }
   [fileConfigs, fileSaved, fileHistories].forEach(store => {
     Object.keys(store).forEach(k => {
       if (k === name || k.startsWith(prefix)) {
@@ -4322,10 +4330,26 @@ async function updateAutocomplete() {
 }
 
 // Saves every dirty tab, not just the active one — a file with pending edits shouldn't lose
-// them just because Save was clicked while a different tab was open.
+// them just because Save was clicked while a different tab was open. Also creates any folder
+// made since the last save (see pendingFolders / createFolder()) — a still-empty new folder has
+// no file whose own save would create it as a side effect, so it needs its own /folder/create
+// call here; a folder that does get a file saved into it in this same batch has that call made
+// redundant by file/save's own os.makedirs, but it's harmless (folder/create is idempotent).
 async function saveToServer() {
   const dirty = Object.keys(fileConfigs).filter(f => JSON.stringify(fileConfigs[f]) !== fileSaved[f]);
-  if (!dirty.length) { setStatus('Nothing to save', 2000, 'ok'); return; }
+  const pending = Array.from(pendingFolders);
+  if (!dirty.length && !pending.length) { setStatus('Nothing to save', 2000, 'ok'); return; }
+
+  const folderResults = await Promise.allSettled(pending.map(async folder => {
+    const res = await apiFetch('/folder/create', { method: 'POST', body: JSON.stringify({ folder }) });
+    if (!res.ok) throw new Error(String(res.status));
+  }));
+  const failedFolders = [];
+  pending.forEach((folder, i) => {
+    if (folderResults[i].status === 'fulfilled') pendingFolders.delete(folder);
+    else failedFolders.push(folder);
+  });
+
   const results = await Promise.allSettled(dirty.map(async f => {
     const res = await apiFetch('/file/save?file=' + encodeURIComponent(f), {
       method: 'POST',
@@ -4336,11 +4360,19 @@ async function saveToServer() {
     fileConfigs[f] = fresh;
     fileSaved[f] = JSON.stringify(fresh);
     if (f === activeFile) config = fresh;
+    const slash = f.indexOf('/');
+    if (slash !== -1) pendingFolders.delete(f.slice(0, slash));
   }));
   const failed = dirty.filter((f, i) => results[i].status === 'rejected');
   renderAll();
-  if (failed.length) setStatus('Save failed for: ' + failed.join(', '), 6000, 'err');
-  else setStatus(`Saved ${dirty.length} file${dirty.length !== 1 ? 's' : ''}`, 2000, 'ok');
+  if (failed.length || failedFolders.length) {
+    setStatus('Save failed for: ' + [...failed, ...failedFolders].join(', '), 6000, 'err');
+  } else {
+    const parts = [];
+    if (dirty.length) parts.push(`${dirty.length} file${dirty.length !== 1 ? 's' : ''}`);
+    if (pending.length) parts.push(`${pending.length} folder${pending.length !== 1 ? 's' : ''}`);
+    setStatus('Saved ' + parts.join(' and '), 2000, 'ok');
+  }
 }
 
 // ── Backups ───────────────────────────────────────────────────────────────────
