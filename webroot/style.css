@@ -51,15 +51,26 @@ body {
 .btn-group .btn + .btn { border-left: none; }
 
 /* ── Tab bar (multi-file mode) ── */
-.tab-bar {
+/* .tab-bar-row carries the bar's own background/border — split out from #tab-bar so the
+   Flat-mode/Tree buttons (.tab-bar-actions) can sit in the same visual bar, at its right edge,
+   instead of getting a whole separate (near-empty, once the add-input is hidden) bar of their
+   own below it — see .topbar below. */
+.tab-bar-row {
   background: var(--bg2);
   border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: flex-start;
+  flex-shrink: 0;
+}
+.tab-bar {
+  flex: 1;
+  min-width: 0;
   padding: 8px 18px;
   display: flex;
   flex-direction: column;
   gap: 6px;
-  flex-shrink: 0;
 }
+.tab-bar-actions { display: flex; align-items: center; gap: 8px; padding: 8px 18px 8px 0; flex-shrink: 0; }
 .tab-row { display: flex; align-items: center; gap: 6px; overflow-x: auto; }
 .tab-folder-group { display: flex; flex-direction: column; gap: 3px; border-radius: var(--radius-sm); }
 .tab-folder-label {
@@ -135,20 +146,14 @@ body {
 /* ── Main ── */
 .main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
 
-.topbar {
-  background: var(--bg2);
-  border-bottom: 1px solid var(--border);
-  padding: 8px 14px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-shrink: 0;
-}
-/* The add-input/button live in the topbar in markup only so showAddOptionMenu() has a home to
-   detach them from and restore them to — right-click "Add option..."/"Add sub option..." (and
-   flat-mode header clicks) are the only way to open them now, via the floating panel below. */
+/* Only ever houses the always-hidden add-input/button below — a home for showAddOptionMenu() to
+   detach them from and restore them to (right-click "Add option..."/"Add sub option..." is the
+   only way to open them now, via the floating panel). display:contents so it generates no box
+   of its own — it used to render as a full visual bar with nothing in it but the Flat-mode/Tree
+   buttons over on the right (everything else inside it hidden by the rule below), which is why
+   those two buttons now live in .tab-bar-actions instead, alongside the tab bar. */
+.topbar { display: contents; }
 .topbar .autocomplete-wrap, .topbar #add-commit-btn { display: none; }
-.topbar-right { display: flex; align-items: center; gap: 8px; margin-left: auto; }
 
 /* ── Autocomplete ── */
 .autocomplete-wrap { position: relative; }

@@ -35,7 +35,13 @@ const _DEFAULT_THEME = '%%EZCONF_THEME%%';
   </div>
 </div>
 
-<div class="tab-bar" id="tab-bar"></div>
+<div class="tab-bar-row">
+  <div class="tab-bar" id="tab-bar"></div>
+  <div class="tab-bar-actions">
+    <button class="btn" id="flat-mode-btn" onclick="toggleFlatMode()" title="Toggle flat / nested view">≡</button>
+    <button class="btn" id="tree-toggle-btn" onclick="toggleTree()" title="Show/hide the configuration tree">Tree</button>
+  </div>
+</div>
 
 <div class="topbar">
   <div class="autocomplete-wrap">
@@ -43,10 +49,6 @@ const _DEFAULT_THEME = '%%EZCONF_THEME%%';
     <div class="autocomplete-list hidden" id="add-ac-list"></div>
   </div>
   <button class="btn" id="add-commit-btn" onclick="doAdd()">Add</button>
-  <div class="topbar-right">
-    <button class="btn" id="flat-mode-btn" onclick="toggleFlatMode()" title="Toggle flat / nested view">≡</button>
-    <button class="btn" id="tree-toggle-btn" onclick="toggleTree()" title="Show/hide the configuration tree">Tree</button>
-  </div>
 </div>
 <div class="force-type-bar hidden" id="force-type-bar">
   <span class="force-type-label">Pick type to force add:</span>
@@ -3587,7 +3589,7 @@ function setTerminalSize(size) {
   const panel = document.getElementById('terminal-panel');
   let h;
   if (size === 'full') {
-    const taken = ['.header', '.tab-bar', '.topbar', '.force-type-bar', '.statusbar']
+    const taken = ['.header', '.tab-bar-row', '.force-type-bar', '.statusbar']
       .reduce((sum, sel) => {
         const el = document.querySelector(sel);
         return sum + (el && !el.classList.contains('hidden') ? el.offsetHeight : 0);
