@@ -43,7 +43,7 @@ let
     ""
     "[ports]"
     "web = ${toString cfg.ports.web}"
-    (map (btn: "\n[[buttons]]\nlabel = ${str btn.label}\ncommand = ${str btn.command}${lib.optionalString btn.save_first "\nsave_first = true"}${lib.optionalString (!btn.always_show) "\nalways_show = false"}") cfg.buttons)
+    (map (btn: "\n[[buttons]]\nlabel = ${str btn.label}\ncommand = ${str btn.command}${lib.optionalString btn.save_first "\nsave_first = true"}${lib.optionalString (!btn.always_show) "\nalways_show = false"}${lib.optionalString btn.clear_first "\nclear_first = true"}") cfg.buttons)
   ]));
 
 in
@@ -221,6 +221,7 @@ in
           command     = lib.mkOption { type = lib.types.str;  description = "Shell command to run in the terminal."; };
           save_first  = lib.mkOption { type = lib.types.bool; default = false; description = "Disable the button while there are unsaved changes."; };
           always_show = lib.mkOption { type = lib.types.bool; default = true;  description = "Show this button regardless of which config file (tab) is active. Set to false to only show it while its own defining file is the active tab."; };
+          clear_first = lib.mkOption { type = lib.types.bool; default = false; description = "Clear the terminal before running this button's command."; };
         };
       });
       default     = [];

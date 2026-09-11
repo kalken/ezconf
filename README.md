@@ -189,6 +189,8 @@ services.ezconf = {
 
 If you're editing multiple config files (tabs), buttons show up regardless of which tab is active by default. Set `always_show = false` on a button to only show it while its own defining file is the active tab — handy for a shortcut that only makes sense in the context of one specific file.
 
+By default a button runs its command in whatever's already in the terminal. Set `clear_first = true` to clear the screen (and scroll back) right before it runs.
+
 ## 🔒 HTTPS
 
 HTTPS is enabled by default. When no `cert` or `key` are provided a local CA and certificate are generated automatically in `/var/lib/ezconf/`. With `installCerts = true` (the default) the CA is installed into `~/.pki/nssdb` for each user in `auth.allowedUsers` so browsers trust it without a warning.

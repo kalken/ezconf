@@ -4280,9 +4280,12 @@ function runButton(idx) {
   initTerminal().then(() => {
     if (!_term) return;
     const send = () => {
-      if (_termWs) _termWs.send('\x15');
-      if (_term) _term.clear();
-      if (_termWs) _termWs.send('clear\r' + btn.command + '\r');
+      if (_termWs) _termWs.send('\x15'); // clear whatever's half-typed at the prompt, always
+      if (btn.clear_first) {
+        if (_term) _term.clear();
+        if (_termWs) _termWs.send('clear\r');
+      }
+      if (_termWs) _termWs.send(btn.command + '\r');
     };
     const sendOnReady = () => {
       const origMsg = _termWs.onmessage;

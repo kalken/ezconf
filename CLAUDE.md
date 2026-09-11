@@ -218,7 +218,7 @@ Key options:
 - `ports.web` / `ports.terminal` — service ports (defaults `9090` / `9091`)
 - `configDir` — directory for the `*.json` tabs plus `default.nix` (default `/etc/nixos/ezconf`); `services.ezconf.file` is set to this directory — a fresh install starts with **zero** tabs (`configDir` is deliberately not seeded with a file; see below)
 - `defaultFile` — file (relative to `configDir`) preferred as the initially-selected tab when a browser has no prior choice remembered (default `configuration.json`); a hint only — nothing creates this file automatically
-- `buttons` — list of `{label, command, save_first, always_show}` shortcuts shown in the terminal panel; `always_show` (default `true`) controls whether a button set in one tab's config also shows while other tabs are active; `save_first` disables the button while *any* tab has unsaved changes, not just the active one (Save persists every dirty tab, not just the active one)
+- `buttons` — list of `{label, command, save_first, always_show, clear_first}` shortcuts shown in the terminal panel; `always_show` (default `true`) controls whether a button set in one tab's config also shows while other tabs are active; `save_first` disables the button while *any* tab has unsaved changes, not just the active one (Save persists every dirty tab, not just the active one); `clear_first` (default `false`) clears the terminal screen right before the command runs
 
 The activation script creates `configDir` (with `default.nix`, but no seeded `*.json` file — see below), generates certs if needed, and installs the CA into allowed users' NSS databases. The `preStart` script generates autocomplete data on first run, creates the session key, and writes the runtime TOML to `/run/ezconf/ezconf.toml`.
 
