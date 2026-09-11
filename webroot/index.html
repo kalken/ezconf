@@ -2985,8 +2985,9 @@ let _restartDetected = false;
 // the reload, the moment the user gets back to a clean state. A 401 always means reload — that's
 // _SESSION_KEY changing too (no --session-key-file to persist it across the restart), so the old
 // cookie won't work here again regardless of what else did or didn't change.
-let _lastSeenBootId = BOOT_ID;
+let _lastSeenBootId = null; // set to BOOT_ID once it's actually declared — see initRestartWatcher()
 function initRestartWatcher() {
+  _lastSeenBootId = BOOT_ID;
   async function check() {
     if (_restartDetected) return;
     let res;
