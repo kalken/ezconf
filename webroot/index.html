@@ -918,13 +918,6 @@ function optionSearch(query) {
   for (const o of options) {
     const op = o.path.split('.');
     if (!o.custom && op.some(isInternalSegment)) continue;
-    // "*" marks a list-of-submodule element (e.g. forwardPorts.*.host) — unlike <name>/<n>,
-    // there's no name to type in its place; you add an item to the array instead (see
-    // blankObjectFromOptions/renderArrayField's addItem, which still look these entries up
-    // directly, unaffected by this filter). Offering it here as a path to type/select would
-    // suggest something like "forwardPorts.*.host" is itself a valid addable option, which it
-    // isn't — selecting it would set a literal "*" key.
-    if (op.includes('*')) continue;
     if (op.length < confirmed.length + 1) continue;
 
     // Confirmed segments must match exactly (wildcards in option path match anything)
@@ -936,7 +929,14 @@ function optionSearch(query) {
     }
     if (!ok) continue;
 
-    // Next segment must start with the partial (wildcards always pass when partial is non-empty)
+    // Next segment must start with the partial (wildcards always pass when partial is non-empty).
+    // This is also what keeps a "*" (list-of-submodule element, e.g. forwardPorts.*.host — no
+    // name to type in its place, unlike <name>/<n>) from ever being suggested as a literal,
+    // unresolved character: with nothing typed yet for that segment it's skipped here (matching
+    // getWildcardBoundary(), which likewise offers no "type it and continue" hint for "*"); once
+    // the user *has* typed something there — same as any <name> position — displayParts below
+    // substitutes what they typed in its place, so deeper fields (e.g. under an already-typed
+    // array index like buttons.0) are still reachable by continuing to type past it.
     const nextSeg = op[confirmed.length];
     const isWild = WILDCARDS.has(nextSeg);
     if (!isWild && !nextSeg.toLowerCase().startsWith(partial)) continue;
