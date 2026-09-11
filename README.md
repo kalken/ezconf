@@ -119,19 +119,19 @@ Right-click any option or section for **Rename**, which swaps its key for an inl
 
 ## 📦 Export / Import
 
-Every file, folder, and the tab bar itself has an **Export** action on its right-click menu:
+A single file tab or a folder each has an **Export** action on its right-click menu, downloading that file as a plain `.json` or that folder's files together as a `.zip`. Exports include whatever's currently in the editor, unsaved changes included.
 
-- A single file tab → **Export** downloads that file as a plain `.json`.
-- A folder → **Export** downloads all of its files together as a `.zip`.
-- Blank tab-bar space, or the **⬆ Export all** button in the header → downloads every file (across every folder) as one `.zip`.
+The header's **⬆ Export** button is a dropdown with two broader options:
 
-Exports include whatever's currently in the editor, unsaved changes included.
+- **Export all** — every file across every folder, as one `.zip`.
+- **Export system** — a `.zip` of the *entire* NixOS config tree (`nixos_target`, default `/etc/nixos`), not just what's open in the editor: flake.nix, flake.lock, hardware-configuration.nix, and everything else alongside ezconf's own files. This one comes straight from disk on the server, so it always reflects what's actually saved there, not any unsaved edits. Dotfiles/dotdirs (`.git`, `.ssh`, age/sops keys, etc.) and symlinks (`nix build`'s `result`/`result-*`, which point into `/nix/store`) are always excluded.
 
-Right-click blank tab-bar space and choose **Export system** for something broader: a `.zip` of the *entire* NixOS config tree (`nixos_target`, default `/etc/nixos`) — flake.nix, flake.lock, hardware-configuration.nix, and everything else alongside ezconf's own files, not just what's open in the editor. This one comes straight from disk on the server, so it always reflects what's actually saved there, not any unsaved edits. Dotfiles/dotdirs (`.git`, `.ssh`, age/sops keys, etc.) and symlinks (`nix build`'s `result`/`result-*`, which point into `/nix/store`) are always excluded.
+To import, just drag `.json` file(s), a whole folder, or a `.zip` (your own export, or one built by another tool) onto the window and drop it. Each file is loaded straight into the editor as an unsaved, dirty tab — nothing touches disk until you hit **Save** — so importing is always safe to undo by just not saving. Dropping a file with the same name as an existing tab replaces that tab's in-editor content (again, only once saved).
 
-To import, just drag `.json` file(s), a whole folder, or a `.zip` (your own export, or one built by another tool) onto the window and drop it. Each file is loaded straight into the editor as an unsaved, dirty tab — nothing touches disk until you hit **Save** — so importing is always safe to undo by just not saving. Dropping a file with the same name as an existing tab replaces that tab's in-editor content (again, only once saved). No drag-and-drop handy? The **⬇ Import** button's **⬆ Load file** picker takes a `.zip` too, imported the same way — it's otherwise for pasting/loading a single Nix or JSON snippet to merge into one file.
+No drag-and-drop handy? The header's **⬇ Import** button is a dropdown too, mirroring **⬆ Export**:
 
-**Import system** (same right-click menu as Export system) is the exception to all of that: pick a `.zip` and it's written straight to `nixos_target` on disk immediately — there's no editor staging step for it to defer to, since these aren't ezconf's own tabs. You'll get one confirmation prompt before anything happens, and it's the only one left anywhere in the app. Existing files with the same name are overwritten; anything not in the zip is left alone (nothing is deleted), and dotfiles/dotdirs are skipped on the way in too — this can't restore secrets an export never captured in the first place.
+- **Import** — the "Load file" picker (or paste box) for a single Nix/JSON snippet to merge into one file; it also takes a `.zip`, imported the same way a drop does.
+- **Import system** — the exception to all of the above: pick a `.zip` and it's written straight to `nixos_target` on disk immediately — there's no editor staging step for it to defer to, since these aren't ezconf's own tabs. You'll get one confirmation prompt before anything happens, and it's the only one left anywhere in the app. Existing files with the same name are overwritten; anything not in the zip is left alone (nothing is deleted), and dotfiles/dotdirs are skipped on the way in too — this can't restore secrets an export never captured in the first place.
 
 ## 🔐 Authentication
 

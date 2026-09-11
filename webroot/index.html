@@ -29,8 +29,8 @@ const _DEFAULT_THEME = '%%EZCONF_THEME%%';
   <div class="header-actions">
     <input type="file" id="import-file-input" accept=".json,.nix,.zip" style="display:none">
     <input type="file" id="system-import-input" accept=".zip" style="display:none">
-    <button class="btn" onclick="showImportModal()">⬇ Import</button>
-    <button class="btn" onclick="exportAll()">⬆ Export all</button>
+    <button class="btn" onclick="showImportMenu(event)">⬇ Import</button>
+    <button class="btn" onclick="showExportMenu(event)">⬆ Export</button>
     <button class="btn" id="save-btn" onclick="saveToServer()">⬇ Save</button>
     <button class="btn" onclick="location.href='/logout'" title="Log out">⏻</button>
   </div>
@@ -3330,10 +3330,11 @@ async function readZip(blob) {
 }
 
 // ── Export / Import (many files) ─────────────────────────────────────────────────
-// "Export" (tab/folder right-click) and the header's "⬆ Export all" button package the current
-// in-memory state of one or more files — including unsaved edits — into a download (a plain
-// .json for a single file, a .zip for a folder or everything). Dropping that zip (or a loose
-// selection of .json files, or a whole folder) back onto the window imports it the same way a
+// "Export" (tab/folder right-click) and "Export all" (the header's "⬆ Export" dropdown, see
+// showExportMenu()) package the current in-memory state of one or more files — including
+// unsaved edits — into a download (a plain .json for a single file, a .zip for a folder or
+// everything). Dropping that zip (or a loose selection of .json files, or a whole folder) back
+// onto the window imports it the same way a
 // backup is loaded: straight into fileConfigs as an unsaved edit, nothing touches disk until
 // Save.
 function _exportableConfig(cfg) {
@@ -3376,6 +3377,21 @@ function exportSystem() {
   location.href = API_BASE + '/system-export';
 }
 
+// The header's "⬆ Export" button opens a dropdown rather than doing anything itself — same
+// left-click-reuses-showContextMenu trick as showBackupsMenu(), anchored to the button's own
+// bottom-left corner instead of the real click position.
+function showExportMenu(event) {
+  const rect = event.currentTarget.getBoundingClientRect();
+  const anchor = {
+    clientX: rect.left, clientY: rect.bottom + 4,
+    preventDefault: () => event.preventDefault(), stopPropagation: () => event.stopPropagation(),
+  };
+  showContextMenu(anchor, [
+    { label: 'Export all', onclick: () => exportAll() },
+    { label: 'Export system (' + NIXOS_TARGET + ')', onclick: () => exportSystem() },
+  ]);
+}
+
 // The counterpart to exportSystem(): writes a zip straight into NIXOS_TARGET on disk,
 // immediately, via POST /api/v1/system-import — unlike every other import path in this app,
 // there's no in-memory model for arbitrary system files to stage as "unsaved," so this can't be
@@ -3383,6 +3399,20 @@ function exportSystem() {
 // exactly that reason: this is the one import that's actually irreversible through ezconf itself.
 function importSystem() {
   document.getElementById('system-import-input').click();
+}
+
+// The header's "⬇ Import" button opens a dropdown too, same as "⬆ Export" (showExportMenu()) —
+// "Import" is the existing paste/load-a-file-to-merge modal (showImportModal()), unchanged.
+function showImportMenu(event) {
+  const rect = event.currentTarget.getBoundingClientRect();
+  const anchor = {
+    clientX: rect.left, clientY: rect.bottom + 4,
+    preventDefault: () => event.preventDefault(), stopPropagation: () => event.stopPropagation(),
+  };
+  showContextMenu(anchor, [
+    { label: 'Import', onclick: () => showImportModal() },
+    { label: 'Import system…', onclick: () => importSystem() },
+  ]);
 }
 
 function initSystemImportButton() {
@@ -4062,10 +4092,6 @@ function renderFileSelector() {
     showContextMenu(e, [
       { label: 'New file', onclick: () => createFile() },
       { label: 'New folder', onclick: () => createFolder() },
-      { separator: true },
-      { label: 'Export all', onclick: () => exportAll() },
-      { label: 'Export system (' + NIXOS_TARGET + ')', onclick: () => exportSystem() },
-      { label: 'Import system…', onclick: () => importSystem() },
     ]);
   };
 }
