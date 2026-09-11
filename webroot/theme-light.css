@@ -23,7 +23,6 @@
   /* ── Borders ── */
   --border:  #d0d0d0;
   --border2: #b8b8b8;
-  --border3: #e0e0e0;
   --input-border: #b8b8b8;
   --select-option-bg:    #ffffff;
   --select-option-color: #1a1a1a;
@@ -34,7 +33,6 @@
   --btn-primary-border: #1d4ed8;
   --btn-primary-hover:  #3b82f6;
   --btn-primary-text:   #ffffff;
-  --btn-active-bg:      #d8d8d8;
   --btn-active-border:  #aaaaaa;
 
   /* ── Selection / highlight ── */
@@ -47,7 +45,6 @@
   --error-bg:      #fce8e8;
 
   /* ── Nix expression fields ── */
-  --expr-bg:     #e8e8e8;
   --expr-border: #c8c8c8;
 
   /* ── Editor fields ── */

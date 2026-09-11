@@ -3718,10 +3718,11 @@ function _tabLabel(name) {
   return base;
 }
 
-// A file is disabled either directly (its own name ends in ".json.disabled", see
-// /api/v1/file/disable) or because it lives inside a disabled folder (a ".name.disabled"
-// path segment, see /api/v1/folder/disable) — either way json2nix.nix's Nix-eval merge skips
-// it, so the UI dims/strikes it the same way isDisabled() dims a single disabled option.
+// A file is disabled either directly (its own name ends in ".json.disabled" — a plain
+// /api/v1/file/rename to that name, see _toggleFileDisabled()) or because it lives inside a
+// disabled folder (a ".name.disabled" path segment, see /api/v1/folder/disable) — either way
+// json2nix.nix's Nix-eval merge skips it, so the UI dims/strikes it the same way isDisabled()
+// dims a single disabled option.
 function _isDisabledFolderSegment(seg) { return seg.startsWith('.') && seg.endsWith('.disabled'); }
 function _isFileDisabled(name) {
   return name.endsWith('.json.disabled') || name.split('/').slice(0, -1).some(_isDisabledFolderSegment);
@@ -4179,14 +4180,15 @@ async function _relocateFile(oldName, newName) {
   return true;
 }
 
-// Toggles a single file's disabled state — same rename-based trick as _relocateFile (server
-// side, /api/v1/file/disable|enable is just an os.rename that appends/strips ".disabled"), so
-// json2nix.nix's *.json glob picks the file back up (or drops it) without touching its content.
-// Queued via the exact same 'rename-file' op _relocateFile uses (the dedicated disable/enable
-// endpoints are just a convenience over the same os.rename primitive, so a plain rename replays
-// identically) — deferred until Save like every other filesystem-affecting action here. A file
-// with pending edits but never saved (absent from fileSaved) has nothing on disk to rename yet,
-// so this only updates the in-memory key, mirroring _relocateFile's own existsOnDisk check.
+// Toggles a single file's disabled state — same rename-based trick as _relocateFile (appending/
+// stripping ".disabled" is just a plain os.rename server-side, same as any other file rename),
+// so json2nix.nix's *.json glob picks the file back up (or drops it) without touching its
+// content. Queued via the exact same 'rename-file' op _relocateFile uses, replayed through
+// POST /api/v1/file/rename — there's no dedicated file/disable|enable endpoint, since a plain
+// rename already covers it — deferred until Save like every other filesystem-affecting action
+// here. A file with pending edits but never saved (absent from fileSaved) has nothing on disk to
+// rename yet, so this only updates the in-memory key, mirroring _relocateFile's own existsOnDisk
+// check.
 async function _toggleFileDisabled(name, disable) {
   const newName = disable ? name + '.disabled' : name.slice(0, -'.disabled'.length);
   if (files.includes(newName)) { setStatus('That file already exists', 4000, 'err'); return; }

@@ -23,7 +23,6 @@
   /* ── Borders ── */
   --border:  #141c2c;  /* structural dividers */
   --border2: #1e2a3e;  /* element outlines */
-  --border3: #0d1e35;  /* subtle input border */
   --input-border: #172030;       /* input field border */
   --select-option-bg:    #0d1a2e; /* dropdown background */
   --select-option-color: #dce6f4; /* dropdown option text */
@@ -34,7 +33,6 @@
   --btn-primary-border: #2858b0;
   --btn-primary-hover:  #1e4888;
   --btn-primary-text:   #4a9edd;
-  --btn-active-bg:      #0e2818;
   --btn-active-border:  #1a4828;
 
   /* ── Selection / highlight ── */
@@ -47,7 +45,6 @@
   --error-bg:      #220808;
 
   /* ── Nix expression fields ── */
-  --expr-bg:     #0c1e0c;
   --expr-border: #162a16;
 
   /* ── Editor fields ── */

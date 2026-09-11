@@ -9,10 +9,9 @@ ezconf server — single listener bound to 127.0.0.1:
     GET  /api/v1/backup/content   serves a backup file's raw JSON content
     POST /api/v1/file/delete      deletes a whole config file (zero files afterward is fine)
     POST /api/v1/file/rename      renames/moves a config file (same op — moving between
-                                   subfolders is just a path change)
-    POST /api/v1/file/disable     disables a config file (renamed to NAME.json.disabled, so
-                                   json2nix.nix's *.json glob skips it)
-    POST /api/v1/file/enable      re-enables a config file disabled via file/disable
+                                   subfolders is just a path change; also how a file is
+                                   disabled/re-enabled, by renaming to/from NAME.json.disabled —
+                                   there's no dedicated file/disable|enable endpoint)
     POST /api/v1/folder/create    creates an (initially empty) subfolder under CONFIG_DIR
     POST /api/v1/folder/delete    deletes a subfolder and everything in it
     POST /api/v1/folder/disable   disables a whole subfolder (renamed to .NAME.disabled, so
@@ -389,8 +388,8 @@ def resolve_config_path(name):
     construction (an authenticated user here already has full terminal access to the machine,
     so this is a correctness guard against typos, not a security boundary).
 
-    A name ending in ".json.disabled" (a file disabled via /api/v1/file/disable — see
-    list_config_files()) resolves just like its ".json" counterpart, since disabling only
+    A name ending in ".json.disabled" (a file disabled by renaming it via /api/v1/file/rename —
+    see list_config_files()) resolves just like its ".json" counterpart, since disabling only
     renames the file; its content is still read/saved the same way.
     """
     name = name or DEFAULT_FILE
@@ -415,7 +414,7 @@ def list_config_files():
     inside CONFIG_DIR) so backup files never show up as tabs — except a disabled folder
     (_is_disabled_folder_name()), which is still walked so its files keep showing up (as
     disabled tabs) in the UI even though json2nix.nix skips it at eval time. Also includes
-    *.json.disabled files (individually disabled tabs, see /api/v1/file/disable) alongside
+    *.json.disabled files (individually disabled tabs, see /api/v1/file/rename) alongside
     their *.json siblings.
     """
     base = os.path.realpath(CONFIG_DIR)
@@ -620,71 +619,6 @@ class StaticHandler(http.server.SimpleHTTPRequestHandler):
                 self.send_header('Content-Type', 'application/json')
                 self.end_headers()
                 self.wfile.write(b'{"ok":true}')
-            except Exception as e:
-                self.send_error(500, str(e))
-        elif parsed.path == '/api/v1/file/disable':
-            try:
-                length = int(self.headers.get('Content-Length', 0))
-                body = json.loads(self.rfile.read(length))
-                src = resolve_config_path(body.get('file', ''))
-                if not src or not os.path.isfile(src) or src.endswith('.disabled'):
-                    resp = b'{"error":"invalid file name"}'
-                    self.send_response(400)
-                    self.send_header('Content-Type', 'application/json')
-                    self.send_header('Content-Length', str(len(resp)))
-                    self.end_headers()
-                    self.wfile.write(resp)
-                    return
-                dst = src + '.disabled'
-                if os.path.exists(dst):
-                    resp = b'{"error":"a disabled version already exists"}'
-                    self.send_response(400)
-                    self.send_header('Content-Type', 'application/json')
-                    self.send_header('Content-Length', str(len(resp)))
-                    self.end_headers()
-                    self.wfile.write(resp)
-                    return
-                os.rename(src, dst)
-                rel = os.path.relpath(dst, os.path.realpath(CONFIG_DIR)).replace(os.sep, '/')
-                resp = json.dumps({'ok': True, 'file': rel}).encode()
-                self.send_response(200)
-                self.send_header('Content-Type', 'application/json')
-                self.send_header('Content-Length', str(len(resp)))
-                self.end_headers()
-                self.wfile.write(resp)
-            except Exception as e:
-                self.send_error(500, str(e))
-        elif parsed.path == '/api/v1/file/enable':
-            try:
-                length = int(self.headers.get('Content-Length', 0))
-                body = json.loads(self.rfile.read(length))
-                name = body.get('file', '')
-                src = resolve_config_path(name)
-                if not src or not os.path.isfile(src) or not name.endswith('.json.disabled'):
-                    resp = b'{"error":"invalid file name"}'
-                    self.send_response(400)
-                    self.send_header('Content-Type', 'application/json')
-                    self.send_header('Content-Length', str(len(resp)))
-                    self.end_headers()
-                    self.wfile.write(resp)
-                    return
-                dst = src[:-len('.disabled')]
-                if os.path.exists(dst):
-                    resp = b'{"error":"a file already exists at the destination"}'
-                    self.send_response(400)
-                    self.send_header('Content-Type', 'application/json')
-                    self.send_header('Content-Length', str(len(resp)))
-                    self.end_headers()
-                    self.wfile.write(resp)
-                    return
-                os.rename(src, dst)
-                rel = os.path.relpath(dst, os.path.realpath(CONFIG_DIR)).replace(os.sep, '/')
-                resp = json.dumps({'ok': True, 'file': rel}).encode()
-                self.send_response(200)
-                self.send_header('Content-Type', 'application/json')
-                self.send_header('Content-Length', str(len(resp)))
-                self.end_headers()
-                self.wfile.write(resp)
             except Exception as e:
                 self.send_error(500, str(e))
         elif parsed.path == '/api/v1/folder/create':
