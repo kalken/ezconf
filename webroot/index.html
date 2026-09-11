@@ -175,7 +175,15 @@ let options = [];
 let customOptions = [];
 let files = [];
 let folders = []; // CONFIG_DIR-relative folder paths, including ones with no files in them yet
-let pendingFolders = new Set(); // folders created client-side that don't exist on disk yet — created on Save
+let folderExists = new Set(); // folder names confirmed to exist on disk (or optimistically about
+  // to, once a still-queued pendingFsOps entry for them replays) — lets delete/disable/enable
+  // tell a real on-disk folder apart from one that's purely implied by an unsaved file's path
+let pendingFsOps = []; // ordered queue of {type,...} filesystem operations (create/delete/rename
+  // a file or folder, disable/enable a folder) deferred until Save — see saveToServer(). Recorded
+  // in the exact order the user performed them and replayed in that same order, which is what
+  // makes a chain (e.g. rename A→B, then B→C, all before ever saving) replay correctly with no
+  // extra bookkeeping: each op is just "what would have been sent to the server right then,"
+  // and sequential replay reproduces the same end state a series of immediate calls would have.
 let activeFile = null;
 let fileConfigs = {}; // filename -> live (possibly edited) config object; config === fileConfigs[activeFile]
 let fileSaved = {};   // filename -> JSON string snapshot of the last-saved-to-disk state
@@ -2867,7 +2875,7 @@ function markSaved() {
 }
 
 function isAnyDirty() {
-  return pendingFolders.size > 0 || Object.keys(fileConfigs).some(f => JSON.stringify(fileConfigs[f]) !== fileSaved[f]);
+  return pendingFsOps.length > 0 || Object.keys(fileConfigs).some(f => JSON.stringify(fileConfigs[f]) !== fileSaved[f]);
 }
 
 function _updateDirty() {
@@ -3853,8 +3861,9 @@ function _startFolderRename(name) {
   let done = false;
   // A folder reaching this rename flow only ever comes from createFolder() (see its lone call
   // site), so it's always still pending — there's no on-disk folder to touch here, just the
-  // in-memory placeholder name. The actual /api/v1/folder/create call happens at Save time
-  // (see saveToServer()), same as a new file only reaches disk once it's saved.
+  // in-memory placeholder name. The actual /api/v1/folder/create call is queued in pendingFsOps
+  // and only replayed at Save time (see saveToServer()), same as a new file only reaches disk
+  // once it's saved.
   function commit() {
     if (done) return;
     done = true;
@@ -3864,15 +3873,14 @@ function _startFolderRename(name) {
       if (invalid) setStatus('Invalid folder name', 4000, 'err');
       else setStatus('That folder already exists', 4000, 'err');
       folders = folders.filter(f => f !== name);
-      pendingFolders.delete(name);
       renderFileSelector();
       return;
     }
     folders = folders.filter(f => f !== name);
     folders.push(raw);
     folders.sort();
-    pendingFolders.delete(name);
-    pendingFolders.add(raw);
+    pendingFsOps.push({ type: 'create-folder', folder: raw });
+    folderExists.add(raw);
     renderFileSelector();
     _updateDirty();
     setStatus('Folder "' + raw + '" will be created on Save', 2500, 'ok');
@@ -3881,7 +3889,6 @@ function _startFolderRename(name) {
     if (done) return;
     done = true;
     folders = folders.filter(f => f !== name);
-    pendingFolders.delete(name);
     renderFileSelector();
   }
   input.addEventListener('keydown', e => {
@@ -4019,26 +4026,18 @@ async function createFolder() {
   let name = 'new-folder', n = 1;
   while (folders.includes(name)) { name = `new-folder-${n}`; n++; }
   folders.push(name);
-  pendingFolders.add(name);
   renderFileSelector();
   _startFolderRename(name);
 }
 
+// Nothing here ever touches the server directly — a delete/rename/disable that targets
+// something already on disk is queued in pendingFsOps instead, and only replayed at Save time
+// (see saveToServer()). The file disappears from the tab bar immediately either way; deferring
+// only changes *when* the server actually loses it.
 async function deleteFile(name) {
-  if (!confirm(`Delete ${name}?\n\nThis does not create a backup and cannot be undone.`)) return;
+  if (!confirm(`Delete ${name}?\n\nThis does not create a backup. The deletion is applied on your next Save, and cannot be undone after that.`)) return;
   const existsOnDisk = Object.prototype.hasOwnProperty.call(fileSaved, name);
-  if (existsOnDisk) {
-    try {
-      const res = await apiFetch('/file/delete', {
-        method: 'POST',
-        body: JSON.stringify({ file: name }),
-      });
-      if (!res.ok) { setStatus('Delete failed (' + res.status + ')', 4000, 'err'); return; }
-    } catch (e) {
-      setStatus('Delete failed: ' + e.message, 4000, 'err');
-      return;
-    }
-  }
+  if (existsOnDisk) pendingFsOps.push({ type: 'delete-file', path: name });
   files = files.filter(f => f !== name);
   delete fileConfigs[name];
   delete fileSaved[name];
@@ -4060,7 +4059,7 @@ async function deleteFile(name) {
     renderButtons();
     _updateDirty();
   }
-  setStatus('Deleted ' + name, 2000, 'ok');
+  setStatus('Deleted ' + name + (existsOnDisk ? ' — Save to remove it from disk' : ''), 2500, 'ok');
 }
 
 // Deletes a folder and everything in it (files, never-saved or not, and any nested subfolders).
@@ -4070,22 +4069,20 @@ async function deleteFolder(name) {
   const prefix = name + '/';
   const filesInside = files.filter(f => f.startsWith(prefix));
   const msg = filesInside.length
-    ? `Delete folder "${name}" and its ${filesInside.length} file${filesInside.length === 1 ? '' : 's'}?\n\nThis does not create a backup and cannot be undone.`
+    ? `Delete folder "${name}" and its ${filesInside.length} file${filesInside.length === 1 ? '' : 's'}?\n\nThis does not create a backup. The deletion is applied on your next Save, and cannot be undone after that.`
     : `Delete empty folder "${name}"?`;
   if (!confirm(msg)) return;
-  if (!pendingFolders.has(name)) {
-    try {
-      const res = await apiFetch('/folder/delete', { method: 'POST', body: JSON.stringify({ folder: name }) });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        setStatus('Delete failed: ' + (data.error || res.status), 4000, 'err');
-        return;
-      }
-    } catch (e) {
-      setStatus('Delete failed: ' + e.message, 4000, 'err');
-      return;
-    }
+  let onDisk = false;
+  // A folder still waiting on its own create-folder op never reached disk — cancel that op
+  // outright rather than queueing a pointless create-then-delete round trip.
+  const pendingCreateIdx = pendingFsOps.findIndex(op => op.type === 'create-folder' && op.folder === name);
+  if (pendingCreateIdx !== -1) {
+    pendingFsOps.splice(pendingCreateIdx, 1);
+  } else if (folderExists.has(name)) {
+    onDisk = true;
+    pendingFsOps.push({ type: 'delete-folder', folder: name });
   }
+  folderExists.delete(name);
   filesInside.forEach(f => {
     delete fileConfigs[f];
     delete fileSaved[f];
@@ -4093,7 +4090,6 @@ async function deleteFolder(name) {
   });
   files = files.filter(f => !f.startsWith(prefix));
   folders = folders.filter(f => f !== name && !f.startsWith(prefix));
-  pendingFolders.delete(name);
   if (filesInside.includes(activeFile)) {
     activeFile = null;
     if (files.length) {
@@ -4109,34 +4105,18 @@ async function deleteFolder(name) {
     renderButtons();
     _updateDirty();
   }
-  setStatus('Deleted folder ' + name, 2000, 'ok');
+  setStatus('Deleted folder ' + name + (onDisk ? ' — Save to remove it from disk' : ''), 2500, 'ok');
 }
 
 // Core of both the inline rename (_startTabRename) and the drag-to-folder move (_makeTab) —
 // renaming and moving are the same operation server-side (os.rename), so one function covers
-// both. Re-renders (reverting any in-progress edit UI) on every path, success or failure.
+// both. A file already on disk gets its rename queued in pendingFsOps instead of sent right
+// away — see saveToServer(). Re-renders (reverting any in-progress edit UI) either way.
 async function _relocateFile(oldName, newName) {
   if (files.includes(newName)) { setStatus('That file already exists', 4000, 'err'); renderFileSelector(); return false; }
 
   const existsOnDisk = Object.prototype.hasOwnProperty.call(fileSaved, oldName);
-  if (existsOnDisk) {
-    try {
-      const res = await apiFetch('/file/rename', {
-        method: 'POST',
-        body: JSON.stringify({ from: oldName, to: newName }),
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        setStatus('Move failed: ' + (data.error || res.status), 4000, 'err');
-        renderFileSelector();
-        return false;
-      }
-    } catch (e) {
-      setStatus('Move failed: ' + e.message, 4000, 'err');
-      renderFileSelector();
-      return false;
-    }
-  }
+  if (existsOnDisk) pendingFsOps.push({ type: 'rename-file', from: oldName, to: newName });
 
   fileConfigs[newName] = fileConfigs[oldName];
   delete fileConfigs[oldName];
@@ -4158,37 +4138,25 @@ async function _relocateFile(oldName, newName) {
   }
   renderFileSelector();
   renderButtons();
-  setStatus('Moved to ' + newName, 2000, 'ok');
+  _updateDirty();
+  setStatus('Moved to ' + newName + (existsOnDisk ? ' — Save to apply on disk' : ''), 2500, 'ok');
   return true;
 }
 
 // Toggles a single file's disabled state — same rename-based trick as _relocateFile (server
 // side, /api/v1/file/disable|enable is just an os.rename that appends/strips ".disabled"), so
 // json2nix.nix's *.json glob picks the file back up (or drops it) without touching its content.
-// A file with pending edits but never saved (absent from fileSaved) has nothing on disk to
-// rename yet, so this only updates the in-memory key, mirroring _relocateFile's own
-// existsOnDisk check.
+// Queued via the exact same 'rename-file' op _relocateFile uses (the dedicated disable/enable
+// endpoints are just a convenience over the same os.rename primitive, so a plain rename replays
+// identically) — deferred until Save like every other filesystem-affecting action here. A file
+// with pending edits but never saved (absent from fileSaved) has nothing on disk to rename yet,
+// so this only updates the in-memory key, mirroring _relocateFile's own existsOnDisk check.
 async function _toggleFileDisabled(name, disable) {
   const newName = disable ? name + '.disabled' : name.slice(0, -'.disabled'.length);
   if (files.includes(newName)) { setStatus('That file already exists', 4000, 'err'); return; }
 
   const existsOnDisk = Object.prototype.hasOwnProperty.call(fileSaved, name);
-  if (existsOnDisk) {
-    try {
-      const res = await apiFetch(disable ? '/file/disable' : '/file/enable', {
-        method: 'POST',
-        body: JSON.stringify({ file: name }),
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        setStatus((disable ? 'Disable' : 'Enable') + ' failed: ' + (data.error || res.status), 4000, 'err');
-        return;
-      }
-    } catch (e) {
-      setStatus((disable ? 'Disable' : 'Enable') + ' failed: ' + e.message, 4000, 'err');
-      return;
-    }
-  }
+  if (existsOnDisk) pendingFsOps.push({ type: 'rename-file', from: name, to: newName });
 
   fileConfigs[newName] = fileConfigs[name];
   delete fileConfigs[name];
@@ -4210,7 +4178,8 @@ async function _toggleFileDisabled(name, disable) {
   }
   renderFileSelector();
   renderButtons();
-  setStatus((disable ? 'Disabled ' : 'Enabled ') + newName, 2000, 'ok');
+  _updateDirty();
+  setStatus((disable ? 'Disabled ' : 'Enabled ') + newName + (existsOnDisk ? ' — Save to apply on disk' : ''), 2500, 'ok');
 }
 
 // Toggles a whole top-level folder's disabled state (the same scope "Delete folder" already
@@ -4218,7 +4187,9 @@ async function _toggleFileDisabled(name, disable) {
 // renderFileSelector()). Server side this is a single directory os.rename that adds/strips the
 // ".name.disabled" wrapper (see /api/v1/folder/disable|enable) — everything nested inside moves
 // with it "for free", so every file/folder key under this prefix (including the folder's own
-// entry in `folders`) is remapped client-side to match in one pass.
+// entry in `folders`) is remapped client-side to match in one pass. Deferred like everything
+// else here: queued in pendingFsOps when the folder is confirmed to exist on disk (folderExists),
+// and only actually replayed at Save time.
 async function _toggleFolderDisabled(name, disable) {
   const target = disable ? `.${name}.disabled` : _folderLabel(name);
   if (target === name) return;
@@ -4226,29 +4197,14 @@ async function _toggleFolderDisabled(name, disable) {
     setStatus('That folder already exists', 4000, 'err');
     return;
   }
-  const pending = pendingFolders.has(name);
-  if (!pending) {
-    try {
-      const res = await apiFetch(disable ? '/folder/disable' : '/folder/enable', {
-        method: 'POST',
-        body: JSON.stringify({ folder: name }),
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        setStatus((disable ? 'Disable' : 'Enable') + ' failed: ' + (data.error || res.status), 4000, 'err');
-        return;
-      }
-    } catch (e) {
-      setStatus((disable ? 'Disable' : 'Enable') + ' failed: ' + e.message, 4000, 'err');
-      return;
-    }
-  }
+  const onDisk = folderExists.has(name);
+  if (onDisk) pendingFsOps.push({ type: disable ? 'disable-folder' : 'enable-folder', folder: name });
 
   const prefix = name + '/';
   const remap = n => (n === name ? target : (n.startsWith(prefix) ? target + n.slice(name.length) : n));
   files = files.map(remap).sort();
   folders = folders.map(remap).sort();
-  if (pending) { pendingFolders.delete(name); pendingFolders.add(target); }
+  if (onDisk) { folderExists.delete(name); folderExists.add(target); }
   [fileConfigs, fileSaved, fileHistories].forEach(store => {
     Object.keys(store).forEach(k => {
       if (k === name || k.startsWith(prefix)) {
@@ -4265,7 +4221,8 @@ async function _toggleFolderDisabled(name, disable) {
   }
   renderFileSelector();
   renderButtons();
-  setStatus((disable ? 'Disabled folder ' : 'Enabled folder ') + target, 2000, 'ok');
+  _updateDirty();
+  setStatus((disable ? 'Disabled folder ' : 'Enabled folder ') + target + (onDisk ? ' — Save to apply on disk' : ''), 2500, 'ok');
 }
 
 function runButton(idx) {
@@ -4329,26 +4286,62 @@ async function updateAutocomplete() {
   }
 }
 
-// Saves every dirty tab, not just the active one — a file with pending edits shouldn't lose
-// them just because Save was clicked while a different tab was open. Also creates any folder
-// made since the last save (see pendingFolders / createFolder()) — a still-empty new folder has
-// no file whose own save would create it as a side effect, so it needs its own /folder/create
-// call here; a folder that does get a file saved into it in this same batch has that call made
-// redundant by file/save's own os.makedirs, but it's harmless (folder/create is idempotent).
+// Sends one queued pendingFsOps entry to its matching endpoint. 'rename-file' covers plain
+// moves as well as file disable/enable (the dedicated endpoints are just the same os.rename
+// primitive under the hood), since both _relocateFile and _toggleFileDisabled queue this shape.
+function _replayFsOp(op) {
+  switch (op.type) {
+    case 'create-folder': return apiFetch('/folder/create', { method: 'POST', body: JSON.stringify({ folder: op.folder }) });
+    case 'delete-file': return apiFetch('/file/delete', { method: 'POST', body: JSON.stringify({ file: op.path }) });
+    case 'delete-folder': return apiFetch('/folder/delete', { method: 'POST', body: JSON.stringify({ folder: op.folder }) });
+    case 'rename-file': return apiFetch('/file/rename', { method: 'POST', body: JSON.stringify({ from: op.from, to: op.to }) });
+    case 'disable-folder': return apiFetch('/folder/disable', { method: 'POST', body: JSON.stringify({ folder: op.folder }) });
+    case 'enable-folder': return apiFetch('/folder/enable', { method: 'POST', body: JSON.stringify({ folder: op.folder }) });
+  }
+}
+function _fsOpLabel(op) {
+  switch (op.type) {
+    case 'create-folder': return 'create folder ' + op.folder;
+    case 'delete-file': return 'delete ' + op.path;
+    case 'delete-folder': return 'delete folder ' + op.folder;
+    case 'rename-file': return 'rename ' + op.from + ' → ' + op.to;
+    case 'disable-folder': return 'disable folder ' + op.folder;
+    case 'enable-folder': return 'enable folder ' + op.folder;
+  }
+}
+
+// Saves every dirty tab, not just the active one — a file with pending edits shouldn't lose them
+// just because Save was clicked while a different tab was open. Before that, replays every
+// queued pendingFsOps entry (folder creates/deletes, file deletes/renames, folder disable/
+// enable — see deleteFile/deleteFolder/_relocateFile/_toggleFileDisabled/_toggleFolderDisabled)
+// strictly in the order they were queued, since later ops can depend on earlier ones having
+// already landed (e.g. a file renamed twice before ever saving, or moved into a folder that was
+// itself just created) — this is exactly what an *immediate* call would have done at each step,
+// just replayed all at once instead of as-you-go. Replay stops at the first failure and leaves
+// every op from that point on (including the failed one) queued for the next Save attempt,
+// rather than risk saving file content against a filesystem layout that didn't end up matching
+// what the client thinks it looks like.
 async function saveToServer() {
   const dirty = Object.keys(fileConfigs).filter(f => JSON.stringify(fileConfigs[f]) !== fileSaved[f]);
-  const pending = Array.from(pendingFolders);
-  if (!dirty.length && !pending.length) { setStatus('Nothing to save', 2000, 'ok'); return; }
+  if (!dirty.length && !pendingFsOps.length) { setStatus('Nothing to save', 2000, 'ok'); return; }
 
-  const folderResults = await Promise.allSettled(pending.map(async folder => {
-    const res = await apiFetch('/folder/create', { method: 'POST', body: JSON.stringify({ folder }) });
-    if (!res.ok) throw new Error(String(res.status));
-  }));
-  const failedFolders = [];
-  pending.forEach((folder, i) => {
-    if (folderResults[i].status === 'fulfilled') pendingFolders.delete(folder);
-    else failedFolders.push(folder);
-  });
+  let opsApplied = 0;
+  while (pendingFsOps.length) {
+    const op = pendingFsOps[0];
+    try {
+      const res = await _replayFsOp(op);
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setStatus(`Save failed (${_fsOpLabel(op)}): ` + (data.error || res.status), 6000, 'err');
+        return;
+      }
+    } catch (e) {
+      setStatus(`Save failed (${_fsOpLabel(op)}): ` + e.message, 6000, 'err');
+      return;
+    }
+    pendingFsOps.shift();
+    opsApplied++;
+  }
 
   const results = await Promise.allSettled(dirty.map(async f => {
     const res = await apiFetch('/file/save?file=' + encodeURIComponent(f), {
@@ -4361,16 +4354,16 @@ async function saveToServer() {
     fileSaved[f] = JSON.stringify(fresh);
     if (f === activeFile) config = fresh;
     const slash = f.indexOf('/');
-    if (slash !== -1) pendingFolders.delete(f.slice(0, slash));
+    if (slash !== -1) folderExists.add(f.slice(0, slash));
   }));
   const failed = dirty.filter((f, i) => results[i].status === 'rejected');
   renderAll();
-  if (failed.length || failedFolders.length) {
-    setStatus('Save failed for: ' + [...failed, ...failedFolders].join(', '), 6000, 'err');
+  if (failed.length) {
+    setStatus('Save failed for: ' + failed.join(', '), 6000, 'err');
   } else {
     const parts = [];
     if (dirty.length) parts.push(`${dirty.length} file${dirty.length !== 1 ? 's' : ''}`);
-    if (pending.length) parts.push(`${pending.length} folder${pending.length !== 1 ? 's' : ''}`);
+    if (opsApplied) parts.push(`${opsApplied} change${opsApplied !== 1 ? 's' : ''}`);
     setStatus('Saved ' + parts.join(' and '), 2000, 'ok');
   }
 }
@@ -4514,6 +4507,7 @@ async function loadSiblingFiles() {
       const data = await filesRes.json();
       files = data.files || [];
       folders = data.folders || [];
+      folderExists = new Set(folders);
       if (files.length) {
         const stored = localStorage.getItem('ezconf-active-file');
         activeFile = files.includes(stored) ? stored : (files.includes(data.default) ? data.default : files[0]);
