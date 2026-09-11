@@ -127,7 +127,7 @@ Every file, folder, and the tab bar itself has an **Export** action on its right
 
 Exports include whatever's currently in the editor, unsaved changes included.
 
-To import, just drag `.json` file(s), a whole folder, or a `.zip` (your own export, or one built by another tool) onto the window and drop it. Each file is loaded straight into the editor as an unsaved, dirty tab — nothing touches disk until you hit **Save** — so importing is always safe to undo by just not saving. Dropping a file with the same name as an existing tab replaces that tab's in-editor content (again, only once saved).
+To import, just drag `.json` file(s), a whole folder, or a `.zip` (your own export, or one built by another tool) onto the window and drop it. Each file is loaded straight into the editor as an unsaved, dirty tab — nothing touches disk until you hit **Save** — so importing is always safe to undo by just not saving. Dropping a file with the same name as an existing tab replaces that tab's in-editor content (again, only once saved). No drag-and-drop handy? The **⬇ Import** button's **⬆ Load file** picker takes a `.zip` too, imported the same way — it's otherwise for pasting/loading a single Nix or JSON snippet to merge into one file.
 
 ## 🔐 Authentication
 

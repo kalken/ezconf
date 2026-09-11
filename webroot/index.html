@@ -27,7 +27,7 @@ const _DEFAULT_THEME = '%%EZCONF_THEME%%';
     <button class="btn" onclick="clearConfig()" title="Clear all configuration">✕</button>
   </div>
   <div class="header-actions">
-    <input type="file" id="import-file-input" accept=".json,.nix" style="display:none">
+    <input type="file" id="import-file-input" accept=".json,.nix,.zip" style="display:none">
     <button class="btn" onclick="showImportModal()">⬇ Import</button>
     <button class="btn" onclick="exportAll()">⬆ Export all</button>
     <button class="btn" id="save-btn" onclick="saveToServer()">⬇ Save</button>
@@ -104,7 +104,7 @@ const _DEFAULT_THEME = '%%EZCONF_THEME%%';
   <div class="modal">
     <div class="modal-title-row">
       <h2>Import and merge configuration</h2>
-      <button class="btn" onclick="document.getElementById('import-file-input').click()" title="Load a .json or .nix file">⬆ Load file</button>
+      <button class="btn" onclick="document.getElementById('import-file-input').click()" title="Load a .json or .nix file to merge here, or a .zip of files to import directly (see Multiple Config Files)">⬆ Load file</button>
     </div>
     <div class="import-target-row">
       <label for="import-target-file">Import into</label>
@@ -3136,7 +3136,19 @@ function doImport() {
 function initLoadButton() {
   document.getElementById('import-file-input').addEventListener('change', e => {
     const file = e.target.files[0];
+    e.target.value = '';
     if (!file) return;
+    // A zip doesn't fit the textarea-then-merge-into-one-file flow below — it's a bundle of
+    // whole files with their own names, so it goes through the same bulk-import path a dropped
+    // zip does (see handleDroppedFiles/_importFiles) instead, closing this modal since there's
+    // nothing left for it to do.
+    if (/\.zip$/i.test(file.name)) {
+      closeImportModal();
+      readZip(file)
+        .then(entries => _importFiles(entries.filter(e => e.name.endsWith('.json') || e.name.endsWith('.json.disabled'))))
+        .catch(err => setStatus('Could not read ' + file.name + ': ' + err.message, 4000, 'err'));
+      return;
+    }
     const reader = new FileReader();
     reader.onload = ev => {
       const ta = document.getElementById('import-textarea');
@@ -3144,7 +3156,6 @@ function initLoadButton() {
       _validateImportInput(ta);
     };
     reader.readAsText(file);
-    e.target.value = '';
   });
 }
 
