@@ -63,7 +63,7 @@ After `nixos-rebuild switch` the editor is at `https://localhost:9090`. A local 
 
 ## 📑 Multiple Config Files
 
-Configuration doesn't have to live in one big `configuration.json` — split it across as many `*.json` files as you like, each one an independent tab in the header with its own save/undo/backup history. Files are only combined at Nix-eval time (via `lib.mkMerge`), the same as splitting a hand-written `configuration.nix` across modules: lists and attribute sets merge normally, and a scalar option set differently in two files is a plain Nix eval error, not something ezconf tries to resolve for you. Group files into folders for your own organization (e.g. `services/nginx.json`) — folders are just cosmetic grouping in the tab bar, not part of the Nix module structure.
+Configuration doesn't have to live in one big `configuration.json` — split it across as many `*.json` files as you like, each one an independent tab in the header with its own save/backup history (Undo/Redo is shared across every tab, not per-file — see below). Files are only combined at Nix-eval time (via `lib.mkMerge`), the same as splitting a hand-written `configuration.nix` across modules: lists and attribute sets merge normally, and a scalar option set differently in two files is a plain Nix eval error, not something ezconf tries to resolve for you. Group files into folders for your own organization (e.g. `services/nginx.json`) — folders are just cosmetic grouping in the tab bar, not part of the Nix module structure.
 
 There's no "+" button anywhere — file and folder management is entirely right-click:
 
@@ -77,6 +77,12 @@ There's no "+" button anywhere — file and folder management is entirely right-
 None of this touches disk until you hit **Save** — creating, deleting, renaming, moving, or disabling/enabling a file or folder all stay purely in the browser (the tab bar updates immediately) until then, applied to the actual `*.json` files in one batch when you save. Delete has no confirmation prompt for the same reason: it isn't real until Save applies it.
 
 A fresh install starts with zero files — the empty editor area explains how to create the first one, and the Import modal's "Import into" field can create a new file on the spot.
+
+## ↩️ Undo / Redo
+
+One shared undo/redo timeline covers everything, not just field edits — deleting, renaming, moving, or disabling/enabling a file or folder is exactly as undoable (↩ / ↪ in the header, or Ctrl+Z / Ctrl+Y) as changing a value.
+
+It survives reloading the page, too — including a hard/shift-reload. If nothing changed in `CONFIG_DIR` since you were last here (nobody else edited a file, nothing external touched it), your full undo/redo trail comes back, unsaved edits included: they won't reappear as live changes on their own, but a Redo brings them right back. If something *did* change underneath you, the old trail is discarded rather than resumed into a state that no longer matches reality — you just start fresh from whatever's actually on disk now.
 
 ## 🖥️ Standalone
 

@@ -2897,6 +2897,7 @@ function _pushHistory() {
     // Nothing but activeFile changed (a plain tab switch) — fold it into the existing entry so
     // a later undo lands wherever you actually were, without spending a whole undo step on it.
     globalHistory[globalHistoryIndex].activeFile = snap.activeFile;
+    _schedulePersistHistory();
     return;
   }
   globalHistory = globalHistory.slice(0, globalHistoryIndex + 1);
@@ -2904,6 +2905,54 @@ function _pushHistory() {
   globalHistory.push(snap);
   if (globalHistory.length > 100) globalHistory.shift();
   globalHistoryIndex = globalHistory.length - 1;
+  _schedulePersistHistory();
+}
+
+// Persisted to localStorage (debounced — every keystroke-driven edit runs through
+// _pushHistory(), and this is a potentially-large synchronous write) so undo/redo survives a
+// reload, restart-triggered or not — see _tryRestoreHistoryFromStorage(), which is what actually
+// decides whether a persisted stack is still safe to resume into on the next load.
+const _HISTORY_STORAGE_KEY = 'ezconf-history-v1';
+let _persistHistoryTimer = null;
+function _schedulePersistHistory() {
+  if (_persistHistoryTimer) clearTimeout(_persistHistoryTimer);
+  _persistHistoryTimer = setTimeout(() => {
+    _persistHistoryTimer = null;
+    try {
+      localStorage.setItem(_HISTORY_STORAGE_KEY, JSON.stringify({ history: globalHistory, index: globalHistoryIndex }));
+    } catch (e) {
+      // Quota exceeded, or storage unavailable (private browsing, etc.) — history just won't
+      // survive a reload this session; nothing else depends on this succeeding.
+    }
+  }, 400);
+}
+
+// Called once at startup, right after loadSiblingFiles() has populated files/fileConfigs/
+// fileSaved fresh from disk — searches a persisted stack (from a previous session, or from
+// right before this exact reload) for an entry whose content matches what's actually on disk
+// *right now*, newest first. A match means nothing changed underneath this stack since it was
+// last written — safe to resume into, redo-able edits included, even ones that were never
+// saved. No match (an external edit happened, someone else's session changed something, or this
+// is simply a different configDir) means the stack no longer describes a real lineage from here,
+// so it's discarded rather than resumed into a state that doesn't correspond to reality anymore.
+// A hard/shift-reload doesn't clear localStorage by itself, but it doesn't need to — the exact
+// same validation applies to it as to a plain reload.
+function _tryRestoreHistoryFromStorage() {
+  let raw;
+  try { raw = localStorage.getItem(_HISTORY_STORAGE_KEY); } catch (e) { return; }
+  if (!raw) return;
+  let saved;
+  try { saved = JSON.parse(raw); } catch (e) { return; }
+  if (!saved || !Array.isArray(saved.history) || !saved.history.length) return;
+  const freshKey = _snapshotCompareKey(_snapshotState());
+  for (let i = saved.history.length - 1; i >= 0; i--) {
+    if (saved.history[i]._key === freshKey) {
+      globalHistory = saved.history;
+      globalHistoryIndex = i;
+      _applySnapshot(saved.history[i]);
+      return;
+    }
+  }
 }
 
 // Marks the active file's current in-memory state as matching disk. Call this only right
@@ -2998,8 +3047,11 @@ async function reloadConfig() {
   }
 }
 
-function _restoreSnapshot(snap) {
-  _skipHistory = true;
+// Pure field assignment, no rendering and no history-guarding — the part _restoreSnapshot()
+// (undo/redo) and _tryRestoreHistoryFromStorage() (startup) both need, but the latter wants to
+// let the normal startup render happen on its own rather than triggering one of its own this
+// early in init().
+function _applySnapshot(snap) {
   files = snap.files.slice();
   folders = snap.folders.slice();
   fileConfigs = {};
@@ -3011,10 +3063,16 @@ function _restoreSnapshot(snap) {
   config = activeFile ? fileConfigs[activeFile] : {};
   if (activeFile) localStorage.setItem('ezconf-active-file', activeFile);
   else localStorage.removeItem('ezconf-active-file');
+}
+
+function _restoreSnapshot(snap) {
+  _skipHistory = true;
+  _applySnapshot(snap);
   renderFileSelector();
   renderAll();
   _skipHistory = false;
   _updateDirty();
+  _schedulePersistHistory();
 }
 
 // ── Render all ────────────────────────────────────────────────────────────────
@@ -4700,6 +4758,8 @@ async function loadSiblingFiles() {
   renderFileSelector();
   const ok = await loadSiblingFiles();
   if (!ok) return;
+  _tryRestoreHistoryFromStorage();
+  renderFileSelector();
   initAddPanel();
   initLoadButton();
   initSystemImportButton();
