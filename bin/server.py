@@ -2,8 +2,11 @@
 """
 ezconf server — single listener bound to 127.0.0.1:
   http(s)://localhost:9090  static files + API
-    GET  /api/v1/ping             {"boot_id": BOOT_ID} — polled by the frontend to notice a
-                                   restart (a 401 here means _SESSION_KEY changed too)
+    GET  /api/v1/ping             {"boot_id", "theme", "terminal_enabled", "mkoptions_enabled",
+                                   "backup_enabled", "nixos_target", "buttons"} — polled by the
+                                   frontend to notice a restart (a 401 here means _SESSION_KEY
+                                   changed too) and, if one happened, whether anything actually
+                                   baked into the page changed enough to need a real reload
     GET  /api/v1/files            lists the config files (tabs) and folders in CONFIG_DIR
     GET  /api/v1/file             serves a resolved config file's raw JSON content
     POST /api/v1/file/save        writes a config file (backs up first); creates it if new
@@ -938,8 +941,20 @@ class StaticHandler(http.server.SimpleHTTPRequestHandler):
         if parsed.path == '/api/v1/ping':
             # Polled periodically by the frontend purely to notice BOOT_ID changing (or this
             # 401ing outright, if _SESSION_KEY wasn't persisted across the restart either) — see
-            # initRestartWatcher() in index.html.
-            data = json.dumps({'boot_id': BOOT_ID}).encode()
+            # initRestartWatcher() in index.html. The rest of the fields mirror what
+            # _serve_index() bakes into index.html at load time — most restarts don't actually
+            # change any of it (a rebuild that never touched services.ezconf.* config just
+            # restarts the process for unrelated reasons), so the frontend can tell "nothing to
+            # do" apart from "a real reload is actually needed" instead of always reloading.
+            data = json.dumps({
+                'boot_id': BOOT_ID,
+                'theme': THEME,
+                'terminal_enabled': bool(TERMINAL_PORT),
+                'mkoptions_enabled': bool(MKOPTIONS_CMD),
+                'backup_enabled': BACKUP_COUNT > 0,
+                'nixos_target': NIXOS_TARGET,
+                'buttons': STATIC_BUTTONS,
+            }).encode()
             self.send_response(200)
             self.send_header('Content-Type', 'application/json')
             self.send_header('Content-Length', str(len(data)))

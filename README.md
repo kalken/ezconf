@@ -205,7 +205,7 @@ These two aren't really separate: if `services.ezconf.buttons` lives inside `con
 
 By default a button runs its command in whatever's already in the terminal. Set `clear_first = true` to clear the screen (and scroll back) right before it runs.
 
-Running that "Rebuild" button (or `nixos-rebuild switch` from anywhere) restarts `ezconf.service` itself, not just the terminal session — the page you're looking at is still running the old code. Ezconf notices on its own and reloads automatically once it's safe to (immediately if you have nothing unsaved; otherwise it waits until you save or undo back to clean, rather than reload out from under you).
+Running that "Rebuild" button (or `nixos-rebuild switch` from anywhere) restarts `ezconf.service` itself, not just the terminal session — the page you're looking at is still running the old code. Ezconf notices on its own — but most rebuilds don't actually change anything about ezconf's own settings, so most of the time nothing visible happens at all (or, if `buttons` did change, they just quietly update in place). A real reload only happens if something that genuinely can't be applied live changed too (theme, terminal/autocomplete/backup availability, or the target flake path) — and even then, immediately if you have nothing unsaved, or once you save/undo back to clean if you do, rather than reload out from under you.
 
 ## 🔒 HTTPS
 

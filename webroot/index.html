@@ -2966,19 +2966,26 @@ function isAnyDirty() {
   return pendingFsOps.length > 0 || Object.keys(fileConfigs).some(f => JSON.stringify(fileConfigs[f]) !== fileSaved[f]);
 }
 
-// True once a server restart has actually been observed (see initRestartWatcher()) — checked by
-// _updateDirty() to decide whether it's safe to reload immediately, or has to wait for the user
-// to finish saving/undoing back to a clean state first.
+// True once a restart has been seen that actually needs a reload to resolve (see
+// initRestartWatcher()) — checked by _updateDirty() to decide whether it's safe to reload
+// immediately, or has to wait for the user to finish saving/undoing back to a clean state first.
 let _restartDetected = false;
 
 // Polls GET /api/v1/ping so an already-open tab notices ezconf.service restarting (e.g. from
-// nixos-rebuild switch) and can pick up whatever changed server-side that only takes effect on
-// page load — STATIC_BUTTONS, THEME, and so on. Never reloads out from under unsaved edits: if
-// something's dirty when the restart is first seen, it just says so and waits — _updateDirty()
-// (run after every edit, undo, and Save) is what actually fires the reload, the moment the user
-// gets back to a clean state. A 401 counts as a restart too, not just a boot_id mismatch — that
-// means _SESSION_KEY changed as well (no --session-key-file to persist it across the restart),
-// so the old cookie won't work here again anyway.
+// nixos-rebuild switch). Most restarts don't actually change anything the page cares about — a
+// rebuild that never touched services.ezconf.* just restarts the process for unrelated reasons —
+// so a changed boot_id alone is *not* treated as "reload now": /api/v1/ping also echoes every
+// value that's otherwise only baked into index.html at load time, and each is compared against
+// what this page actually has. STATIC_BUTTONS is small enough to just patch in place and
+// re-render — no visible reload for what's easily the most common thing to actually change.
+// Everything else (theme, terminal/mkoptions/backup availability, nixos_target) genuinely can't
+// be applied without reloading, so only *those* changing still triggers one — and even then,
+// never out from under unsaved edits: if something's dirty when that's first seen, it just says
+// so and waits — _updateDirty() (run after every edit, undo, and Save) is what actually fires
+// the reload, the moment the user gets back to a clean state. A 401 always means reload — that's
+// _SESSION_KEY changing too (no --session-key-file to persist it across the restart), so the old
+// cookie won't work here again regardless of what else did or didn't change.
+let _lastSeenBootId = BOOT_ID;
 function initRestartWatcher() {
   async function check() {
     if (_restartDetected) return;
@@ -2987,7 +2994,19 @@ function initRestartWatcher() {
     if (res.status === 401) { onRestartDetected(); return; }
     if (!res.ok) return;
     const data = await res.json().catch(() => ({}));
-    if (data.boot_id && data.boot_id !== BOOT_ID) onRestartDetected();
+    if (!data.boot_id || data.boot_id === _lastSeenBootId) return;
+    _lastSeenBootId = data.boot_id;
+    if (Array.isArray(data.buttons) && JSON.stringify(data.buttons) !== JSON.stringify(STATIC_BUTTONS)) {
+      STATIC_BUTTONS.length = 0;
+      STATIC_BUTTONS.push(...data.buttons);
+      renderButtons();
+    }
+    const reloadNeeded = data.theme !== THEME
+      || !!data.terminal_enabled !== TERMINAL_ENABLED
+      || !!data.mkoptions_enabled !== MKOPTIONS_ENABLED
+      || !!data.backup_enabled !== BACKUP_ENABLED
+      || data.nixos_target !== NIXOS_TARGET;
+    if (reloadNeeded) onRestartDetected();
   }
   function onRestartDetected() {
     _restartDetected = true;
