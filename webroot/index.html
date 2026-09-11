@@ -4034,10 +4034,10 @@ async function createFolder() {
 
 // Nothing here ever touches the server directly — a delete/rename/disable that targets
 // something already on disk is queued in pendingFsOps instead, and only replayed at Save time
-// (see saveToServer()). The file disappears from the tab bar immediately either way; deferring
-// only changes *when* the server actually loses it.
+// (see saveToServer()). No confirmation prompt: the file disappears from the tab bar right away,
+// but the deletion itself isn't real until Save actually applies it — reopening without saving
+// (or just re-adding the same file) fully undoes it.
 async function deleteFile(name) {
-  if (!confirm(`Delete ${name}?\n\nThis does not create a backup. The deletion is applied on your next Save, and cannot be undone after that.`)) return;
   const existsOnDisk = Object.prototype.hasOwnProperty.call(fileSaved, name);
   if (existsOnDisk) pendingFsOps.push({ type: 'delete-file', path: name });
   files = files.filter(f => f !== name);
@@ -4066,14 +4066,11 @@ async function deleteFile(name) {
 
 // Deletes a folder and everything in it (files, never-saved or not, and any nested subfolders).
 // Zero files afterward is fine — see renderEditor()'s .editor-empty-state — so there's nothing
-// to refuse here even if this folder holds every remaining file.
+// to refuse here even if this folder holds every remaining file. No confirmation prompt, same
+// reasoning as deleteFile(): nothing is actually gone until Save replays the queued delete.
 async function deleteFolder(name) {
   const prefix = name + '/';
   const filesInside = files.filter(f => f.startsWith(prefix));
-  const msg = filesInside.length
-    ? `Delete folder "${name}" and its ${filesInside.length} file${filesInside.length === 1 ? '' : 's'}?\n\nThis does not create a backup. The deletion is applied on your next Save, and cannot be undone after that.`
-    : `Delete empty folder "${name}"?`;
-  if (!confirm(msg)) return;
   let onDisk = false;
   // A folder still waiting on its own create-folder op never reached disk — cancel that op
   // outright rather than queueing a pointless create-then-delete round trip.
