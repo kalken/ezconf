@@ -2447,8 +2447,10 @@ function renderField(container, key, val, path) {
     inp.value = val._expr;
     inp.className = 'expr-input';
     inp.rows = Math.max(1, val._expr.split('\n').length);
-    inp.addEventListener('change', () => setAtPath(config, path, { _expr: inp.value }));
-    inp.addEventListener('input', () => { inp.rows = Math.max(1, inp.value.split('\n').length); });
+    inp.addEventListener('input', () => {
+      inp.rows = Math.max(1, inp.value.split('\n').length);
+      setAtPath(config, path, { _expr: inp.value });
+    });
     unwrapAction = () => {
       // Kernel path: remove from expr set and store raw string to return to autocomplete mode.
       if (isKernelPath(path)) {
@@ -2508,16 +2510,24 @@ function renderField(container, key, val, path) {
         const ta = document.createElement('textarea');
         ta.value = val;
         ta.rows = Math.max(1, (val.match(/\n/g) || []).length + 1);
-        ta.addEventListener('input', () => { ta.rows = Math.max(1, (ta.value.match(/\n/g) || []).length + 1); });
-        ta.addEventListener('change', () => setAtPath(config, path, ta.value));
+        ta.addEventListener('input', () => {
+          ta.rows = Math.max(1, (ta.value.match(/\n/g) || []).length + 1);
+          setAtPath(config, path, ta.value);
+        });
         valEl.appendChild(ta);
       } else {
         const inp = document.createElement('input');
         inp.type = 'text'; inp.value = val;
-        inp.addEventListener('change', () => {
+        // The value itself updates live (so Save/dirty-tracking doesn't wait for blur — see the
+        // #editor-area 'input' listener below), but switching this row to the "null" placeholder
+        // widget is a full re-render, which would steal focus mid-typing — that part stays
+        // deferred to blur ('change'), same as before.
+        inp.addEventListener('input', () => {
           const newVal = (inp.value === '' && opt && isNullableString(opt.type)) ? null : inp.value;
           setAtPath(config, path, newVal);
-          if (newVal === null) renderAll();
+        });
+        inp.addEventListener('change', () => {
+          if (getAtPath(config, path) === null) renderAll();
         });
         valEl.appendChild(inp);
       }
@@ -2525,7 +2535,7 @@ function renderField(container, key, val, path) {
   } else if (type === 'number') {
     const inp = document.createElement('input');
     inp.type = 'text'; inp.inputMode = 'numeric'; inp.value = val;
-    inp.addEventListener('change', () => setAtPath(config, path, Number(inp.value)));
+    inp.addEventListener('input', () => setAtPath(config, path, Number(inp.value)));
     bindAutosize(inp);
     valEl.appendChild(inp);
   } else if (type === 'null') {
@@ -2547,10 +2557,12 @@ function renderField(container, key, val, path) {
       wrap.className = 'nullable-string-wrap';
       const inp = document.createElement('input');
       inp.type = 'text'; inp.value = ''; inp.placeholder = 'null — type to set a value';
-      inp.addEventListener('change', () => {
+      // Same split as the plain nullable-string case above: the value tracks live via 'input',
+      // but swapping the widget's own styling/placeholder is a full re-render, deferred to blur.
+      inp.addEventListener('input', () => {
         setAtPath(config, path, inp.value === '' ? null : inp.value);
-        renderAll();
       });
+      inp.addEventListener('change', () => renderAll());
       bindAutosize(inp);
       wrap.appendChild(inp);
       valEl.appendChild(wrap);
@@ -2638,12 +2650,14 @@ function renderArray(container, arr, path) {
       editor = document.createElement('textarea');
       editor.value = strVal;
       editor.rows = Math.max(1, (strVal.match(/\n/g) || []).length + 1);
-      editor.addEventListener('input', () => { editor.rows = Math.max(1, (editor.value.match(/\n/g) || []).length + 1); });
-      editor.addEventListener('change', () => setAtPath(config, itemPath, isExpr ? { _expr: editor.value } : editor.value));
+      editor.addEventListener('input', () => {
+        editor.rows = Math.max(1, (editor.value.match(/\n/g) || []).length + 1);
+        setAtPath(config, itemPath, isExpr ? { _expr: editor.value } : editor.value);
+      });
     } else {
       editor = document.createElement('input');
       editor.type = 'text'; editor.value = strVal;
-      editor.addEventListener('change', () => setAtPath(config, itemPath, isExpr ? { _expr: editor.value } : editor.value));
+      editor.addEventListener('input', () => setAtPath(config, itemPath, isExpr ? { _expr: editor.value } : editor.value));
     }
     if (isExpr) editor.classList.add('expr-value');
     item.oncontextmenu = e => {
@@ -4801,6 +4815,16 @@ async function loadSiblingFiles() {
     if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.shiftKey && e.key === 'z'))) { e.preventDefault(); redo(); }
   });
 
+  // Text/number fields now write straight into `config` on every keystroke ('input', see
+  // renderField()/renderArray()), not just on blur — so Save shouldn't have to wait for blur
+  // either. _pushHistory() stays on 'change' (blur-commit) only, on purpose: a full snapshot per
+  // keystroke would flood undo with one entry per character and re-serialize every file's
+  // content that often, so it still only records once a field edit is actually "done".
+  document.getElementById('editor-area').addEventListener('input', e => {
+    const row = e.target.closest('[data-path]');
+    if (row && row.dataset.path.startsWith('services.ezconf.buttons')) renderButtons();
+    _updateDirty();
+  });
   document.getElementById('editor-area').addEventListener('change', e => {
     const row = e.target.closest('[data-path]');
     if (row && row.dataset.path.startsWith('services.ezconf.buttons')) renderButtons();
