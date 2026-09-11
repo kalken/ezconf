@@ -34,7 +34,8 @@ file = "example/configuration.json"
 # button in the GUI to regenerate autocomplete data on demand.
 # mkoptions = "/path/to/ezconf-mkoptions"
 
-# Flake path passed as TARGET to mkoptions (default: /etc/nixos)
+# Flake path passed as TARGET to mkoptions (default: /etc/nixos); also the tree "Export system"
+# zips up in the GUI
 # nixos_target = "/etc/nixos"
 
 # Directory to serve /autocomplete/ from (overrides WEBROOT/autocomplete/)

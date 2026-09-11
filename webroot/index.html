@@ -28,6 +28,7 @@ const _DEFAULT_THEME = '%%EZCONF_THEME%%';
   </div>
   <div class="header-actions">
     <input type="file" id="import-file-input" accept=".json,.nix,.zip" style="display:none">
+    <input type="file" id="system-import-input" accept=".zip" style="display:none">
     <button class="btn" onclick="showImportModal()">⬇ Import</button>
     <button class="btn" onclick="exportAll()">⬆ Export all</button>
     <button class="btn" id="save-btn" onclick="saveToServer()">⬇ Save</button>
@@ -3367,6 +3368,50 @@ async function exportAll() {
   setStatus(`Exported ${entries.length} file(s)`, 3000, 'ok');
 }
 
+// Unlike exportAll() (which zips the in-memory fileConfigs — unsaved edits included, but only
+// ezconf's own *.json tabs), this is the *on-disk* NIXOS_TARGET tree, flake and all — the server
+// walks and zips it directly (GET /api/v1/system-export, see _iter_system_export_files() in
+// server.py), so it's a plain navigation/download rather than anything built client-side.
+function exportSystem() {
+  location.href = API_BASE + '/system-export';
+}
+
+// The counterpart to exportSystem(): writes a zip straight into NIXOS_TARGET on disk,
+// immediately, via POST /api/v1/system-import — unlike every other import path in this app,
+// there's no in-memory model for arbitrary system files to stage as "unsaved," so this can't be
+// deferred until Save the way dropping a .json onto the window is. Confirmed explicitly for
+// exactly that reason: this is the one import that's actually irreversible through ezconf itself.
+function importSystem() {
+  document.getElementById('system-import-input').click();
+}
+
+function initSystemImportButton() {
+  document.getElementById('system-import-input').addEventListener('change', async e => {
+    const file = e.target.files[0];
+    e.target.value = '';
+    if (!file) return;
+    if (!confirm(
+      `Import ${file.name} into ${NIXOS_TARGET}?\n\n` +
+      `This writes directly to disk immediately — there is no Save step and no undo. ` +
+      `Existing files with the same name are overwritten; anything not in the zip is left alone.`
+    )) return;
+    try {
+      const res = await apiFetch('/system-import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/zip' },
+        body: file,
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) { setStatus('Import failed: ' + (data.error || res.status), 5000, 'err'); return; }
+      const parts = [`Imported ${data.written.length} file(s) into ${NIXOS_TARGET}`];
+      if (data.skipped && data.skipped.length) parts.push(`skipped ${data.skipped.length}`);
+      setStatus(parts.join(', '), 4000, 'ok');
+    } catch (err) {
+      setStatus('Import failed: ' + err.message, 5000, 'err');
+    }
+  });
+}
+
 async function exportFolder(folder) {
   const prefix = folder + '/';
   const names = files.filter(f => f.startsWith(prefix));
@@ -3700,6 +3745,7 @@ const TERMINAL_ENABLED  = %%EZCONF_TERMINAL%%;
 const MKOPTIONS_ENABLED = %%EZCONF_MKOPTIONS%%;
 const BACKUP_ENABLED    = %%EZCONF_BACKUP%%;
 const STATIC_BUTTONS    = %%EZCONF_BUTTONS%%; // from [[buttons]] in ezconf.toml — not tied to any tab
+const NIXOS_TARGET      = '%%EZCONF_NIXOS_TARGET%%'; // flake path GET /api/v1/system-export zips up
 
 
 async function apiFetch(path, opts = {}) {
@@ -4018,6 +4064,8 @@ function renderFileSelector() {
       { label: 'New folder', onclick: () => createFolder() },
       { separator: true },
       { label: 'Export all', onclick: () => exportAll() },
+      { label: 'Export system (' + NIXOS_TARGET + ')', onclick: () => exportSystem() },
+      { label: 'Import system…', onclick: () => importSystem() },
     ]);
   };
 }
@@ -4573,6 +4621,7 @@ async function loadSiblingFiles() {
   if (!ok) return;
   initAddPanel();
   initLoadButton();
+  initSystemImportButton();
   initImportDrop();
   document.getElementById('flat-mode-btn').classList.toggle('active', flatMode);
   const treeVisible = localStorage.getItem('ezconf-tree-visible') === 'true';

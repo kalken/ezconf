@@ -17,6 +17,14 @@ ezconf server — single listener bound to 127.0.0.1:
     POST /api/v1/folder/disable   disables a whole subfolder (renamed to .NAME.disabled, so
                                    json2nix.nix's walk skips it, same as dotdirs)
     POST /api/v1/folder/enable    re-enables a subfolder disabled via folder/disable
+    GET  /api/v1/system-export    zips up the whole NIXOS_TARGET tree (not just CONFIG_DIR) —
+                                   flake.nix, flake.lock, hardware-configuration.nix, etc. —
+                                   skipping dotfiles/dotdirs and symlinks (see
+                                   _iter_system_export_files())
+    POST /api/v1/system-import    writes a zip's files (body) into NIXOS_TARGET, overwriting any
+                                   existing file of the same name; never deletes anything not in
+                                   the zip; skips dotfile/dotdir entries and rejects path
+                                   traversal (see _is_disallowed_import_entry())
 
 Every *.json file in CONFIG_DIR (except custom-options.json) is a
 separately editable/saveable "tab" in the UI, merged together only at
@@ -52,6 +60,7 @@ Config file (ezconf.toml):
 import argparse
 import datetime
 import http.server
+import io
 import ipaddress
 import json
 import os
@@ -61,6 +70,7 @@ import ssl
 import subprocess
 import sys
 import threading
+import zipfile
 from urllib.parse import urlparse, parse_qs
 
 try:
@@ -457,6 +467,61 @@ def list_config_folders():
     return names
 
 
+def _iter_system_export_files(root):
+    """Yield (absolute_path, arcname) for every regular file under root, for the whole-tree
+    /api/v1/system-export zip — deliberately unrelated to CONFIG_DIR/list_config_files(), since
+    this walks the *entire* NIXOS_TARGET tree (flake.nix, flake.lock, hardware-configuration.nix,
+    etc.), not just ezconf's own *.json tabs.
+
+    Skips every dotfile/dotdir unconditionally (.git, .direnv, age/sops keys under ~/.config-
+    style dirs, etc. are conventionally dot-prefixed — this is a deliberate, blunt exclusion so
+    secrets aren't swept into a downloadable zip by default) and skips symlinks entirely, which
+    both avoids `nix build`'s "result"/"result-*" symlinks (pointing into /nix/store — not config,
+    and potentially huge or a broken link after a gc) and keeps this a plain tree walk with no
+    cycle risk.
+    """
+    root = os.path.realpath(root)
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = [d for d in dirnames if not d.startswith('.') and not os.path.islink(os.path.join(dirpath, d))]
+        for fn in filenames:
+            if fn.startswith('.'):
+                continue
+            full = os.path.join(dirpath, fn)
+            if os.path.islink(full):
+                continue
+            arcname = os.path.relpath(full, root).replace(os.sep, '/')
+            yield full, arcname
+
+
+def _is_disallowed_import_entry(parts):
+    """True if any path segment of a /api/v1/system-import zip entry is empty, '.', '..', or
+    dot-prefixed. Two purposes at once: the dotfile/dotdir exclusion _iter_system_export_files()
+    applies on export, applied symmetrically here so an imported zip can't write into .git/.ssh/
+    etc. even if it happens to contain such entries (e.g. one built by another tool, not ezconf
+    itself) — and, since '..' and a leading '/' (which splits to a leading '') are also caught
+    here, this is what actually stops a zip-slip path-traversal entry in practice, before
+    resolve_system_import_path() (a defense-in-depth backstop for anything that somehow slips
+    past this — e.g. an OS-specific path quirk this doesn't anticipate — is ever reached). Either
+    way the entry is skipped and reported, not treated as a harder error; a plain dotfile and a
+    traversal attempt end up indistinguishable in the response, which is fine — both mean "this
+    entry wasn't written," and that's the only thing that actually matters here."""
+    return any(p in ('', '.', '..') or p.startswith('.') for p in parts)
+
+
+def resolve_system_import_path(rel):
+    """Resolve a /api/v1/system-import zip entry's relative path to an absolute path inside
+    NIXOS_TARGET, or None if it would somehow still escape. In practice _is_disallowed_import_entry()
+    already rejects every realistic traversal attempt (any '..' segment, or a leading '/') before
+    this is ever called, so this exists purely as a defense-in-depth backstop — a correctness
+    guard, not a security boundary beyond what already exists, same reasoning as
+    resolve_config_path()'s equivalent check."""
+    base = os.path.realpath(NIXOS_TARGET)
+    full = os.path.realpath(os.path.join(base, rel))
+    if os.path.commonpath([base, full]) != base:
+        return None
+    return full
+
+
 def resolve_folder_path(name):
     """Like resolve_config_path, but for a directory rather than a *.json file — no extension
     requirement, and the directory need not already exist."""
@@ -778,6 +843,56 @@ class StaticHandler(http.server.SimpleHTTPRequestHandler):
                 self.wfile.write(resp)
             except Exception as e:
                 self.send_error(500, str(e))
+        elif parsed.path == '/api/v1/system-import':
+            try:
+                length = int(self.headers.get('Content-Length', 0))
+                body = self.rfile.read(length)
+                with zipfile.ZipFile(io.BytesIO(body)) as zf:
+                    plan = []
+                    skipped = []
+                    for info in zf.infolist():
+                        if info.is_dir():
+                            continue
+                        rel = info.filename.replace('\\', '/')
+                        if _is_disallowed_import_entry(rel.split('/')):
+                            skipped.append(info.filename)
+                            continue
+                        target = resolve_system_import_path(rel)
+                        if not target:
+                            # _is_disallowed_import_entry() already rejects every realistic
+                            # traversal attempt above, so reaching this is not expected — treat
+                            # it as a hard error and abort the whole import before writing
+                            # anything, rather than silently skip something this unanticipated.
+                            resp = json.dumps({'error': 'invalid entry path: ' + info.filename}).encode()
+                            self.send_response(400)
+                            self.send_header('Content-Type', 'application/json')
+                            self.send_header('Content-Length', str(len(resp)))
+                            self.end_headers()
+                            self.wfile.write(resp)
+                            return
+                        plan.append((target, info))
+                    written = []
+                    base = os.path.realpath(NIXOS_TARGET)
+                    for target, info in plan:
+                        os.makedirs(os.path.dirname(target), exist_ok=True)
+                        with zf.open(info) as src, open(target, 'wb') as dst:
+                            shutil.copyfileobj(src, dst)
+                        written.append(os.path.relpath(target, base).replace(os.sep, '/'))
+                resp = json.dumps({'ok': True, 'written': written, 'skipped': skipped}).encode()
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.send_header('Content-Length', str(len(resp)))
+                self.end_headers()
+                self.wfile.write(resp)
+            except zipfile.BadZipFile:
+                resp = b'{"error":"not a valid zip file"}'
+                self.send_response(400)
+                self.send_header('Content-Type', 'application/json')
+                self.send_header('Content-Length', str(len(resp)))
+                self.end_headers()
+                self.wfile.write(resp)
+            except Exception as e:
+                self.send_error(500, str(e))
         else:
             self.send_error(404)
 
@@ -821,6 +936,22 @@ class StaticHandler(http.server.SimpleHTTPRequestHandler):
                 }).encode()
                 self.send_response(200)
                 self.send_header('Content-Type', 'application/json')
+                self.send_header('Content-Length', str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+            except Exception as e:
+                self.send_error(500, str(e))
+            return
+        if parsed.path == '/api/v1/system-export':
+            try:
+                buf = io.BytesIO()
+                with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as zf:
+                    for full, arcname in _iter_system_export_files(NIXOS_TARGET):
+                        zf.write(full, arcname)
+                data = buf.getvalue()
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/zip')
+                self.send_header('Content-Disposition', 'attachment; filename="nixos-export.zip"')
                 self.send_header('Content-Length', str(len(data)))
                 self.end_headers()
                 self.wfile.write(data)
@@ -897,6 +1028,7 @@ class StaticHandler(http.server.SimpleHTTPRequestHandler):
                 .replace('%%EZCONF_THEME%%', THEME)
                 .replace('%%EZCONF_MKOPTIONS%%', 'true' if MKOPTIONS_CMD else 'false')
                 .replace('%%EZCONF_BACKUP%%', 'true' if BACKUP_COUNT > 0 else 'false')
+                .replace('%%EZCONF_NIXOS_TARGET%%', NIXOS_TARGET.replace('\\', '\\\\').replace("'", "\\'"))
                 # Escape "</" so a command/label containing "</script>" can't prematurely close
                 # the <script> block this gets embedded into as a JS array literal.
                 .replace('%%EZCONF_BUTTONS%%', json.dumps(STATIC_BUTTONS).replace('</', '<\\/'))
