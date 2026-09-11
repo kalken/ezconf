@@ -29,7 +29,7 @@ const _DEFAULT_THEME = '%%EZCONF_THEME%%';
   <div class="header-actions">
     <input type="file" id="import-file-input" accept=".json,.nix" style="display:none">
     <button class="btn" onclick="showImportModal()">⬇ Import</button>
-    <button class="btn" onclick="exportJSON()">⬆ Export</button>
+    <button class="btn" onclick="exportAll()">⬆ Export all</button>
     <button class="btn" id="save-btn" onclick="saveToServer()">⬇ Save</button>
     <button class="btn" onclick="location.href='/logout'" title="Log out">⏻</button>
   </div>
@@ -3098,30 +3098,6 @@ function initLoadButton() {
   });
 }
 
-async function exportJSON() {
-  const { _gui, ...exportable } = config;
-  const json = JSON.stringify(exportable, null, 2);
-  const filename = activeFile || 'configuration.json';
-  if (window.showSaveFilePicker) {
-    try {
-      const handle = await window.showSaveFilePicker({
-        suggestedName: filename,
-        types: [{ description: 'JSON', accept: { 'application/json': ['.json'] } }],
-      });
-      const writable = await handle.createWritable();
-      await writable.write(json);
-      await writable.close();
-      markSaved();
-    } catch (e) {
-      if (e.name !== 'AbortError') setStatus('Export failed', 3000, 'err');
-    }
-  } else {
-    const blob = new Blob([json], { type: 'application/json' });
-    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = filename; a.click();
-    markSaved();
-  }
-}
-
 // ── Zip (client-side, zero-dependency) ──────────────────────────────────────────
 // Hand-rolled ZIP reader/writer using the browser's native Compression Streams API
 // (CompressionStream/DecompressionStream 'deflate-raw') for the DEFLATE method, so exporting
@@ -3292,12 +3268,12 @@ async function readZip(blob) {
 }
 
 // ── Export / Import (many files) ─────────────────────────────────────────────────
-// "Export"/"Export all" (tab, folder, and blank tab-bar right-click menus) package the current
-// in-memory state of one or more files — including unsaved edits, same as the single-file
-// "⬆ Export" button — into a zip a user can keep as a portable backup. Dropping that zip (or a
-// loose selection of .json files, or a whole folder) back onto the window imports it the same
-// way a backup is loaded: straight into fileConfigs as an unsaved edit, nothing touches disk
-// until Save.
+// "Export" (tab/folder right-click) and the header's "⬆ Export all" button package the current
+// in-memory state of one or more files — including unsaved edits — into a download (a plain
+// .json for a single file, a .zip for a folder or everything). Dropping that zip (or a loose
+// selection of .json files, or a whole folder) back onto the window imports it the same way a
+// backup is loaded: straight into fileConfigs as an unsaved edit, nothing touches disk until
+// Save.
 function _exportableConfig(cfg) {
   const { _gui, ...rest } = cfg || {};
   return rest;
