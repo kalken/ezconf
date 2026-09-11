@@ -2,11 +2,13 @@
 """
 ezconf server — single listener bound to 127.0.0.1:
   http(s)://localhost:9090  static files + API
-    GET  /api/v1/ping             {"boot_id", "theme", "terminal_enabled", "mkoptions_enabled",
-                                   "backup_enabled", "nixos_target", "buttons"} — polled by the
-                                   frontend to notice a restart (a 401 here means _SESSION_KEY
-                                   changed too) and, if one happened, whether anything actually
-                                   baked into the page changed enough to need a real reload
+    GET  /api/v1/ping             {"boot_id", "webroot_hash", "theme", "terminal_enabled",
+                                   "mkoptions_enabled", "backup_enabled", "nixos_target",
+                                   "buttons"} — polled by the frontend to notice a restart (a 401
+                                   here means _SESSION_KEY changed too) and, if one happened,
+                                   whether anything actually baked into the page changed enough
+                                   to need a real reload — webroot_hash covers an ezconf package
+                                   upgrade itself (new HTML/CSS/JS), not just a settings change
     GET  /api/v1/files            lists the config files (tabs) and folders in CONFIG_DIR
     GET  /api/v1/file             serves a resolved config file's raw JSON content
     POST /api/v1/file/save        writes a config file (backs up first); creates it if new
@@ -64,6 +66,7 @@ Config file (ezconf.toml):
 """
 import argparse
 import datetime
+import hashlib
 import http.server
 import io
 import ipaddress
@@ -154,6 +157,13 @@ _SESSION_KEY = secrets.token_hex(32)
 # process restarted (e.g. nixos-rebuild switch restarting ezconf.service) so it can offer to
 # reload and pick up fresh server-injected state (STATIC_BUTTONS, THEME, etc.).
 BOOT_ID = secrets.token_hex(8)
+# Content hash of the static frontend files (see _compute_webroot_hash(), computed once WEBROOT
+# is finalized, near the bottom of __main__) — unlike BOOT_ID, this is *not* different on every
+# restart, only when the actual HTML/CSS genuinely changed (e.g. an ezconf package upgrade).
+# initRestartWatcher() treats a mismatch here as needing a real reload, same as a settings change
+# — a restart alone doesn't necessarily mean anything the frontend serves actually changed, but a
+# real upgrade always does, and unlike a settings change there's no way to apply it live at all.
+WEBROOT_HASH = ''
 
 
 def make_ssl_context():
@@ -557,6 +567,21 @@ def _config_stem(name):
     return _flatten_stem(rel)
 
 
+def _compute_webroot_hash():
+    """WEBROOT_HASH — the static files that actually make up the served frontend (skipping the
+    xterm.js addons and autocomplete data, which don't affect ezconf's own behavior). Called once,
+    after WEBROOT is finalized, in __main__ — not on every request, since these files don't
+    change while this process is running (a real change only ever arrives via a restart)."""
+    h = hashlib.sha256()
+    for name in ('index.html', 'style.css', 'theme-nixos.css', 'theme-dark.css', 'theme-light.css'):
+        try:
+            with open(os.path.join(WEBROOT, name), 'rb') as f:
+                h.update(f.read())
+        except OSError:
+            pass
+    return h.hexdigest()[:16]
+
+
 def _read_login_page(error=''):
     if ALLOWED_USERS:
         options = ''.join(f'<option value="{u}">{u}</option>' for u in sorted(ALLOWED_USERS))
@@ -948,6 +973,7 @@ class StaticHandler(http.server.SimpleHTTPRequestHandler):
             # do" apart from "a real reload is actually needed" instead of always reloading.
             data = json.dumps({
                 'boot_id': BOOT_ID,
+                'webroot_hash': WEBROOT_HASH,
                 'theme': THEME,
                 'terminal_enabled': bool(TERMINAL_PORT),
                 'mkoptions_enabled': bool(MKOPTIONS_CMD),
@@ -1064,6 +1090,7 @@ class StaticHandler(http.server.SimpleHTTPRequestHandler):
                 .replace('%%EZCONF_BACKUP%%', 'true' if BACKUP_COUNT > 0 else 'false')
                 .replace('%%EZCONF_NIXOS_TARGET%%', NIXOS_TARGET.replace('\\', '\\\\').replace("'", "\\'"))
                 .replace('%%EZCONF_BOOT_ID%%', BOOT_ID)
+                .replace('%%EZCONF_WEBROOT_HASH%%', WEBROOT_HASH)
                 # Escape "</" so a command/label containing "</script>" can't prematurely close
                 # the <script> block this gets embedded into as a JS array literal.
                 .replace('%%EZCONF_BUTTONS%%', json.dumps(STATIC_BUTTONS).replace('</', '<\\/'))
@@ -1261,6 +1288,8 @@ if __name__ == '__main__':
     _bd = _resolve(args.backup_dir, cfg.get('backup_dir'), None, None)
     BACKUP_DIR = os.path.abspath(_bd) if _bd else os.path.join(CONFIG_DIR, '.ezconf-backups')
     BACKUP_COUNT = args.backup_count if args.backup_count is not None else int(cfg.get('backup_count', 5))
+
+    WEBROOT_HASH = _compute_webroot_hash()
 
     use_tls = os.path.exists(CERT_FILE) and os.path.exists(KEY_FILE)
     scheme = 'https' if use_tls else 'http'

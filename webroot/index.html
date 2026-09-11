@@ -2978,8 +2978,11 @@ let _restartDetected = false;
 // value that's otherwise only baked into index.html at load time, and each is compared against
 // what this page actually has. STATIC_BUTTONS is small enough to just patch in place and
 // re-render — no visible reload for what's easily the most common thing to actually change.
-// Everything else (theme, terminal/mkoptions/backup availability, nixos_target) genuinely can't
-// be applied without reloading, so only *those* changing still triggers one — and even then,
+// Everything else — theme, terminal/mkoptions/backup availability, nixos_target, and
+// webroot_hash (a content hash of index.html/style.css/the theme files, so an actual ezconf
+// package upgrade — new HTML/CSS/JS, not just a settings change — is caught too, since that
+// can't be detected any other way) — genuinely can't be applied without reloading, so only
+// *those* changing still triggers one — and even then,
 // never out from under unsaved edits: if something's dirty when that's first seen, it just says
 // so and waits — _updateDirty() (run after every edit, undo, and Save) is what actually fires
 // the reload, the moment the user gets back to a clean state. A 401 always means reload — that's
@@ -3002,7 +3005,8 @@ function initRestartWatcher() {
       STATIC_BUTTONS.push(...data.buttons);
       renderButtons();
     }
-    const reloadNeeded = data.theme !== THEME
+    const reloadNeeded = data.webroot_hash !== WEBROOT_HASH
+      || data.theme !== THEME
       || !!data.terminal_enabled !== TERMINAL_ENABLED
       || !!data.mkoptions_enabled !== MKOPTIONS_ENABLED
       || !!data.backup_enabled !== BACKUP_ENABLED
@@ -3909,6 +3913,7 @@ const BACKUP_ENABLED    = %%EZCONF_BACKUP%%;
 const STATIC_BUTTONS    = %%EZCONF_BUTTONS%%; // from [[buttons]] in ezconf.toml — not tied to any tab
 const NIXOS_TARGET      = '%%EZCONF_NIXOS_TARGET%%'; // flake path GET /api/v1/system-export zips up
 const BOOT_ID           = '%%EZCONF_BOOT_ID%%'; // this page's server process — see initRestartWatcher()
+const WEBROOT_HASH      = '%%EZCONF_WEBROOT_HASH%%'; // this page's own frontend files — see initRestartWatcher()
 
 
 async function apiFetch(path, opts = {}) {
