@@ -24,6 +24,7 @@ let
     "system_export_exclude = ${toml-list cfg.systemExportExclude}"
     "auth = ${str cfg.auth.method}"
     "theme = ${str cfg.theme}"
+    (lib.optional (cfg.mode != null) "mode = ${str cfg.mode}")
     "session_key_file = ${str "/var/lib/ezconf/session.key"}"
     "backup_dir = ${str cfg.backupDir}"
     "backup_count = ${toString cfg.backupCount}"
@@ -45,7 +46,7 @@ let
     ""
     "[ports]"
     "web = ${toString cfg.ports.web}"
-    (map (btn: "\n[[buttons]]\nlabel = ${str btn.label}\ncommand = ${str btn.command}${lib.optionalString btn.save_first "\nsave_first = true"}${lib.optionalString (!btn.always_show) "\nalways_show = false"}${lib.optionalString btn.clear_first "\nclear_first = true"}${lib.optionalString (btn.menu != "") "\nmenu = ${str btn.menu}"}") cfg.buttons)
+    (map (btn: "\n[[buttons]]\nlabel = ${str btn.label}\ncommand = ${str btn.command}${lib.optionalString btn.save_first "\nsave_first = true"}${lib.optionalString (!btn.always_show) "\nalways_show = false"}${lib.optionalString btn.clear_first "\nclear_first = true"}${lib.optionalString (btn.menu != "") "\nmenu = ${str btn.menu}"}${lib.optionalString (btn.mode != "") "\nmode = ${str btn.mode}"}") cfg.buttons)
   ]));
 
 in
@@ -152,6 +153,12 @@ in
       description = "UI theme. \"nixos\" (dark blue), \"dark\" (black), or \"light\" (white).";
     };
 
+    mode = lib.mkOption {
+      type        = lib.types.nullOr (lib.types.enum [ "install" ]);
+      default     = null;
+      description = "Set to \"install\" to show buttons with mode = \"install\" (see the buttons option) in their own row, with ordinary buttons shown too but greyed out. Deploy-time only, baked into index.html on load — not a runtime toggle, so it's meant for a dedicated install image rather than something to flip on an already-running instance.";
+    };
+
     terminal = lib.mkOption {
       type    = lib.types.bool;
       default = true;
@@ -237,6 +244,7 @@ in
           always_show = lib.mkOption { type = lib.types.bool; default = true;  description = "Show this button regardless of which config file (tab) is active. Set to false to only show it while its own defining file is the active tab."; };
           clear_first = lib.mkOption { type = lib.types.bool; default = false; description = "Clear the terminal before running this button's command."; };
           menu        = lib.mkOption { type = lib.types.str;  default = "";    description = "Group this button into a dropdown menu with this name, instead of giving it its own slot in the button bar. Every button sharing the same menu name appears as one item in that dropdown."; };
+          mode        = lib.mkOption { type = lib.types.enum [ "" "install" ]; default = ""; description = "Set to \"install\" to move this button into its own row, shown only when services.ezconf.mode = \"install\"."; };
         };
       });
       default     = [];

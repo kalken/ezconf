@@ -24,6 +24,11 @@ file = "example/configuration.json"
 # UI theme: nixos, dark, light (default: nixos)
 # theme = "nixos"
 
+# Set to "install" to show buttons with mode = "install" (see [[buttons]] below) in their own
+# row and grey out ordinary buttons, from page load. Deploy-time only, not a runtime toggle --
+# meant for a dedicated install image, not something to flip on an already-running instance.
+# mode = "install"
+
 # Port the terminal.py WebSocket service is running on (enables terminal panel)
 # terminal_port = 9091
 
@@ -101,3 +106,11 @@ file = "example/configuration.json"
 # command = "nixos-rebuild test --flake /etc/nixos"
 # save_first = true
 # menu = "Deploy"
+#
+# mode = "install" keeps a button in a second row that only shows up (and greys out the ordinary
+# buttons) when top-level mode = "install" above -- for shortcuts that are only relevant, and only
+# safe to have visible, during an install.
+# [[buttons]]
+# label = "Wipe disk and reinstall"
+# command = "disko-install --flake /etc/nixos"
+# mode = "install"

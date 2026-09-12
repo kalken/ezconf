@@ -145,6 +145,9 @@ AUTH_MODE        = 'none'        # set by --auth: 'none', 'custom', 'pam'
 TERMINAL_ENABLED = False         # True when terminal_port is set
 TERMINAL_PORT    = None          # port the terminal WebSocket service is running on
 THEME            = 'nixos'       # ui theme: nixos, dark, light
+EZCONF_MODE      = None          # None or 'install'; baked into index.html on load — shows
+                                  # install-mode buttons in their own row and greys out ordinary
+                                  # ones; set by mode in TOML (deploy-time, not user-toggleable)
 LOGIN_USER       = ''            # custom auth username
 LOGIN_PASS       = ''            # custom auth password
 MKOPTIONS_CMD    = None          # path to ezconf-mkoptions binary; enables /api/v1/autocomplete/update
@@ -1143,6 +1146,7 @@ class StaticHandler(http.server.SimpleHTTPRequestHandler):
                 .replace('%%EZCONF_THEME%%', THEME)
                 .replace('%%EZCONF_MKOPTIONS%%', 'true' if MKOPTIONS_CMD else 'false')
                 .replace('%%EZCONF_BACKUP%%', 'true' if BACKUP_COUNT > 0 else 'false')
+                .replace('%%EZCONF_MODE%%', json.dumps(EZCONF_MODE))
                 .replace('%%EZCONF_NIXOS_TARGET%%', NIXOS_TARGET.replace('\\', '\\\\').replace("'", "\\'"))
                 .replace('%%EZCONF_BOOT_ID%%', BOOT_ID)
                 .replace('%%EZCONF_WEBROOT_HASH%%', WEBROOT_HASH)
@@ -1238,6 +1242,7 @@ if __name__ == '__main__':
     KEY_FILE  = _resolve(args.key,  cfg.get('key'),  None, 'localhost-key.pem')
     AUTH_MODE = _resolve(args.auth, cfg.get('auth'), None, 'auto')
     THEME     = _resolve(args.theme, cfg.get('theme'), None, 'nixos')
+    EZCONF_MODE = cfg.get('mode') or None
     STATIC_BUTTONS = cfg.get('buttons') or []
     _term_port = args.terminal_port or cfg.get('terminal_port')
     if _term_port:

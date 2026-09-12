@@ -217,6 +217,18 @@ buttons = [
 
 That shows a single "Deploy" button; clicking it opens a dropdown of "Rebuild"/"Boot"/"Test". Each item still honors its own `save_first`/`clear_first` independently.
 
+Set `mode = "install"` on a button, and set `mode = "install"` (or `services.ezconf.mode = "install";` in the NixOS module) at the top level too, to keep some buttons out of the ordinary row entirely until an install image needs them:
+
+```nix
+mode = "install"; # deploy-time only — no in-GUI toggle
+buttons = [
+  { label = "Rebuild"; command = "nixos-rebuild switch --flake /etc/nixos"; save_first = true; }
+  { label = "Wipe disk and reinstall"; command = "disko-install --flake /etc/nixos"; mode = "install"; }
+];
+```
+
+With the top-level `mode` set this way, "Wipe disk and reinstall" shows up in its own row, and every ordinary button (like "Rebuild") is shown too but greyed out. This is baked into the page at load — there's no in-GUI toggle, since it's meant for a dedicated install image, not something to flip on an already-running instance.
+
 Running that "Rebuild" button (or `nixos-rebuild switch` from anywhere) restarts `ezconf.service` itself, not just the terminal session — the page you're looking at is still running the old code. Ezconf notices on its own — but most rebuilds don't actually change anything about ezconf's own settings, so most of the time nothing visible happens at all (or, if `buttons` did change, they just quietly update in place). A real reload only happens if something that genuinely can't be applied live changed too: theme, terminal/autocomplete/backup availability, the target flake path, or — this is also how it picks up an ezconf version upgrade itself, not just a settings change — the actual frontend code (HTML/CSS/JS). Even then, it reloads immediately if you have nothing unsaved, or once you save/undo back to clean if you do, rather than reload out from under you.
 
 ## 🔒 HTTPS
@@ -324,6 +336,7 @@ services.ezconf = {
 | `auth.passwordFile` | path or null | `null` | File containing the password for `custom` auth |
 | `auth.allowedUsers` | list of str | `[]` | Users allowed to log in (PAM mode); defaults to the service user |
 | `theme` | str | `"nixos"` | `nixos`, `dark`, or `light` |
+| `mode` | null or `"install"` | `null` | Set to `"install"` to show `mode = "install"` buttons in their own row and grey out ordinary ones, from page load — deploy-time only, no in-GUI toggle |
 | `terminal` | bool | `true` | Enable terminal panel and `ezconf-terminal.service` |
 | `shell` | str or null | `null` | Shell for the terminal (defaults to the login shell of `user`) |
 | `buttons` | list | `[]` | Shortcut buttons shown in the terminal panel |
