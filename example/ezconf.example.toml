@@ -101,11 +101,3 @@ file = "example/configuration.json"
 # command = "nixos-rebuild test --flake /etc/nixos"
 # save_first = true
 # menu = "Deploy"
-#
-# mode = "install" keeps a button out of the ordinary row entirely, in a second row hidden until
-# the terminal panel's "Install mode" toggle is switched on (which also greys out every ordinary
-# button) -- for shortcuts that are only relevant, and only safe to have visible, during an install.
-# [[buttons]]
-# label = "Wipe disk and reinstall"
-# command = "disko-install --flake /etc/nixos"
-# mode = "install"

@@ -710,10 +710,6 @@ textarea { resize: vertical; min-height: unset; line-height: 1.5; }
   transition: height .18s ease;
 }
 .terminal-panel.collapsed { height: 33px !important; }
-/* The install-mode row is a second 33px .terminal-header — collapsed height needs to fit both
-   when it's visible. More specific than the plain .collapsed rule above (same !important), so
-   this wins whenever both classes are present. */
-.terminal-panel.collapsed.install-mode { height: 66px !important; }
 
 .terminal-header {
   display: flex;

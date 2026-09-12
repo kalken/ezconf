@@ -45,7 +45,7 @@ let
     ""
     "[ports]"
     "web = ${toString cfg.ports.web}"
-    (map (btn: "\n[[buttons]]\nlabel = ${str btn.label}\ncommand = ${str btn.command}${lib.optionalString btn.save_first "\nsave_first = true"}${lib.optionalString (!btn.always_show) "\nalways_show = false"}${lib.optionalString btn.clear_first "\nclear_first = true"}${lib.optionalString (btn.menu != "") "\nmenu = ${str btn.menu}"}${lib.optionalString (btn.mode != "") "\nmode = ${str btn.mode}"}") cfg.buttons)
+    (map (btn: "\n[[buttons]]\nlabel = ${str btn.label}\ncommand = ${str btn.command}${lib.optionalString btn.save_first "\nsave_first = true"}${lib.optionalString (!btn.always_show) "\nalways_show = false"}${lib.optionalString btn.clear_first "\nclear_first = true"}${lib.optionalString (btn.menu != "") "\nmenu = ${str btn.menu}"}") cfg.buttons)
   ]));
 
 in
@@ -237,7 +237,6 @@ in
           always_show = lib.mkOption { type = lib.types.bool; default = true;  description = "Show this button regardless of which config file (tab) is active. Set to false to only show it while its own defining file is the active tab."; };
           clear_first = lib.mkOption { type = lib.types.bool; default = false; description = "Clear the terminal before running this button's command."; };
           menu        = lib.mkOption { type = lib.types.str;  default = "";    description = "Group this button into a dropdown menu with this name, instead of giving it its own slot in the button bar. Every button sharing the same menu name appears as one item in that dropdown."; };
-          mode        = lib.mkOption { type = lib.types.enum [ "" "install" ]; default = ""; description = "Set to \"install\" to move this button into its own row that's hidden until the terminal panel's \"Install mode\" toggle is switched on, at which point the ordinary buttons grey out instead. Meant for install-time-only shortcuts that shouldn't be reachable during normal use."; };
         };
       });
       default     = [];
