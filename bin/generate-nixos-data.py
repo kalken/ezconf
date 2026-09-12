@@ -22,13 +22,26 @@ def error(msg): print(f"{RED}Error: {msg}{NC}", file=sys.stderr); sys.exit(1)
 VERBOSE = False
 OUTPUT_DIR = "."
 
+NIX_EVAL_TIMEOUT = 600  # seconds — a third-party module's option defaults can trigger an
+                        # import-from-derivation build or a slow fetch; this bounds how long any
+                        # one nix eval call (across get_hosts/packages/kernels/options) can hang.
+
 def nix_eval(args_list, extra_env=None):
-    """Run `nix eval --json <args_list>` and return parsed JSON, or None on failure."""
+    """Run `nix eval --json <args_list>` and return parsed JSON, or None on failure/timeout."""
     env = {**os.environ, **(extra_env or {})}
-    r = subprocess.run(
-        ["nix", "eval", "--json"] + args_list,
-        capture_output=True, text=True, env=env,
-    )
+    # --no-allow-import-from-derivation: we only ever want declarative metadata (types,
+    # descriptions, defaults, examples) here, never an actual build — a module (e.g. disko)
+    # whose option defaults read real hardware or trigger an IFD build should fail fast instead
+    # of silently building/fetching, which is what was hanging generation on a live ISO with
+    # no matching disks/network yet.
+    try:
+        r = subprocess.run(
+            ["nix", "eval", "--json", "--no-allow-import-from-derivation"] + args_list,
+            capture_output=True, text=True, env=env, timeout=NIX_EVAL_TIMEOUT,
+        )
+    except subprocess.TimeoutExpired:
+        warn(f"nix eval timed out after {NIX_EVAL_TIMEOUT}s (args: {' '.join(args_list)})")
+        return None
     if r.returncode != 0:
         if VERBOSE:
             for line in r.stderr.strip().splitlines():

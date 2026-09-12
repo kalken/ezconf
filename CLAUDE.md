@@ -62,6 +62,8 @@ python3 bin/generate-nixos-data.py [args...]
 
 Shells out to `nix eval --json`. The `TARGET` env var sets the flake path (default `/etc/nixos`). Default output is `autocomplete/` relative to CWD (override with `-o DIR`).
 
+Every `nix eval` call funnels through one `nix_eval()` helper, which always adds `--no-allow-import-from-derivation` (this only ever needs declarative option/package metadata, never an actual build — a third-party module whose option defaults read real hardware or trigger an IFD build, e.g. disko on a live installer ISO with no matching disks yet, should fail fast instead of silently hanging on a build/fetch) and a 600s `subprocess.run` timeout (`NIX_EVAL_TIMEOUT`) so a hung eval can't block `ezconf.service`'s own `preStart` past systemd's startup timeout and fail the whole service. A timeout prints a one-line warning unconditionally (not gated on `-v`, unlike a normal eval failure) since it's actionable and rare enough not to be noise.
+
 The generated `autocomplete/` directory belongs inside the WEBROOT so the server can serve it. Both defaults now align: `ezconf-mkoptions` writes to `webroot/autocomplete/` and the server defaults to `./webroot`. It is gitignored since it contains user-specific generated data.
 
 ## Server architecture (`bin/server.py`)
