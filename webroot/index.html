@@ -3579,7 +3579,16 @@ function initSystemImportButton() {
       if (!res.ok) { setStatus('Import failed: ' + (data.error || res.status), 5000, 'err'); return; }
       const parts = [`Imported ${data.written.length} file(s) into ${NIXOS_TARGET}`];
       if (data.skipped && data.skipped.length) parts.push(`skipped ${data.skipped.length}`);
-      setStatus(parts.join(', '), 4000, 'ok');
+      // This writes straight into NIXOS_TARGET on disk, which CONFIG_DIR lives under — the
+      // in-memory files/fileConfigs state has no way to know its tab list or content might now
+      // be stale, so a reload is the only way to pick that up. Same "don't clobber unsaved
+      // edits" rule as restart detection: reload immediately only if nothing's dirty, otherwise
+      // just say so — the edits themselves are unaffected by this import either way.
+      if (isAnyDirty()) {
+        setStatus(parts.join(', ') + ' — reload once you save/undo to see the changes', 6000, 'ok');
+      } else {
+        location.reload();
+      }
     } catch (err) {
       setStatus('Import failed: ' + err.message, 5000, 'err');
     }
