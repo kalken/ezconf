@@ -181,11 +181,11 @@ let
     rawList = lib.optionAttrSetToDocList opts;
 in map (opt: {{
     path = opt.name;
-    description = opt.description or null;
-    type = opt.type or null;
+    description = safeGet (o: o.description or null) opt;
+    type = safeGet (o: o.type or null) opt;
     default = safeGet (o: o.default or null) opt;
     example = safeGet (o: o.example or null) opt;
-    required = !(opt ? default) && !(opt.internal or false) && (opt.visible or true) && !(opt.readOnly or false);
+    required = safeGet (o: !(o ? default) && !(o.internal or false) && (o.visible or true) && !(o.readOnly or false)) opt;
 }}) rawList
 """
     result = nix_eval(["--impure", "--expr", expr]) or []
