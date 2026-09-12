@@ -101,7 +101,7 @@ Single `ThreadingHTTPServer` bound to `BIND_ADDR:WEB_PORT` (default `127.0.0.1:9
 - `TERMINAL_PORT` — when set, enables the terminal panel in the frontend and points it at this port
 - `THEME` — UI theme injected into `index.html`; set by `--theme` or `theme` in config (default `nixos`)
 - `BIND_ADDR` — IP address to listen on; set by `listen` in config (default `127.0.0.1`); automatically added to `TRUSTED_HOSTS`
-- `TRUSTED_HOSTS` — extra hostnames accepted by `_valid_host` for CSRF check; set by `trusted_hosts` in config; always includes `BIND_ADDR` and any `--san` values
+- `TRUSTED_HOSTS` — extra hostnames accepted by `_valid_host` for CSRF check; set by `trusted_hosts` in config; always includes `BIND_ADDR` and any `--san` values; `"*"` disables the check entirely (accepts any `Host` header) — for cases like an installer ISO where the reachable address can't be known ahead of time
 - `CA_FILE` — path to the CA cert served at `/download-ca`; set automatically by `--generate-ca` or via `ca_file` in config
 - `BACKUP_DIR` — directory for config file backups, one subset per file (named `<stem>-<timestamp>.json`); set by `--backup-dir` or `backup_dir` in config (default: `.ezconf-backups` inside `CONFIG_DIR`)
 - `BACKUP_COUNT` — number of backups kept per save; set by `--backup-count` or `backup_count` in config (default `5`; `0` disables backups)

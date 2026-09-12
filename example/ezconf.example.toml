@@ -56,6 +56,12 @@ file = "example/configuration.json"
 # Hostnames trusted for CSRF check — required when behind a reverse proxy such as nginx.
 # Add every public hostname nginx uses for this server.
 # trusted_hosts = ["myserver.example.com"]
+#
+# "*" disables the check entirely, accepting any Host header — use this when the reachable
+# address can't be known ahead of time (e.g. an installer ISO getting a DHCP lease). Only do
+# this if you're not worried about a browser on the same network visiting a malicious page,
+# since it's what protects against DNS-rebinding attacks.
+# trusted_hosts = ["*"]
 
 # TLS certificate and key (leave commented out for plain HTTP)
 # cert = "localhost.pem"

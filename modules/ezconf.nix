@@ -200,7 +200,7 @@ in
     trustedHosts = lib.mkOption {
       type        = lib.types.listOf lib.types.str;
       default     = [];
-      description = "Hostnames trusted for CSRF check. Required when ezconf is behind a reverse proxy — add your nginx server_name here.";
+      description = "Hostnames trusted for CSRF check. Required when ezconf is behind a reverse proxy — add your nginx server_name here. Set to [ \"*\" ] to disable the check entirely (accept any Host header) when the reachable address can't be known ahead of time, e.g. an installer ISO getting a DHCP lease.";
     };
 
     shell = lib.mkOption {

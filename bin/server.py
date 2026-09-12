@@ -1147,6 +1147,11 @@ class StaticHandler(http.server.SimpleHTTPRequestHandler):
 
 
 def _valid_host(headers):
+    # '*' in trusted_hosts disables this check entirely — accepts any Host header. Meant for
+    # cases where the reachable address genuinely can't be known ahead of time (e.g. a NixOS
+    # installer ISO getting a DHCP lease), where listing exact hosts isn't possible.
+    if '*' in TRUSTED_HOSTS:
+        return True
     host = headers.get('Host', '').split(':')[0].lower()
     return host in {'localhost', '127.0.0.1', ''} | TRUSTED_HOSTS
 
