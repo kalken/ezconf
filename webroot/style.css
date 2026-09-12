@@ -716,8 +716,11 @@ textarea { resize: vertical; min-height: unset; line-height: 1.5; }
 .terminal-panel.collapsed.install-mode { height: 66px !important; }
 /* The whole ordinary row disabled at once during install mode, rather than each button
    individually — a title attribute (set alongside this class, see the init IIFE) gives the
-   native hover tooltip explaining why. */
-#terminal-cmd-btns.install-mode-disabled { opacity: .45; pointer-events: none; }
+   native hover tooltip explaining why. pointer-events: none goes on the buttons, not the
+   container itself — putting it on the container would block the hover that triggers its own
+   title tooltip too, not just clicks. */
+#terminal-cmd-btns.install-mode-disabled { opacity: .45; }
+#terminal-cmd-btns.install-mode-disabled .term-run-btn { pointer-events: none; }
 
 .terminal-header {
   display: flex;
