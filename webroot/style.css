@@ -714,6 +714,10 @@ textarea { resize: vertical; min-height: unset; line-height: 1.5; }
    when it's visible. More specific than the plain .collapsed rule above (same !important), so
    this wins whenever both classes are present. */
 .terminal-panel.collapsed.install-mode { height: 66px !important; }
+/* The whole ordinary row disabled at once during install mode, rather than each button
+   individually — a title attribute (set alongside this class, see the init IIFE) gives the
+   native hover tooltip explaining why. */
+#terminal-cmd-btns.install-mode-disabled { opacity: .45; pointer-events: none; }
 
 .terminal-header {
   display: flex;

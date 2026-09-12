@@ -3061,14 +3061,7 @@ function _updateDirty() {
   const dirty = isAnyDirty();
   document.querySelector('.status-dot').classList.toggle('dirty', dirty);
   document.querySelector('.status-ready').textContent = dirty ? 'Modified' : 'Ready';
-  // INSTALL_MODE greys out the *ordinary* row wholesale (see renderButtons()/_renderButtonRow())
-  // — a save_first button there needs to stay disabled through that, even once dirty clears,
-  // rather than this unconditionally re-enabling it. The install row's own save_first buttons
-  // are never install-mode-greyed, so they only ever follow `dirty` here.
-  document.querySelectorAll('.term-run-btn[data-save-first]').forEach(b => {
-    const inOrdinaryRow = b.closest('#terminal-cmd-btns') !== null;
-    b.disabled = dirty || (INSTALL_MODE && inOrdinaryRow);
-  });
+  document.querySelectorAll('.term-run-btn[data-save-first]').forEach(b => { b.disabled = dirty; });
   const saveBtn = document.getElementById('save-btn');
   if (saveBtn) saveBtn.disabled = !dirty;
   // A restart was seen while something was unsaved (see initRestartWatcher()) — every edit,
@@ -3948,16 +3941,11 @@ function renderButtons() {
   // index into that same full list, so splitting into two rows here doesn't need to change
   // either of them.
   const entries = buttons.map((btn, idx) => ({ btn, idx }));
-  _renderButtonRow(installContainer, entries.filter(e => e.btn.mode === 'install'), buttons, dirty, false);
-  _renderButtonRow(container, entries.filter(e => e.btn.mode !== 'install'), buttons, dirty, INSTALL_MODE);
+  _renderButtonRow(installContainer, entries.filter(e => e.btn.mode === 'install'), buttons, dirty);
+  _renderButtonRow(container, entries.filter(e => e.btn.mode !== 'install'), buttons, dirty);
 }
 
-// greyedOut disables every button in this row outright (used for the ordinary row when
-// EZCONF_MODE === 'install') — separate from, and combined with, a standalone button's own
-// save_first/dirty disabling. _updateDirty()'s live per-keystroke toggle (which only reaches
-// save_first buttons, via their data-save-first marker) accounts for this too, scoped by which
-// row the element is actually in.
-function _renderButtonRow(container, entries, buttons, dirty, greyedOut) {
+function _renderButtonRow(container, entries, buttons, dirty) {
   const seenMenus = new Set();
   entries.forEach(({ btn, idx }) => {
     if (btn.menu) {
@@ -3971,7 +3959,6 @@ function _renderButtonRow(container, entries, buttons, dirty, greyedOut) {
       b.className = 'btn term-run-btn';
       b.textContent = btn.menu;
       b.title = idxs.map(i => buttons[i].label || '(no label)').join(', ');
-      b.disabled = greyedOut;
       b.onclick = e => showButtonMenu(e, idxs);
       container.appendChild(b);
       return;
@@ -3982,8 +3969,8 @@ function _renderButtonRow(container, entries, buttons, dirty, greyedOut) {
     b.title = btn.command;
     if (btn.save_first) {
       b.dataset.saveFirst = '1';
+      b.disabled = dirty;
     }
-    b.disabled = greyedOut || (!!btn.save_first && dirty);
     b.onclick = () => runButton(idx);
     container.appendChild(b);
   });
@@ -4859,6 +4846,9 @@ async function loadSiblingFiles() {
   if (INSTALL_MODE) {
     document.getElementById('terminal-panel').classList.add('install-mode');
     document.getElementById('terminal-header-install').classList.remove('hidden');
+    const ordinaryRow = document.getElementById('terminal-cmd-btns');
+    ordinaryRow.classList.add('install-mode-disabled');
+    ordinaryRow.title = 'Disabled in install mode';
   }
   if (MKOPTIONS_ENABLED) {
     const btn = document.createElement('button');
