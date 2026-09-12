@@ -217,6 +217,17 @@ buttons = [
 
 That shows a single "Deploy" button; clicking it opens a dropdown of "Rebuild"/"Boot"/"Test". Each item still honors its own `save_first`/`clear_first` independently.
 
+Set `mode = "install"` on a button to keep it out of the ordinary row entirely, until needed:
+
+```nix
+buttons = [
+  { label = "Rebuild"; command = "nixos-rebuild switch --flake /etc/nixos"; save_first = true; }
+  { label = "Wipe disk and reinstall"; command = "disko-install --flake /etc/nixos"; mode = "install"; }
+];
+```
+
+"Wipe disk and reinstall" won't show up in the ordinary row at all — it only appears in a second row that's hidden until you click the terminal panel's "Install mode" button, at which point that row appears and every ordinary button greys out. Meant for shortcuts that are only relevant (and only safe to have visible) during an install, not everyday use.
+
 Running that "Rebuild" button (or `nixos-rebuild switch` from anywhere) restarts `ezconf.service` itself, not just the terminal session — the page you're looking at is still running the old code. Ezconf notices on its own — but most rebuilds don't actually change anything about ezconf's own settings, so most of the time nothing visible happens at all (or, if `buttons` did change, they just quietly update in place). A real reload only happens if something that genuinely can't be applied live changed too: theme, terminal/autocomplete/backup availability, the target flake path, or — this is also how it picks up an ezconf version upgrade itself, not just a settings change — the actual frontend code (HTML/CSS/JS). Even then, it reloads immediately if you have nothing unsaved, or once you save/undo back to clean if you do, rather than reload out from under you.
 
 ## 🔒 HTTPS
