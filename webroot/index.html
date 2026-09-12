@@ -1931,6 +1931,12 @@ function renderEditor() {
     return;
   }
   area.classList.toggle('flat-mode', flatMode);
+  // Dim the whole editor when the active file itself is disabled (not just its tab) — a
+  // dedicated class rather than reusing .is-disabled, since that also sets pointer-events: none
+  // on inputs and a per-row strikethrough, neither of which apply here: a disabled file stays
+  // fully editable/saveable (see "Disabling a file or folder" in CLAUDE.md), this is purely
+  // visual so it's obvious at a glance which file you're looking at.
+  area.classList.toggle('file-disabled', _isFileDisabled(activeFile));
   if (flatMode) renderFlat(area, config, []);
   else renderObj(area, config, []);
   area.scrollTop = scroll;

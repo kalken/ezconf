@@ -388,6 +388,9 @@ body {
 .is-disabled > .section-header .section-key-text { text-decoration: line-through; }
 /* Disabled files/folders (tab bar) — see _isFileDisabled()/_isDisabledFolderSegment() */
 .tab.is-disabled span, .tab-folder-label.is-disabled { text-decoration: line-through; }
+/* The active file itself being disabled (not just its tab) — purely visual, unlike .is-disabled
+   above: a disabled file stays fully editable/saveable, so no pointer-events/strikethrough here. */
+.editor-area.file-disabled { opacity: 0.45; }
 
 /* ── Inputs ── */
 input[type=text], input[type=number], input[type=password], textarea, select.enum-select {
