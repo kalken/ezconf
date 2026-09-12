@@ -3942,10 +3942,14 @@ function renderButtons() {
   // either of them.
   const entries = buttons.map((btn, idx) => ({ btn, idx }));
   _renderButtonRow(installContainer, entries.filter(e => e.btn.mode === 'install'), buttons, dirty);
-  _renderButtonRow(container, entries.filter(e => e.btn.mode !== 'install'), buttons, dirty);
+  _renderButtonRow(container, entries.filter(e => e.btn.mode !== 'install'), buttons, dirty, INSTALL_MODE ? 'Disabled in install mode' : null);
 }
 
-function _renderButtonRow(container, entries, buttons, dirty) {
+// disabledTitle, when set, overrides every button's own title in this row (used for the ordinary
+// row during install mode) — set directly on each button rather than relying on the container's
+// own title showing through its pointer-events: none children on hover, which isn't consistent
+// enough across browsers to depend on.
+function _renderButtonRow(container, entries, buttons, dirty, disabledTitle) {
   const seenMenus = new Set();
   entries.forEach(({ btn, idx }) => {
     if (btn.menu) {
@@ -3958,7 +3962,7 @@ function _renderButtonRow(container, entries, buttons, dirty) {
       const b = document.createElement('button');
       b.className = 'btn term-run-btn';
       b.textContent = btn.menu;
-      b.title = idxs.map(i => buttons[i].label || '(no label)').join(', ');
+      b.title = disabledTitle || idxs.map(i => buttons[i].label || '(no label)').join(', ');
       b.onclick = e => showButtonMenu(e, idxs);
       container.appendChild(b);
       return;
@@ -3966,7 +3970,7 @@ function _renderButtonRow(container, entries, buttons, dirty) {
     const b = document.createElement('button');
     b.className = 'btn term-run-btn';
     b.textContent = btn.label || '(no label)';
-    b.title = btn.command;
+    b.title = disabledTitle || btn.command;
     if (btn.save_first) {
       b.dataset.saveFirst = '1';
       b.disabled = dirty;
