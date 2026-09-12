@@ -30,8 +30,10 @@ ezconf server — single listener bound to 127.0.0.1:
                                    json2nix.nix's walk skips it, same as dotdirs)
     POST /api/v1/folder/enable    re-enables a subfolder disabled via folder/disable
     GET  /api/v1/system-export    zips up the whole NIXOS_TARGET tree (not just CONFIG_DIR) —
-                                   flake.nix, flake.lock, hardware-configuration.nix, etc. —
-                                   skipping dotfiles/dotdirs and symlinks (see
+                                   flake.nix, flake.lock, etc. — skipping symlinks always, plus
+                                   dotfiles/dotdirs and hardware-configuration.nix by default
+                                   (configurable via system_export_exclude_dotfiles/
+                                   system_export_exclude in TOML; see
                                    _iter_system_export_files())
     POST /api/v1/system-import    writes a zip's files (body) into NIXOS_TARGET, overwriting any
                                    existing file of the same name; never deletes anything not in
@@ -155,6 +157,12 @@ BACKUP_COUNT     = 5             # number of backups to keep; 0 disables backups
 STATIC_BUTTONS   = []            # terminal panel buttons from [[buttons]] in TOML (deploy-time,
                                   # not tied to any config file/tab); see services.ezconf.buttons
                                   # in modules/ezconf.nix, which is what generates this TOML
+SYSTEM_EXPORT_EXCLUDE_DOTFILES = True                      # blanket dotfile/dotdir skip in
+                                                            # _iter_system_export_files(); set by
+                                                            # system_export_exclude_dotfiles in TOML
+SYSTEM_EXPORT_EXCLUDE = {'hardware-configuration.nix'}     # extra basenames skipped by
+                                                            # _iter_system_export_files(); set by
+                                                            # system_export_exclude in TOML
 
 _SESSION_KEY = secrets.token_hex(32)
 # Fresh every process start, unlike _SESSION_KEY (which can persist across restarts via
@@ -500,18 +508,29 @@ def _iter_system_export_files(root):
     this walks the *entire* NIXOS_TARGET tree (flake.nix, flake.lock, hardware-configuration.nix,
     etc.), not just ezconf's own *.json tabs.
 
-    Skips every dotfile/dotdir unconditionally (.git, .direnv, age/sops keys under ~/.config-
-    style dirs, etc. are conventionally dot-prefixed — this is a deliberate, blunt exclusion so
-    secrets aren't swept into a downloadable zip by default) and skips symlinks entirely, which
-    both avoids `nix build`'s "result"/"result-*" symlinks (pointing into /nix/store — not config,
-    and potentially huge or a broken link after a gc) and keeps this a plain tree walk with no
-    cycle risk.
+    Skips every dotfile/dotdir unconditionally by default (.git, .direnv, age/sops keys under
+    ~/.config-style dirs, etc. are conventionally dot-prefixed — this is a deliberate, blunt
+    exclusion so secrets aren't swept into a downloadable zip by default; SYSTEM_EXPORT_EXCLUDE_
+    DOTFILES, set by system_export_exclude_dotfiles in TOML, lets an operator turn it off) and
+    skips symlinks entirely and unconditionally, which both avoids `nix build`'s "result"/
+    "result-*" symlinks (pointing into /nix/store — not config, and potentially huge or a broken
+    link after a gc) and keeps this a plain tree walk with no cycle risk.
+
+    Also skips any basename in SYSTEM_EXPORT_EXCLUDE (default {'hardware-configuration.nix'},
+    set by system_export_exclude in TOML), anywhere in the tree. hardware-configuration.nix is
+    machine-specific (partition UUIDs, detected kernel modules, etc.), so bundling it into an
+    export meant to be reused elsewhere (a template, another machine) would be actively wrong by
+    default; the receiving machine's own hardware-configuration.nix is left alone regardless,
+    which is exactly what leaving it out of the zip achieves on the /api/v1/system-import side
+    too, with no extra logic needed there.
     """
     root = os.path.realpath(root)
     for dirpath, dirnames, filenames in os.walk(root):
-        dirnames[:] = [d for d in dirnames if not d.startswith('.') and not os.path.islink(os.path.join(dirpath, d))]
+        dirnames[:] = [d for d in dirnames
+                        if (not SYSTEM_EXPORT_EXCLUDE_DOTFILES or not d.startswith('.'))
+                        and not os.path.islink(os.path.join(dirpath, d))]
         for fn in filenames:
-            if fn.startswith('.'):
+            if (SYSTEM_EXPORT_EXCLUDE_DOTFILES and fn.startswith('.')) or fn in SYSTEM_EXPORT_EXCLUDE:
                 continue
             full = os.path.join(dirpath, fn)
             if os.path.islink(full):
@@ -1210,6 +1229,10 @@ if __name__ == '__main__':
     if _mk:
         MKOPTIONS_CMD = os.path.abspath(_mk)
     NIXOS_TARGET = _resolve(args.nixos_target, cfg.get('nixos_target'), None, '/etc/nixos')
+    if 'system_export_exclude_dotfiles' in cfg:
+        SYSTEM_EXPORT_EXCLUDE_DOTFILES = bool(cfg['system_export_exclude_dotfiles'])
+    if 'system_export_exclude' in cfg:
+        SYSTEM_EXPORT_EXCLUDE = {str(n).strip() for n in (cfg.get('system_export_exclude') or []) if str(n).strip()}
 
     CERT_FILE = _resolve(args.cert, cfg.get('cert'), None, 'localhost.pem')
     KEY_FILE  = _resolve(args.key,  cfg.get('key'),  None, 'localhost-key.pem')

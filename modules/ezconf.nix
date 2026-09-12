@@ -20,6 +20,8 @@ let
     "autocomplete_dir = ${str "/var/lib/ezconf/autocomplete"}"
     "mkoptions = ${str "${mkoptions}/bin/ezconf-mkoptions"}"
     "nixos_target = ${str cfg.nixosTarget}"
+    "system_export_exclude_dotfiles = ${lib.boolToString cfg.systemExportExcludeDotfiles}"
+    "system_export_exclude = ${toml-list cfg.systemExportExclude}"
     "auth = ${str cfg.auth.method}"
     "theme = ${str cfg.theme}"
     "session_key_file = ${str "/var/lib/ezconf/session.key"}"
@@ -86,6 +88,18 @@ in
       type        = lib.types.str;
       default     = "/etc/nixos";
       description = "Flake path passed as TARGET to ezconf-mkoptions when generating autocomplete data.";
+    };
+
+    systemExportExcludeDotfiles = lib.mkOption {
+      type        = lib.types.bool;
+      default     = true;
+      description = "Exclude dotfiles/dotdirs (.git, .ssh, age/sops keys, etc.) from the \"Export system\" zip.";
+    };
+
+    systemExportExclude = lib.mkOption {
+      type        = lib.types.listOf lib.types.str;
+      default     = [ "hardware-configuration.nix" ];
+      description = "Basenames to exclude from the \"Export system\" zip, anywhere in the tree. Defaults to hardware-configuration.nix, since it's machine-specific and shouldn't be bundled into a config meant to be reused elsewhere.";
     };
 
     backupDir = lib.mkOption {
