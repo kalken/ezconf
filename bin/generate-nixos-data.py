@@ -176,9 +176,14 @@ let
         then v.text
         else v;
     safeGet = f: opt:
-        let result = builtins.tryEval (unwrapValue (f opt));
+        let v = unwrapValue (f opt);
+            result = builtins.tryEval (builtins.deepSeq v v);
         in if result.success then result.value else null;
-    rawList = lib.optionAttrSetToDocList opts;
+    # internal = true means "implementation detail, not meant to be set directly" (the
+    # convention behind e.g. disko's underscore-prefixed options) — drop these before forcing
+    # anything else about them, both because they shouldn't be surfaced to users at all, and
+    # because it means never having to force a broken internal-only default in the first place.
+    rawList = builtins.filter (opt: !(opt.internal or false)) (lib.optionAttrSetToDocList opts);
 in map (opt: {{
     path = opt.name;
     description = safeGet (o: o.description or null) opt;
