@@ -79,3 +79,11 @@ file = "example/configuration.json"
 # [[buttons]]
 # label = "Update"
 # command = "nix flake update /etc/nixos"
+#
+# Give several buttons the same menu name to group them into one dropdown instead of each
+# getting its own slot in the bar.
+# [[buttons]]
+# label = "Test"
+# command = "nixos-rebuild test --flake /etc/nixos"
+# save_first = true
+# menu = "Deploy"

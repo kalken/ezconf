@@ -3897,7 +3897,7 @@ function setTerminalSize(size) {
 // (matching runButton()'s/renderButtons()'s own reading of a missing field) so a per-file button
 // is only dropped when it's *actually* identical to a static one, not just superficially close.
 function _buttonKey(b) {
-  return JSON.stringify([b.label, b.command, !!b.save_first, b.always_show !== false, !!b.clear_first]);
+  return JSON.stringify([b.label, b.command, !!b.save_first, b.always_show !== false, !!b.clear_first, b.menu || '']);
 }
 function getAllButtons() {
   const staticKeys = new Set(STATIC_BUTTONS.map(_buttonKey));
@@ -3914,7 +3914,23 @@ function renderButtons() {
   container.innerHTML = '';
   const buttons = getAllButtons();
   const dirty = isAnyDirty();
+  const seenMenus = new Set();
   buttons.forEach((btn, idx) => {
+    if (btn.menu) {
+      // Every button sharing this menu name renders as one dropdown, at the position of
+      // whichever of them appears first — later members are skipped here since they're already
+      // covered by that one group button.
+      if (seenMenus.has(btn.menu)) return;
+      seenMenus.add(btn.menu);
+      const idxs = buttons.map((_, i) => i).filter(i => buttons[i].menu === btn.menu);
+      const b = document.createElement('button');
+      b.className = 'btn term-run-btn';
+      b.textContent = btn.menu;
+      b.title = idxs.map(i => buttons[i].label || '(no label)').join(', ');
+      b.onclick = e => showButtonMenu(e, idxs);
+      container.appendChild(b);
+      return;
+    }
     const b = document.createElement('button');
     b.className = 'btn term-run-btn';
     b.textContent = btn.label || '(no label)';
@@ -3926,6 +3942,28 @@ function renderButtons() {
     b.onclick = () => runButton(idx);
     container.appendChild(b);
   });
+}
+
+// The dropdown a grouped button (btn.menu) opens — same left-click-reuses-showContextMenu trick
+// as showExportMenu()/showBackupsMenu(), anchored to the group button's own bottom-left corner.
+// save_first is honored per item rather than for the group button itself (a menu can mix
+// save_first and non-save_first commands), and re-checked at open time via isAnyDirty() rather
+// than baked in at the last renderButtons() — the button bar isn't otherwise re-rendered on every
+// keystroke, only _updateDirty()'s direct dataset-based toggle is, which only reaches standalone
+// buttons.
+function showButtonMenu(event, idxs) {
+  const rect = event.currentTarget.getBoundingClientRect();
+  const anchor = {
+    clientX: rect.left, clientY: rect.bottom + 4,
+    preventDefault: () => event.preventDefault(), stopPropagation: () => event.stopPropagation(),
+  };
+  const buttons = getAllButtons();
+  const dirty = isAnyDirty();
+  showContextMenu(anchor, idxs.map(idx => ({
+    label: buttons[idx].label || '(no label)',
+    disabled: !!buttons[idx].save_first && dirty,
+    onclick: () => runButton(idx),
+  })));
 }
 
 // ── API auth ──────────────────────────────────────────────────────────────────
