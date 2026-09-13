@@ -372,22 +372,49 @@ function moveValueToFile(path, targetFile) {
 // ── Right-click context menu ────────────────────────────────────────────────────
 // Replaces the old always-visible icon-button row on sections/fields/array-fields
 // (dragging isn't a menu action — see makeDraggable, which drags from anywhere on the row).
-let _ctxMenuEl = null;
+// _ctxMenuStack holds every currently-open level (root first) — an item with `items` opens
+// another level on top of this stack instead of running an action (see button submenus below),
+// so outside-click/Escape need to check the whole stack, not just one element.
+let _ctxMenuStack = [];
 
 function _closeContextMenu() {
-  if (_ctxMenuEl) { _ctxMenuEl.remove(); _ctxMenuEl = null; }
+  _ctxMenuStack.forEach(m => m.remove());
+  _ctxMenuStack = [];
   document.removeEventListener('mousedown', _ctxMenuOutsideHandler, true);
   document.removeEventListener('keydown', _ctxMenuEscHandler);
 }
-// Only closes on a mousedown OUTSIDE the menu — a plain document-wide listener would fire (and
-// remove the menu) on mousedown over a menu item too, before its own click handler ever runs.
-function _ctxMenuOutsideHandler(e) { if (_ctxMenuEl && !_ctxMenuEl.contains(e.target)) _closeContextMenu(); }
+// Only closes on a mousedown OUTSIDE every open level — a plain document-wide listener would fire
+// (and remove the menu) on mousedown over a menu item too, before its own click handler ever runs.
+function _ctxMenuOutsideHandler(e) {
+  if (_ctxMenuStack.length && !_ctxMenuStack.some(m => m.contains(e.target))) _closeContextMenu();
+}
 function _ctxMenuEscHandler(e) { if (e.key === 'Escape') _closeContextMenu(); }
 
-function showContextMenu(event, items) {
-  event.preventDefault();
-  event.stopPropagation();
-  _closeContextMenu();
+function _positionMenuEl(menu, x, y) {
+  const rect = menu.getBoundingClientRect();
+  if (x + rect.width > window.innerWidth) x = Math.max(0, window.innerWidth - rect.width - 4);
+  if (y + rect.height > window.innerHeight) y = Math.max(0, window.innerHeight - rect.height - 4);
+  menu.style.left = x + 'px';
+  menu.style.top = y + 'px';
+}
+
+// A submenu opens beside the item that triggered it (its right edge), flipping to the left when
+// it would overflow — same idea as _positionMenuEl's clamping, just anchored to a rect instead of
+// a click point.
+function _positionSubmenu(menu, anchorRect) {
+  const rect = menu.getBoundingClientRect();
+  let x = anchorRect.right, y = anchorRect.top;
+  if (x + rect.width > window.innerWidth) x = Math.max(0, anchorRect.left - rect.width);
+  if (y + rect.height > window.innerHeight) y = Math.max(0, window.innerHeight - rect.height - 4);
+  menu.style.left = x + 'px';
+  menu.style.top = y + 'px';
+}
+
+// Builds one menu level's <div>. depth is this level's own index once it's pushed onto
+// _ctxMenuStack — an item with `items` (a submenu trigger, click-to-open per this app's
+// convention rather than hover) uses it to trim any previously-open child level before opening
+// its own, so only one submenu is ever open per parent at a time.
+function _buildMenuLevel(items, depth) {
   const menu = document.createElement('div');
   menu.className = 'context-menu';
   items.forEach(item => {
@@ -398,20 +425,35 @@ function showContextMenu(event, items) {
       return;
     }
     const btn = document.createElement('button');
-    btn.className = 'context-menu-item' + (item.danger ? ' danger' : '');
+    btn.className = 'context-menu-item' + (item.danger ? ' danger' : '') + (item.items ? ' has-submenu' : '');
     btn.textContent = item.label;
     if (item.disabled) btn.disabled = true;
-    btn.onclick = () => { _closeContextMenu(); item.onclick(); };
+    if (item.items) {
+      btn.onclick = e => {
+        e.stopPropagation();
+        _ctxMenuStack.slice(depth + 1).forEach(m => m.remove());
+        _ctxMenuStack = _ctxMenuStack.slice(0, depth + 1);
+        const sub = _buildMenuLevel(item.items, depth + 1);
+        document.body.appendChild(sub);
+        _positionSubmenu(sub, btn.getBoundingClientRect());
+        _ctxMenuStack.push(sub);
+      };
+    } else {
+      btn.onclick = () => { _closeContextMenu(); item.onclick(); };
+    }
     menu.appendChild(btn);
   });
+  return menu;
+}
+
+function showContextMenu(event, items) {
+  event.preventDefault();
+  event.stopPropagation();
+  _closeContextMenu();
+  const menu = _buildMenuLevel(items, 0);
   document.body.appendChild(menu);
-  const rect = menu.getBoundingClientRect();
-  let x = event.clientX, y = event.clientY;
-  if (x + rect.width > window.innerWidth) x = Math.max(0, window.innerWidth - rect.width - 4);
-  if (y + rect.height > window.innerHeight) y = Math.max(0, window.innerHeight - rect.height - 4);
-  menu.style.left = x + 'px';
-  menu.style.top = y + 'px';
-  _ctxMenuEl = menu;
+  _positionMenuEl(menu, event.clientX, event.clientY);
+  _ctxMenuStack = [menu];
   setTimeout(() => {
     document.addEventListener('mousedown', _ctxMenuOutsideHandler, true);
     document.addEventListener('keydown', _ctxMenuEscHandler);
@@ -4017,15 +4059,18 @@ function _renderButtonRow(container, entries, buttons, dirty, disabledTitle) {
   const seenMenus = new Set();
   entries.forEach(({ btn, idx }) => {
     if (btn.menu) {
-      // Every button sharing this menu name renders as one dropdown, at the position of
+      // menu is a "/"-separated path (e.g. "Disk/Advanced") — only the first segment groups at
+      // bar level; the rest nests as a submenu inside that dropdown (see _buildButtonMenuItems).
+      // Every button sharing this top segment renders as one dropdown, at the position of
       // whichever of them appears first — later members are skipped here since they're already
       // covered by that one group button.
-      if (seenMenus.has(btn.menu)) return;
-      seenMenus.add(btn.menu);
-      const idxs = entries.filter(e => e.btn.menu === btn.menu).map(e => e.idx);
+      const topMenu = btn.menu.split('/')[0];
+      if (seenMenus.has(topMenu)) return;
+      seenMenus.add(topMenu);
+      const idxs = entries.filter(e => e.btn.menu && e.btn.menu.split('/')[0] === topMenu).map(e => e.idx);
       const b = document.createElement('button');
       b.className = 'btn term-run-btn';
-      b.textContent = btn.menu;
+      b.textContent = topMenu;
       b.title = disabledTitle || idxs.map(i => buttons[i].label || '(no label)').join(', ');
       b.onclick = e => showButtonMenu(e, idxs);
       container.appendChild(b);
@@ -4044,6 +4089,33 @@ function _renderButtonRow(container, entries, buttons, dirty, disabledTitle) {
   });
 }
 
+// Turns a flat list of {btn, idx, path} entries into a showContextMenu()-compatible items array,
+// recursively — an entry with no path segments left becomes a leaf (runs the button); entries
+// still sharing a next segment collapse into one {label, items} submenu-trigger, which
+// _buildMenuLevel() renders as a click-to-open nested flyout instead of a plain action.
+function _buildButtonMenuItems(entries, dirty) {
+  const items = [];
+  const seenGroups = new Set();
+  entries.forEach(({ btn, idx, path }) => {
+    if (path.length === 0) {
+      items.push({
+        label: btn.label || '(no label)',
+        disabled: !!btn.save_first && dirty,
+        onclick: () => runButton(idx),
+      });
+      return;
+    }
+    const head = path[0];
+    if (seenGroups.has(head)) return;
+    seenGroups.add(head);
+    const sub = entries
+      .filter(e => e.path[0] === head)
+      .map(e => ({ btn: e.btn, idx: e.idx, path: e.path.slice(1) }));
+    items.push({ label: head, items: _buildButtonMenuItems(sub, dirty) });
+  });
+  return items;
+}
+
 // The dropdown a grouped button (btn.menu) opens — same left-click-reuses-showContextMenu trick
 // as showExportMenu()/showBackupsMenu(), anchored to the group button's own bottom-left corner.
 // save_first is honored per item rather than for the group button itself (a menu can mix
@@ -4059,11 +4131,13 @@ function showButtonMenu(event, idxs) {
   };
   const buttons = getAllButtons();
   const dirty = isAnyDirty();
-  showContextMenu(anchor, idxs.map(idx => ({
-    label: buttons[idx].label || '(no label)',
-    disabled: !!buttons[idx].save_first && dirty,
-    onclick: () => runButton(idx),
-  })));
+  // The bar-level dropdown already consumed the shared first "/" segment — strip it here so each
+  // entry's remaining path is what's left to group into (nested) submenus.
+  const entries = idxs.map(idx => ({
+    btn: buttons[idx], idx,
+    path: buttons[idx].menu.split('/').slice(1),
+  }));
+  showContextMenu(anchor, _buildButtonMenuItems(entries, dirty));
 }
 
 // ── API auth ──────────────────────────────────────────────────────────────────

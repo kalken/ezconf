@@ -256,7 +256,7 @@ in
           command     = lib.mkOption { type = lib.types.str;  description = "Shell command to run in the terminal."; };
           save_first  = lib.mkOption { type = lib.types.bool; default = false; description = "Disable the button while there are unsaved changes."; };
           clear_first = lib.mkOption { type = lib.types.bool; default = false; description = "Clear the terminal before running this button's command."; };
-          menu        = lib.mkOption { type = lib.types.str;  default = "";    description = "Group this button into a dropdown menu with this name, instead of giving it its own slot in the button bar. Every button sharing the same menu name appears as one item in that dropdown."; };
+          menu        = lib.mkOption { type = lib.types.str;  default = "";    description = "Group this button into a dropdown menu with this name, instead of giving it its own slot in the button bar. Every button sharing the same menu name appears as one item in that dropdown. Use \"/\" to nest further, e.g. \"Disk/Advanced\" adds an \"Advanced\" submenu inside the \"Disk\" dropdown."; };
           mode        = lib.mkOption { type = lib.types.nullOr (lib.types.enum [ "install" ]); default = null; description = "Set to \"install\" to move this button into its own row, shown only when services.ezconf.mode = \"install\"."; };
         };
       });

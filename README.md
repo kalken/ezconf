@@ -217,6 +217,8 @@ buttons = [
 
 That shows a single "Deploy" button; clicking it opens a dropdown of "Rebuild"/"Boot"/"Test". Each item still honors its own `save_first`/`clear_first` independently.
 
+Use `/` in `menu` to nest a submenu inside that dropdown, e.g. `menu = "Disk/Advanced";` adds an "Advanced" item to the "Disk" dropdown that opens a further flyout — handy for burying rarely-used or destructive commands (like a partition wipe) a click deeper than the everyday ones.
+
 Set `mode = "install"` on a button, and set `mode = "install"` (or `services.ezconf.mode = "install";` in the NixOS module) at the top level too, to keep some buttons out of the ordinary row entirely until an install image needs them:
 
 ```nix
