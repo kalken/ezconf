@@ -458,8 +458,7 @@ function _buildMenuLevel(items, depth) {
     btn.textContent = item.label;
     if (item.disabled) btn.disabled = true;
     if (item.items) {
-      btn.onclick = e => {
-        e.stopPropagation();
+      const openSubmenu = () => {
         _ctxMenuStack.slice(depth + 1).forEach(m => m.remove());
         _ctxMenuStack = _ctxMenuStack.slice(0, depth + 1);
         const sub = _buildMenuLevel(item.items, depth + 1);
@@ -467,6 +466,14 @@ function _buildMenuLevel(items, depth) {
         _positionSubmenu(sub, btn.getBoundingClientRect());
         _ctxMenuStack.push(sub);
       };
+      btn.onclick = e => { e.stopPropagation(); openSubmenu(); };
+      // Hovering also expands a submenu, like a native OS menu (Windows' Start menu, a browser's
+      // menu bar, etc.) — click stays as the reliable way to open one too, since hover doesn't
+      // fire at all on touch. A short delay avoids opening on every incidental mouse pass over
+      // the item; canceled on mouseleave if the pointer didn't linger long enough.
+      let hoverTimer = null;
+      btn.addEventListener('mouseenter', () => { hoverTimer = setTimeout(openSubmenu, 200); });
+      btn.addEventListener('mouseleave', () => { if (hoverTimer) { clearTimeout(hoverTimer); hoverTimer = null; } });
     } else {
       btn.onclick = () => { _closeContextMenu(); item.onclick(); };
     }
