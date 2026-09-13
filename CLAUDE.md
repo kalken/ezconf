@@ -88,7 +88,7 @@ Single `ThreadingHTTPServer` bound to `BIND_ADDR:WEB_PORT` (default `127.0.0.1:9
 - `THEME`, `EZCONF_MODE` (`None` or `'install'` — deploy-time only, see "Install mode" below), `TERMINAL_PORT`
 - `BIND_ADDR`, `TRUSTED_HOSTS` — CSRF Host-header allowlist for `_valid_host`; `"*"` disables the check entirely (for cases like an installer ISO where the reachable address can't be known ahead of time)
 - `CA_FILE`, `BACKUP_DIR`, `BACKUP_COUNT`
-- `STATIC_BUTTONS` — deploy-time terminal buttons from `[[buttons]]` in TOML; deduped against per-file `services.ezconf.buttons` by content in `getAllButtons()`, since the latter becomes the same NixOS option (and thus the same `STATIC_BUTTONS`) once saved and rebuilt
+- `STATIC_BUTTONS` — deploy-time terminal buttons from `[[buttons]]` in TOML; deduped against per-file `services.ezconf.buttons` by `label`+`command` identity in `getAllButtons()` (`_buttonIdentity()`), since the latter becomes the same NixOS option (and thus the same `STATIC_BUTTONS`) once saved and rebuilt — a live edit sharing that identity supersedes and drops the stale static entry, so e.g. adding `menu` to an already-deployed button doesn't show both the old standalone button and the new grouped one until the next rebuild
 - `_SESSION_KEY` — expected `ezconf_session` cookie value
 - `BOOT_ID` — fresh random hex every process start, never persisted (unlike `_SESSION_KEY`) — lets the frontend detect a different process is now serving the page
 - `WEBROOT_HASH` — SHA-256 of `index.html`/`style.css`/theme CSS files, computed once at startup; only changes across a restart when the frontend itself actually changed (a real package upgrade), unlike `BOOT_ID` which changes on every restart
