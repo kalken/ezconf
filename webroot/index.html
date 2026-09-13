@@ -398,15 +398,16 @@ function _positionMenuEl(menu, x, y) {
   menu.style.top = y + 'px';
 }
 
-// Opens flush above anchorRect and left-aligned with it (a "dropup") — used for the terminal
+// Opens above anchorRect and left-aligned with it (a "dropup") — same 4px gap showExportMenu()/
+// showBackupsMenu() use below their own buttons, just mirrored upward. Used for the terminal
 // button bar, which sits at the bottom of the page, so a normal downward dropdown would open
 // off-screen or at least visually detached from the button that opened it.
 function _positionMenuAboveAnchor(menu, anchorRect) {
   const rect = menu.getBoundingClientRect();
   let x = anchorRect.left;
   if (x + rect.width > window.innerWidth) x = Math.max(0, window.innerWidth - rect.width - 4);
-  let y = anchorRect.top - rect.height;
-  if (y < 0) y = anchorRect.bottom; // not enough room above — fall back to below, flush either way
+  let y = anchorRect.top - rect.height - 4;
+  if (y < 0) y = anchorRect.bottom + 4; // not enough room above — fall back to below, same gap
   menu.style.left = x + 'px';
   menu.style.top = y + 'px';
 }
