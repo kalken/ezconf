@@ -197,9 +197,9 @@ services.ezconf = {
 
 `save_first = true` disables the button while there are unsaved changes. `clear_first = true` clears the terminal screen right before the command runs (default `false` — it runs in whatever's already there). The terminal service has `restartIfChanged = false` so active sessions survive `nixos-rebuild switch`.
 
-Buttons set here (in your NixOS configuration, deploy-time) always show, regardless of which tab is open in the editor — they aren't tied to any one config file, so `always_show` has no effect on them.
+Buttons set here (in your NixOS configuration, deploy-time) always show, regardless of which tab is open in the editor — they aren't tied to any one config file.
 
-You can *also* set `services.ezconf.buttons` directly inside a config file — it's a regular NixOS option like any other, editable live in the app, and combines with (rather than replaces) whatever's set above. A button defined this way behaves like `always_show = true` by default, showing regardless of which tab is active; set `always_show = false` on it to only show it while its own defining file is the active tab — handy for a shortcut that only makes sense in the context of that one file.
+You can *also* set `services.ezconf.buttons` directly inside a config file — it's a regular NixOS option like any other, editable live in the app, and combines with (rather than replaces) whatever's set above. A button defined this way shows the same way: always, regardless of which tab is active.
 
 These two aren't really separate: if `services.ezconf.buttons` lives inside `configDir`, it *is* the option set above — a `.json` file there gets merged straight into it, so after you save and `nixos-rebuild`, the exact same buttons start arriving from the NixOS config too. Ezconf notices and shows each one once, not twice.
 

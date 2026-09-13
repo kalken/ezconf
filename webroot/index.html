@@ -3934,11 +3934,9 @@ function setTerminalSize(size) {
 
 // STATIC_BUTTONS (from ezconf.toml's [[buttons]] — see server.py/modules/ezconf.nix) come first:
 // they're deploy-time, not tied to any config file, so they always show regardless of which tab
-// is active. After them, services.ezconf.buttons can also be set in any tab — buttons on the
-// active tab always show (you're editing that file); buttons on other tabs show too unless
-// always_show is explicitly false, which scopes a button to only appear while its own defining
-// file is the active tab. Every tab's config is kept in fileConfigs (loaded at startup), so this
-// doesn't need a fetch.
+// is active. After them, services.ezconf.buttons can also be set in any tab — every button shows
+// regardless of which tab is active. Every tab's config is kept in fileConfigs (loaded at
+// startup), so this doesn't need a fetch.
 //
 // These two sources aren't as independent as they look: services.ezconf.buttons is one NixOS
 // option either way — setting it in a *.json file inside CONFIG_DIR isn't some ezconf-only
@@ -3967,20 +3965,17 @@ function _normalizeButton(b) {
     label: _unwrapButtonField(b.label),
     command: _unwrapButtonField(b.command),
     save_first: _unwrapButtonField(b.save_first),
-    always_show: _unwrapButtonField(b.always_show),
     clear_first: _unwrapButtonField(b.clear_first),
     menu: _unwrapButtonField(b.menu),
     mode: _unwrapButtonField(b.mode),
   };
 }
 function _buttonKey(b) {
-  return JSON.stringify([b.label, b.command, !!b.save_first, b.always_show !== false, !!b.clear_first, b.menu || '', b.mode || '']);
+  return JSON.stringify([b.label, b.command, !!b.save_first, !!b.clear_first, b.menu || '', b.mode || '']);
 }
 function getAllButtons() {
   const staticKeys = new Set(STATIC_BUTTONS.map(_buttonKey));
-  const perFile = files.flatMap(f => f === activeFile
-    ? (config.services?.ezconf?.buttons || [])
-    : ((fileConfigs[f]?.services?.ezconf?.buttons) || []).filter(b => b.always_show !== false))
+  const perFile = files.flatMap(f => fileConfigs[f]?.services?.ezconf?.buttons || [])
     .map(_normalizeButton);
   return [...STATIC_BUTTONS, ...perFile.filter(b => !staticKeys.has(_buttonKey(b)))];
 }
