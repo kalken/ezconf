@@ -376,10 +376,17 @@ function moveValueToFile(path, targetFile) {
 // another level on top of this stack instead of running an action (see button submenus below),
 // so outside-click/Escape need to check the whole stack, not just one element.
 let _ctxMenuStack = [];
+// The element (if any) whose click opened the current top-level menu — lets showContextMenu()'s
+// opts.triggerEl tell a second click on the *same* trigger apart from opening a *different* one
+// (or a plain right-click elsewhere), so it toggles closed instead of just flickering shut and
+// immediately reopening. Kept in sync here rather than per-caller, so it's cleared no matter how
+// the menu actually closes (outside-click, Escape, a leaf action, or a re-render tearing it down).
+let _openMenuTriggerEl = null;
 
 function _closeContextMenu() {
   _ctxMenuStack.forEach(m => m.remove());
   _ctxMenuStack = [];
+  _openMenuTriggerEl = null;
   document.removeEventListener('mousedown', _ctxMenuOutsideHandler, true);
   document.removeEventListener('keydown', _ctxMenuEscHandler);
 }
@@ -462,16 +469,27 @@ function _buildMenuLevel(items, depth) {
 
 // opts.anchorRect, when given, opens the menu as a dropup flush above and left-aligned with that
 // rect (see _positionMenuAboveAnchor) instead of the default click-point positioning — used by
-// showButtonMenu() for the terminal button bar.
+// every button-triggered dropdown in the header/terminal bar (as opposed to a right-click menu,
+// which anchors to the cursor instead).
+//
+// opts.triggerEl, when given, ties the menu to the specific element that opened it — clicking
+// that same element again closes it instead of closing-then-immediately-reopening the same thing
+// (which is what plain _closeContextMenu()-then-reopen would otherwise do, since this function
+// always tears down whatever's open first). Every button-triggered dropdown passes its own
+// button here for exactly that toggle-to-close behavior; a right-click menu leaves it unset,
+// since re-right-clicking the same spot reopening fresh is the expected behavior there.
 function showContextMenu(event, items, opts = {}) {
   event.preventDefault();
   event.stopPropagation();
+  const closingSameTrigger = opts.triggerEl && _openMenuTriggerEl === opts.triggerEl;
   _closeContextMenu();
+  if (closingSameTrigger) return;
   const menu = _buildMenuLevel(items, 0);
   document.body.appendChild(menu);
   if (opts.anchorRect) _positionMenuAboveAnchor(menu, opts.anchorRect);
   else _positionMenuEl(menu, event.clientX, event.clientY);
   _ctxMenuStack = [menu];
+  _openMenuTriggerEl = opts.triggerEl || null;
   setTimeout(() => {
     document.addEventListener('mousedown', _ctxMenuOutsideHandler, true);
     document.addEventListener('keydown', _ctxMenuEscHandler);
@@ -3607,7 +3625,8 @@ function exportSystem() {
 // left-click-reuses-showContextMenu trick as showBackupsMenu(), anchored to the button's own
 // bottom-left corner instead of the real click position.
 function showExportMenu(event) {
-  const rect = event.currentTarget.getBoundingClientRect();
+  const btn = event.currentTarget;
+  const rect = btn.getBoundingClientRect();
   const anchor = {
     clientX: rect.left, clientY: rect.bottom + 4,
     preventDefault: () => event.preventDefault(), stopPropagation: () => event.stopPropagation(),
@@ -3615,7 +3634,7 @@ function showExportMenu(event) {
   showContextMenu(anchor, [
     { label: 'Export all', onclick: () => exportAll() },
     { label: 'Export system (' + NIXOS_TARGET + ')', onclick: () => exportSystem() },
-  ]);
+  ], { triggerEl: btn });
 }
 
 // The counterpart to exportSystem(): writes a zip straight into NIXOS_TARGET on disk,
@@ -3630,7 +3649,8 @@ function importSystem() {
 // The header's "⬇ Import" button opens a dropdown too, same as "⬆ Export" (showExportMenu()) —
 // "Import" is the existing paste/load-a-file-to-merge modal (showImportModal()), unchanged.
 function showImportMenu(event) {
-  const rect = event.currentTarget.getBoundingClientRect();
+  const btn = event.currentTarget;
+  const rect = btn.getBoundingClientRect();
   const anchor = {
     clientX: rect.left, clientY: rect.bottom + 4,
     preventDefault: () => event.preventDefault(), stopPropagation: () => event.stopPropagation(),
@@ -3638,7 +3658,7 @@ function showImportMenu(event) {
   showContextMenu(anchor, [
     { label: 'Import', onclick: () => showImportModal() },
     { label: 'Import system…', onclick: () => importSystem() },
-  ]);
+  ], { triggerEl: btn });
 }
 
 function initSystemImportButton() {
@@ -4155,7 +4175,8 @@ function _buildButtonMenuItems(entries, dirty) {
 // keystroke, only _updateDirty()'s direct dataset-based toggle is, which only reaches standalone
 // buttons.
 function showButtonMenu(event, idxs) {
-  const rect = event.currentTarget.getBoundingClientRect();
+  const btn = event.currentTarget;
+  const rect = btn.getBoundingClientRect();
   const anchor = {
     preventDefault: () => event.preventDefault(), stopPropagation: () => event.stopPropagation(),
   };
@@ -4168,7 +4189,8 @@ function showButtonMenu(event, idxs) {
     path: buttons[idx].menu.split('/').slice(1),
   }));
   // Opens above the button (the bar sits at the bottom of the page) — see _positionMenuAboveAnchor.
-  showContextMenu(anchor, _buildButtonMenuItems(entries, dirty), { anchorRect: rect });
+  // triggerEl: btn is what makes a second click on the same button toggle it closed.
+  showContextMenu(anchor, _buildButtonMenuItems(entries, dirty), { anchorRect: rect, triggerEl: btn });
 }
 
 // ── API auth ──────────────────────────────────────────────────────────────────
@@ -4927,10 +4949,12 @@ async function showBackupsMenu(event) {
   // showContextMenu positions itself at event.clientX/clientY — for a right-click that's exactly
   // the cursor, which is fine, but for this left-click button it'd be wherever inside the button
   // you happened to click. Anchor to the button's own bottom-left corner instead, like a normal
-  // dropdown, by capturing its rect now (currentTarget is only valid during dispatch, so this
-  // has to happen before the await below empties it out) and feeding showContextMenu a
-  // lookalike event with that position instead of the real click coordinates.
-  const rect = event.currentTarget.getBoundingClientRect();
+  // dropdown, by capturing its rect (and the button itself, for the toggle-to-close behavior)
+  // now — currentTarget is only valid during dispatch, so this has to happen before the await
+  // below empties it out — and feeding showContextMenu a lookalike event with that position
+  // instead of the real click coordinates.
+  const btn = event.currentTarget;
+  const rect = btn.getBoundingClientRect();
   const anchor = {
     clientX: rect.left, clientY: rect.bottom + 4,
     preventDefault: () => event.preventDefault(), stopPropagation: () => event.stopPropagation(),
@@ -4941,13 +4965,13 @@ async function showBackupsMenu(event) {
     if (res.ok) backups = (await res.json()).backups || [];
   } catch (e) { /* falls through to the empty-state item below */ }
   if (!backups.length) {
-    showContextMenu(anchor, [{ label: 'No backups yet — one is made on every save.', disabled: true }]);
+    showContextMenu(anchor, [{ label: 'No backups yet — one is made on every save.', disabled: true }], { triggerEl: btn });
     return;
   }
   showContextMenu(anchor, backups.map(b => ({
     label: new Date(b.mtime * 1000).toLocaleString() + '  ·  ' + _formatBackupSize(b.size),
     onclick: () => loadBackup(b.name),
-  })));
+  })), { triggerEl: btn });
 }
 
 // Loads a backup's content into the editor as an unsaved edit — never touches the file on disk,
