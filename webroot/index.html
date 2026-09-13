@@ -2338,8 +2338,8 @@ function parseEnumOptions(nixType) {
   if (!nixType) return null;
   const matches = [...nixType.matchAll(/"([^"]+)"/g)].map(m => m[1]);
   if (!matches.length) return null;
-  // Must actually contain "one of" to be a real enum
-  if (!nixType.includes('one of')) return null;
+  // Must actually be an enum: "one of ..." (2+ values) or "value "x" (singular enum)" (1 value)
+  if (!nixType.includes('one of') && !nixType.includes('singular enum')) return null;
   const hasNull = nixType.startsWith('null or') || nixType.includes('null or');
   return { values: matches, nullable: hasNull };
 }
