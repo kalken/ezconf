@@ -135,6 +135,18 @@ networking.hostName = "myhost";</pre>
   </div>
 </div>
 
+<div class="modal-overlay hidden" id="mkoptions-output-modal">
+  <div class="modal">
+    <div class="modal-title-row">
+      <h2 id="mkoptions-output-title">Autocomplete update</h2>
+    </div>
+    <pre class="mkoptions-output" id="mkoptions-output-text"></pre>
+    <div class="modal-actions">
+      <button class="btn primary" onclick="closeMkoptionsOutputModal()">Close</button>
+    </div>
+  </div>
+</div>
+
 <script>
 // ── Theme ─────────────────────────────────────────────────────────────────────
 function _buildTermTheme() {
@@ -4675,6 +4687,16 @@ function runButton(idx) {
   });
 }
 
+function showMkoptionsOutputModal(text, ok) {
+  document.getElementById('mkoptions-output-title').textContent =
+    ok ? 'Autocomplete updated — warnings' : 'Autocomplete update failed';
+  document.getElementById('mkoptions-output-text').textContent = text;
+  document.getElementById('mkoptions-output-modal').classList.remove('hidden');
+}
+function closeMkoptionsOutputModal() {
+  document.getElementById('mkoptions-output-modal').classList.add('hidden');
+}
+
 async function updateAutocomplete() {
   const btn = document.getElementById('update-ac-btn');
   btn.disabled = true;
@@ -4691,9 +4713,12 @@ async function updateAutocomplete() {
       packages = pkgRes;
       options = optRes;
       if (kernelRes) kernels = kernelRes;
-      setStatus('Autocomplete updated', 3000, 'ok');
+      // -v surfaces per-option/package eval failures that would otherwise pass silently —
+      // show them so a "successful" run that's quietly missing data doesn't go unnoticed.
+      if (data.output) showMkoptionsOutputModal(data.output, true);
+      else setStatus('Autocomplete updated', 3000, 'ok');
     } else {
-      setStatus('Update failed: ' + (data.error || res.status), 6000, 'err');
+      showMkoptionsOutputModal(data.error || ('HTTP ' + res.status), false);
     }
   } catch (e) {
     setStatus('Update failed: ' + e.message, 6000, 'err');

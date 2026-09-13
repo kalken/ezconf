@@ -79,6 +79,7 @@ import io
 import ipaddress
 import json
 import os
+import re
 import secrets
 import shutil
 import ssl
@@ -366,6 +367,14 @@ def _session_from_cookie(headers):
 
 def check_auth(headers):
     return _session_from_cookie(headers) == _SESSION_KEY
+
+
+_ANSI_RE = re.compile(r'\x1b\[[0-9;]*m')
+
+def _strip_ansi(s):
+    """generate-nixos-data.py colors its stderr output for terminal use; the autocomplete/update
+    response is displayed in a plain HTML <pre>, which would otherwise show the raw escape codes."""
+    return _ANSI_RE.sub('', s)
 
 
 def _flatten_stem(rel):
@@ -900,16 +909,19 @@ class StaticHandler(http.server.SimpleHTTPRequestHandler):
             out_dir = AUTOCOMPLETE_DIR or os.path.join(WEBROOT, 'autocomplete')
             env = {**os.environ, 'TARGET': NIXOS_TARGET}
             try:
+                # -v: without it, generate-nixos-data.py silently drops any option/package that
+                # fails to evaluate (see nix_eval() there) — a run can "succeed" while quietly
+                # missing data. -v surfaces those failures on stderr so the frontend can show them.
                 result = subprocess.run(
-                    [MKOPTIONS_CMD, '-o', out_dir],
+                    [MKOPTIONS_CMD, '-v', '-o', out_dir],
                     env=env, capture_output=True, text=True, timeout=600
                 )
+                output = _strip_ansi((result.stdout + result.stderr).strip())
                 if result.returncode == 0:
-                    resp = b'{"ok":true}'
+                    resp = json.dumps({'ok': True, 'output': output}).encode()
                     self.send_response(200)
                 else:
-                    msg = (result.stderr or result.stdout or 'unknown error').strip()
-                    resp = json.dumps({'error': msg}).encode()
+                    resp = json.dumps({'error': output or 'unknown error'}).encode()
                     self.send_response(500)
                 self.send_header('Content-Type', 'application/json')
                 self.send_header('Content-Length', str(len(resp)))

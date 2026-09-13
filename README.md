@@ -294,7 +294,7 @@ services.ezconf = {
 
 ## 🔄 Autocomplete Data
 
-The editor loads NixOS option, package, and kernel data from `autocomplete_dir` if set in the config, otherwise `autocomplete/` under the webroot. The NixOS module sets `autocomplete_dir` to `/var/lib/ezconf/autocomplete/` and generates the data on first start. To regenerate from the UI, the `↻ Autocomplete` button appears automatically when `mkoptions` is configured (the module sets this up).
+The editor loads NixOS option, package, and kernel data from `autocomplete_dir` if set in the config, otherwise `autocomplete/` under the webroot. The NixOS module sets `autocomplete_dir` to `/var/lib/ezconf/autocomplete/` and generates the data on first start. To regenerate from the UI, the `↻ Autocomplete` button appears automatically when `mkoptions` is configured (the module sets this up). If the run fails, or completes with warnings (e.g. an option that failed to evaluate and was skipped), the full output is shown in a popup — no need for the terminal panel to see what went wrong.
 
 For standalone use:
 
