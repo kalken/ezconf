@@ -732,9 +732,9 @@ textarea { resize: vertical; min-height: unset; line-height: 1.5; }
   padding: 0 12px;
   height: 33px;
   flex-shrink: 0;
-  border-bottom: 1px solid var(--border);
+  border-top: 1px solid var(--border);
 }
-.terminal-panel.collapsed .terminal-header { border-bottom: none; }
+.terminal-panel.collapsed .terminal-header { border-top: none; }
 
 .terminal-cmd-btns {
   display: flex;
