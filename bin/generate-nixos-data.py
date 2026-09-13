@@ -109,8 +109,12 @@ def generate_packages(flake_ref, include=None, exclude=None, no_nested=True):
                         extra_env={"PKG_PREFIX": prefix})
 
     info("  Evaluating top-level packages...")
-    for p in eval_set(f"{flake_ref}.pkgs") or []:
-        packages[p["name"]] = p
+    top = eval_set(f"{flake_ref}.pkgs")
+    if top is None:
+        warn("failed to evaluate top-level packages — packages.json will be empty (rerun with -v for details)")
+    else:
+        for p in top:
+            packages[p["name"]] = p
 
     if not no_nested:
         if include:
@@ -120,7 +124,10 @@ def generate_packages(flake_ref, include=None, exclude=None, no_nested=True):
             set_names = nix_eval(
                 [f"{flake_ref}.pkgs", "--apply", DETECT_SETS_EXPR],
                 extra_env={"EXCLUDE_PKG_SETS": exclude or ""},
-            ) or []
+            )
+            if set_names is None:
+                warn("failed to detect nested package sets — none will be included (rerun with -v for details)")
+                set_names = []
 
         for name in set_names:
             info(f"  Evaluating {name}...")
@@ -157,7 +164,10 @@ in builtins.filter (x: x != null) (map safeGet names)
 
 def generate_kernels(flake_ref):
     info("Generating kernels.json...")
-    result = nix_eval([f"{flake_ref}.pkgs", "--apply", KERNELS_EXPR]) or []
+    result = nix_eval([f"{flake_ref}.pkgs", "--apply", KERNELS_EXPR])
+    if result is None:
+        warn("failed to evaluate kernels — kernels.json will be empty (rerun with -v for details)")
+        result = []
     Path(OUTPUT_DIR, "kernels.json").write_text(json.dumps(result))
     info(f"  {len(result)} kernels")
 
@@ -194,7 +204,11 @@ in map (opt: {{
     required = safeGet (o: !(o ? default) && !(o.internal or false) && (o.visible or true) && !(o.readOnly or false)) opt;
 }}) rawList
 """
-    result = nix_eval(["--impure", "--expr", expr]) or []
+    result = nix_eval(["--impure", "--expr", expr])
+    if result is None:
+        warn("failed to evaluate options — options.json will be empty (rerun with -v for details, "
+             "e.g. a missing hardware-configuration.nix import would fail here)")
+        result = []
     # Clear required on options whose description says they are alternatives to another option.
     # NixOS has no formal "mutually exclusive" metadata; the only signal is prose like
     # "Can be used instead of <foo>" or "Use this instead of <bar>".
