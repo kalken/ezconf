@@ -4053,6 +4053,10 @@ function getAllButtons() {
 }
 
 function renderButtons() {
+  // Rebuilds the whole button bar below, which can shift/invalidate the indices any currently
+  // open button dropdown was built from (getAllButtons() re-runs fresh each render) — close it
+  // rather than leave it showing stale entries that could now run the wrong command.
+  _closeContextMenu();
   if (!TERMINAL_ENABLED) return;
   const container = document.getElementById('terminal-cmd-btns');
   const installContainer = document.getElementById('terminal-cmd-btns-install');
