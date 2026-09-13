@@ -467,13 +467,10 @@ function _buildMenuLevel(items, depth) {
         _ctxMenuStack.push(sub);
       };
       btn.onclick = e => { e.stopPropagation(); openSubmenu(); };
-      // Hovering also expands a submenu, like a native OS menu (Windows' Start menu, a browser's
-      // menu bar, etc.) — click stays as the reliable way to open one too, since hover doesn't
-      // fire at all on touch. A short delay avoids opening on every incidental mouse pass over
-      // the item; canceled on mouseleave if the pointer didn't linger long enough.
-      let hoverTimer = null;
-      btn.addEventListener('mouseenter', () => { hoverTimer = setTimeout(openSubmenu, 200); });
-      btn.addEventListener('mouseleave', () => { if (hoverTimer) { clearTimeout(hoverTimer); hoverTimer = null; } });
+      // Hovering also expands a submenu, immediately — like a native OS menu (Windows' Start
+      // menu, a browser's menu bar, etc.). Click stays as the reliable way to open one too, since
+      // hover doesn't fire at all on touch.
+      btn.addEventListener('mouseenter', openSubmenu);
     } else {
       btn.onclick = () => { _closeContextMenu(); item.onclick(); };
     }
