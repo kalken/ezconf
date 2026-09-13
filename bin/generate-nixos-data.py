@@ -283,7 +283,9 @@ def main():
     host = args.hostname
     if not host:
         host = hosts[0]
-        warn(f"Using: {host}")
+        # Only worth flagging when the pick was actually ambiguous (multiple hosts, one silently
+        # chosen) — with a single host there's nothing else it could have been.
+        (warn if len(hosts) > 1 else info)(f"Using: {host}")
     elif host not in hosts:
         error(f"Host '{host}' not found. Available: {' '.join(hosts)}")
 
