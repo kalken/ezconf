@@ -393,7 +393,15 @@ function _closeContextMenu() {
 // Only closes on a mousedown OUTSIDE every open level — a plain document-wide listener would fire
 // (and remove the menu) on mousedown over a menu item too, before its own click handler ever runs.
 function _ctxMenuOutsideHandler(e) {
-  if (_ctxMenuStack.length && !_ctxMenuStack.some(m => m.contains(e.target))) _closeContextMenu();
+  if (!_ctxMenuStack.length) return;
+  if (_ctxMenuStack.some(m => m.contains(e.target))) return; // inside a menu level — not outside
+  // The trigger button itself is also "outside" the menu's own DOM (they're siblings, not
+  // nested), so without this check this mousedown-phase handler would close the menu before the
+  // button's own click handler ever runs — which then sees _openMenuTriggerEl already cleared
+  // and just opens a fresh menu instead of recognizing a toggle-to-close. Leave it to that click
+  // handler to decide instead.
+  if (_openMenuTriggerEl && _openMenuTriggerEl.contains(e.target)) return;
+  _closeContextMenu();
 }
 function _ctxMenuEscHandler(e) { if (e.key === 'Escape') _closeContextMenu(); }
 
