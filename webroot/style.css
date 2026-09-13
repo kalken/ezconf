@@ -711,6 +711,7 @@ textarea { resize: vertical; min-height: unset; line-height: 1.5; }
   flex-direction: column;
   height: 25vh;
   transition: height .18s ease;
+  position: relative; /* anchor for .terminal-header-group, pinned to the bottom edge below */
 }
 .terminal-panel.collapsed { height: 33px !important; }
 /* The install-mode row is a second 33px .terminal-header — collapsed height needs to fit both
@@ -725,6 +726,19 @@ textarea { resize: vertical; min-height: unset; line-height: 1.5; }
 #terminal-cmd-btns.install-mode-disabled { opacity: .45; }
 #terminal-cmd-btns.install-mode-disabled .term-run-btn { pointer-events: none; }
 
+/* position: absolute rather than a plain flex child — pinning it to the panel's bottom edge
+   directly means it stays there through the collapse/expand height transition and the moment
+   .terminal-body gets display:none'd, instead of snapping up to fill the vacated space the way a
+   normal flex child sharing the row with a flex:1 sibling would the instant that sibling
+   disappears from the layout. */
+.terminal-header-group {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+}
 .terminal-header {
   display: flex;
   align-items: center;
@@ -754,7 +768,11 @@ textarea { resize: vertical; min-height: unset; line-height: 1.5; }
   display: flex;
   flex-direction: column;
   position: relative;
+  /* Room for .terminal-header-group, which no longer takes up flex space of its own now that
+     it's position: absolute — without this, its bottom row would sit on top of #term-output. */
+  padding-bottom: 33px;
 }
+.terminal-panel.install-mode .terminal-body { padding-bottom: 66px; }
 .terminal-panel.collapsed .terminal-body { display: none; }
 
 #term-output {

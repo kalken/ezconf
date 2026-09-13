@@ -80,17 +80,19 @@ const _DEFAULT_THEME = '%%EZCONF_THEME%%';
     <div id="term-output"></div>
     <div class="term-status-banner hidden" id="term-status-banner"></div>
   </div>
-  <div class="terminal-header">
-    <div class="terminal-cmd-btns" id="terminal-cmd-btns"></div>
-    <div class="terminal-header-actions">
-      <button class="btn btn-sm" title="Quarter screen" onclick="setTerminalSize('quarter')">◲</button>
-      <button class="btn btn-sm" title="Half screen" onclick="setTerminalSize('half')">⬓</button>
-      <button class="btn btn-sm" title="Full screen" onclick="setTerminalSize('full')">⬒</button>
-      <button class="btn btn-sm" id="term-toggle" title="Show" onclick="toggleTerminal()">▲</button>
+  <div class="terminal-header-group">
+    <div class="terminal-header">
+      <div class="terminal-cmd-btns" id="terminal-cmd-btns"></div>
+      <div class="terminal-header-actions">
+        <button class="btn btn-sm" title="Quarter screen" onclick="setTerminalSize('quarter')">◲</button>
+        <button class="btn btn-sm" title="Half screen" onclick="setTerminalSize('half')">⬓</button>
+        <button class="btn btn-sm" title="Full screen" onclick="setTerminalSize('full')">⬒</button>
+        <button class="btn btn-sm" id="term-toggle" title="Show" onclick="toggleTerminal()">▲</button>
+      </div>
     </div>
-  </div>
-  <div class="terminal-header hidden" id="terminal-header-install">
-    <div class="terminal-cmd-btns" id="terminal-cmd-btns-install"></div>
+    <div class="terminal-header hidden" id="terminal-header-install">
+      <div class="terminal-cmd-btns" id="terminal-cmd-btns-install"></div>
+    </div>
   </div>
 </div>
 
