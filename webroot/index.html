@@ -3949,6 +3949,30 @@ function setTerminalSize(size) {
 // show every such button twice. _buttonKey() normalizes each optional field to its real default
 // (matching runButton()'s/renderButtons()'s own reading of a missing field) so a per-file button
 // is only dropped when it's *actually* identical to a static one, not just superficially close.
+// Any button field can individually be right-click-disabled like any other option (it's a
+// regular object under an array item, not the array item itself, which is the only thing the
+// disable action is barred on) -- that wraps it as { _disabled: true, _value: <original> },
+// which every reader below (_buttonKey, _renderButtonRow, runButton) would otherwise treat as a
+// truthy, non-empty value (rendering literally as "[object Object]" for something like `menu`,
+// or trying to run it as a shell command for `command`). Unwrapping to `undefined` here — not to
+// the preserved _value — matches what actually happens once deployed: json2nix.nix excludes a
+// disabled field from the Nix merge entirely, so the option reverts to its real default, same as
+// never having been set. Only done for per-file buttons; STATIC_BUTTONS comes from deploy-time
+// TOML, which has no way to express this wrapper in the first place.
+function _unwrapButtonField(v) {
+  return isDisabled(v) ? undefined : v;
+}
+function _normalizeButton(b) {
+  return {
+    label: _unwrapButtonField(b.label),
+    command: _unwrapButtonField(b.command),
+    save_first: _unwrapButtonField(b.save_first),
+    always_show: _unwrapButtonField(b.always_show),
+    clear_first: _unwrapButtonField(b.clear_first),
+    menu: _unwrapButtonField(b.menu),
+    mode: _unwrapButtonField(b.mode),
+  };
+}
 function _buttonKey(b) {
   return JSON.stringify([b.label, b.command, !!b.save_first, b.always_show !== false, !!b.clear_first, b.menu || '', b.mode || '']);
 }
@@ -3956,7 +3980,8 @@ function getAllButtons() {
   const staticKeys = new Set(STATIC_BUTTONS.map(_buttonKey));
   const perFile = files.flatMap(f => f === activeFile
     ? (config.services?.ezconf?.buttons || [])
-    : ((fileConfigs[f]?.services?.ezconf?.buttons) || []).filter(b => b.always_show !== false));
+    : ((fileConfigs[f]?.services?.ezconf?.buttons) || []).filter(b => b.always_show !== false))
+    .map(_normalizeButton);
   return [...STATIC_BUTTONS, ...perFile.filter(b => !staticKeys.has(_buttonKey(b)))];
 }
 
