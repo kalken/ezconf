@@ -398,6 +398,19 @@ function _positionMenuEl(menu, x, y) {
   menu.style.top = y + 'px';
 }
 
+// Opens flush above anchorRect and left-aligned with it (a "dropup") — used for the terminal
+// button bar, which sits at the bottom of the page, so a normal downward dropdown would open
+// off-screen or at least visually detached from the button that opened it.
+function _positionMenuAboveAnchor(menu, anchorRect) {
+  const rect = menu.getBoundingClientRect();
+  let x = anchorRect.left;
+  if (x + rect.width > window.innerWidth) x = Math.max(0, window.innerWidth - rect.width - 4);
+  let y = anchorRect.top - rect.height;
+  if (y < 0) y = anchorRect.bottom; // not enough room above — fall back to below, flush either way
+  menu.style.left = x + 'px';
+  menu.style.top = y + 'px';
+}
+
 // A submenu opens beside the item that triggered it (its right edge), flipping to the left when
 // it would overflow — same idea as _positionMenuEl's clamping, just anchored to a rect instead of
 // a click point.
@@ -425,7 +438,7 @@ function _buildMenuLevel(items, depth) {
       return;
     }
     const btn = document.createElement('button');
-    btn.className = 'context-menu-item' + (item.danger ? ' danger' : '') + (item.items ? ' has-submenu' : '');
+    btn.className = 'context-menu-item' + (item.danger ? ' danger' : '');
     btn.textContent = item.label;
     if (item.disabled) btn.disabled = true;
     if (item.items) {
@@ -446,13 +459,17 @@ function _buildMenuLevel(items, depth) {
   return menu;
 }
 
-function showContextMenu(event, items) {
+// opts.anchorRect, when given, opens the menu as a dropup flush above and left-aligned with that
+// rect (see _positionMenuAboveAnchor) instead of the default click-point positioning — used by
+// showButtonMenu() for the terminal button bar.
+function showContextMenu(event, items, opts = {}) {
   event.preventDefault();
   event.stopPropagation();
   _closeContextMenu();
   const menu = _buildMenuLevel(items, 0);
   document.body.appendChild(menu);
-  _positionMenuEl(menu, event.clientX, event.clientY);
+  if (opts.anchorRect) _positionMenuAboveAnchor(menu, opts.anchorRect);
+  else _positionMenuEl(menu, event.clientX, event.clientY);
   _ctxMenuStack = [menu];
   setTimeout(() => {
     document.addEventListener('mousedown', _ctxMenuOutsideHandler, true);
@@ -4126,7 +4143,6 @@ function _buildButtonMenuItems(entries, dirty) {
 function showButtonMenu(event, idxs) {
   const rect = event.currentTarget.getBoundingClientRect();
   const anchor = {
-    clientX: rect.left, clientY: rect.bottom + 4,
     preventDefault: () => event.preventDefault(), stopPropagation: () => event.stopPropagation(),
   };
   const buttons = getAllButtons();
@@ -4137,7 +4153,8 @@ function showButtonMenu(event, idxs) {
     btn: buttons[idx], idx,
     path: buttons[idx].menu.split('/').slice(1),
   }));
-  showContextMenu(anchor, _buildButtonMenuItems(entries, dirty));
+  // Opens above the button (the bar sits at the bottom of the page) — see _positionMenuAboveAnchor.
+  showContextMenu(anchor, _buildButtonMenuItems(entries, dirty), { anchorRect: rect });
 }
 
 // ── API auth ──────────────────────────────────────────────────────────────────

@@ -631,8 +631,6 @@ textarea { resize: vertical; min-height: unset; line-height: 1.5; }
 .context-menu-item:hover { background: var(--select-option-hover); }
 .context-menu-item:disabled { opacity: 0.4; cursor: default; pointer-events: none; }
 .context-menu-item.danger:hover { background: var(--red); color: #fff; }
-.context-menu-item.has-submenu { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.context-menu-item.has-submenu::after { content: '▶'; font-size: 8px; opacity: 0.6; }
 .context-menu-sep { height: 1px; background: var(--border2); margin: 4px 2px; }
 
 /* ── Wildcard autocomplete hint ── */
