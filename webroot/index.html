@@ -439,7 +439,7 @@ function _buildMenuLevel(items, depth) {
       return;
     }
     const btn = document.createElement('button');
-    btn.className = 'context-menu-item' + (item.danger ? ' danger' : '');
+    btn.className = 'context-menu-item' + (item.danger ? ' danger' : '') + (item.items ? ' has-submenu' : '');
     btn.textContent = item.label;
     if (item.disabled) btn.disabled = true;
     if (item.items) {
