@@ -909,18 +909,23 @@ class StaticHandler(http.server.SimpleHTTPRequestHandler):
             out_dir = AUTOCOMPLETE_DIR or os.path.join(WEBROOT, 'autocomplete')
             env = {**os.environ, 'TARGET': NIXOS_TARGET}
             try:
-                # -v: without it, generate-nixos-data.py silently drops any option/package that
-                # fails to evaluate (see nix_eval() there) — a run can "succeed" while quietly
-                # missing data. -v surfaces those failures on stderr so the frontend can show them.
                 result = subprocess.run(
-                    [MKOPTIONS_CMD, '-v', '-o', out_dir],
+                    [MKOPTIONS_CMD, '-o', out_dir],
                     env=env, capture_output=True, text=True, timeout=600
                 )
                 output = _strip_ansi((result.stdout + result.stderr).strip())
                 if result.returncode == 0:
-                    resp = json.dumps({'ok': True, 'output': output}).encode()
+                    # generate-nixos-data.py logs routine progress (info()) on every run, success
+                    # or not — only surface its actual warn()/error() lines here, so a clean run
+                    # stays quiet instead of popping a modal full of "Generating packages.json..."
+                    warnings = '\n'.join(
+                        line for line in output.splitlines()
+                        if line.startswith('Warning:') or line.startswith('Error:')
+                    )
+                    resp = json.dumps({'ok': True, 'output': warnings}).encode()
                     self.send_response(200)
                 else:
+                    # A hard failure needs full context for debugging, not just the filtered lines
                     resp = json.dumps({'error': output or 'unknown error'}).encode()
                     self.send_response(500)
                 self.send_header('Content-Type', 'application/json')
