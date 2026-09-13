@@ -4687,9 +4687,8 @@ function runButton(idx) {
   });
 }
 
-function showMkoptionsOutputModal(text, ok) {
-  document.getElementById('mkoptions-output-title').textContent =
-    ok ? 'Autocomplete updated — warnings' : 'Autocomplete update failed';
+function showMkoptionsOutputModal(text) {
+  document.getElementById('mkoptions-output-title').textContent = 'Autocomplete update failed';
   document.getElementById('mkoptions-output-text').textContent = text;
   document.getElementById('mkoptions-output-modal').classList.remove('hidden');
 }
@@ -4713,12 +4712,11 @@ async function updateAutocomplete() {
       packages = pkgRes;
       options = optRes;
       if (kernelRes) kernels = kernelRes;
-      // data.output is pre-filtered server-side to just Warning:/Error: lines (see server.py) —
-      // a clean run gets the quick toast, one with something worth noticing gets the modal.
-      if (data.output) showMkoptionsOutputModal(data.output, true);
-      else setStatus('Autocomplete updated', 3000, 'ok');
+      // Server only responds ok:true once it's checked the generated files aren't suspiciously
+      // empty (see server.py) — a plain exit 0 doesn't by itself mean the data is any good.
+      setStatus('Autocomplete updated', 3000, 'ok');
     } else {
-      showMkoptionsOutputModal(data.error || ('HTTP ' + res.status), false);
+      showMkoptionsOutputModal(data.error || ('HTTP ' + res.status));
     }
   } catch (e) {
     setStatus('Update failed: ' + e.message, 6000, 'err');

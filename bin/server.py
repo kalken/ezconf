@@ -377,6 +377,16 @@ def _strip_ansi(s):
     return _ANSI_RE.sub('', s)
 
 
+def _is_empty_json_array(path):
+    """A missing file counts as fine here (e.g. running just `ezconf-mkoptions options` legitimately
+    leaves packages.json/kernels.json untouched) — only an existing-but-empty file is suspicious."""
+    try:
+        with open(path) as f:
+            return json.load(f) == []
+    except (OSError, json.JSONDecodeError):
+        return False
+
+
 def _flatten_stem(rel):
     """Turn a CONFIG_DIR-relative path like 'services/nginx.json' into a flat, collision-safe
     backup stem ('services--nginx') so BACKUP_DIR itself never needs subdirectories."""
@@ -910,22 +920,28 @@ class StaticHandler(http.server.SimpleHTTPRequestHandler):
             env = {**os.environ, 'TARGET': NIXOS_TARGET}
             try:
                 result = subprocess.run(
-                    [MKOPTIONS_CMD, '-o', out_dir],
+                    [MKOPTIONS_CMD, '-v', '-o', out_dir],
                     env=env, capture_output=True, text=True, timeout=600
                 )
                 output = _strip_ansi((result.stdout + result.stderr).strip())
                 if result.returncode == 0:
-                    # generate-nixos-data.py logs routine progress (info()) on every run, success
-                    # or not — only surface its actual warn()/error() lines here, so a clean run
-                    # stays quiet instead of popping a modal full of "Generating packages.json..."
-                    warnings = '\n'.join(
-                        line for line in output.splitlines()
-                        if line.startswith('Warning:') or line.startswith('Error:')
-                    )
-                    resp = json.dumps({'ok': True, 'output': warnings}).encode()
-                    self.send_response(200)
+                    # exit 0 doesn't mean the data is actually usable — a total eval failure for
+                    # one file (e.g. a host's configuration.nix importing a missing
+                    # hardware-configuration.nix) still exits 0 with that file written as [].
+                    # Checking the files directly is simpler and more reliable than trying to
+                    # parse generate-nixos-data.py's progress output for signs of trouble.
+                    empty = [
+                        f for f in ('options.json', 'packages.json', 'kernels.json')
+                        if _is_empty_json_array(os.path.join(out_dir, f))
+                    ]
+                    if empty:
+                        msg = f"{', '.join(empty)} came back empty — see output below"
+                        resp = json.dumps({'error': f"{msg}\n\n{output}" if output else msg}).encode()
+                        self.send_response(500)
+                    else:
+                        resp = b'{"ok":true}'
+                        self.send_response(200)
                 else:
-                    # A hard failure needs full context for debugging, not just the filtered lines
                     resp = json.dumps({'error': output or 'unknown error'}).encode()
                     self.send_response(500)
                 self.send_header('Content-Type', 'application/json')
