@@ -750,6 +750,7 @@ textarea { resize: vertical; min-height: unset; line-height: 1.5; }
   overflow: hidden;
   display: flex;
   flex-direction: column;
+  position: relative;
 }
 .terminal-panel.collapsed .terminal-body { display: none; }
 
@@ -758,4 +759,20 @@ textarea { resize: vertical; min-height: unset; line-height: 1.5; }
   overflow: hidden;
   position: relative;
   background: var(--term-bg);
+}
+
+/* Shown/hidden by connectTerminalWs() while the WebSocket itself has no connection -- a fixed
+   overlay rather than writing into the terminal's own scrolling buffer, since repeatedly writing
+   there on every failed reconnect attempt pushed each prior message out of view almost
+   immediately on a short panel, reading as constant flicker rather than one steady status. A
+   sibling of #term-output (anchored to .terminal-body instead), not a child of it -- xterm.js's
+   own Terminal.open() may clear that container's contents when it initializes. */
+.term-status-banner {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  color: var(--term-fg);
+  font-family: var(--font);
+  font-size: 12px;
+  z-index: 5;
 }

@@ -11,6 +11,13 @@ let
   str       = s: ''"${esc s}"'';
   toml-list = xs: "[${lib.concatMapStringsSep ", " str xs}]";
 
+  # Shared between staticToml (so terminal.py knows where to attach) and
+  # ezconf-terminal-session.service's own RuntimeDirectory (so the socket outlives
+  # ezconf-terminal.service's restarts, which is the entire point) -- a dedicated
+  # RuntimeDirectory rather than reusing ezconf.service's own /run/ezconf, since that one gets
+  # torn down and recreated on every restart of *that* unit.
+  dtachSocket = "/run/ezconf-terminal-session/shell.dtach";
+
   preStartScript = p.mkPrestart { inherit cfg staticToml mkoptions package; };
 
   staticToml = pkgs.writeText "ezconf.toml" (lib.concatLines (lib.flatten [
@@ -24,6 +31,7 @@ let
     "system_export_exclude = ${toml-list cfg.systemExportExclude}"
     "auth = ${str cfg.auth.method}"
     "theme = ${str cfg.theme}"
+    (lib.optional cfg.terminalPersist "dtach_socket = ${str dtachSocket}")
     (lib.optional (cfg.mode != null) "mode = ${str cfg.mode}")
     "session_key_file = ${str "/var/lib/ezconf/session.key"}"
     "backup_dir = ${str cfg.backupDir}"
@@ -230,6 +238,12 @@ in
       description = "Shell for the terminal panel. Defaults to the login shell of the service user.";
     };
 
+    terminalPersist = lib.mkOption {
+      type        = lib.types.bool;
+      default     = false;
+      description = "Run the terminal's shell inside a persistent dtach session (ezconf-terminal-session.service, its own systemd unit/cgroup) instead of forking a fresh shell per connection, so a running command survives ezconf-terminal.service restarting (e.g. after nixos-rebuild switch) or a browser reconnect. Requires dtach; only takes effect when terminal = true. Changing this option itself must be applied via nixos-rebuild switch run from outside the ezconf terminal panel (e.g. SSH or console) -- switching it either direction tears down whichever architecture is currently hosting the connection that's running the switch, killing that command mid-flight if run from inside the panel.";
+    };
+
     ports = {
       web      = lib.mkOption { type = lib.types.port; default = 9090; };
       terminal = lib.mkOption { type = lib.types.port; default = 9091; };
@@ -316,13 +330,42 @@ in
       systemd.services.ezconf-terminal = lib.mkIf cfg.terminal {
         description       = "ezconf terminal WebSocket service";
         wantedBy          = [ "multi-user.target" ];
-        after             = [ "ezconf.service" ];
-        restartIfChanged  = false;
+        after             = [ "ezconf.service" ] ++ lib.optional cfg.terminalPersist "ezconf-terminal-session.service";
+        # Without terminalPersist, restarting this unit kills whatever's running inside it, so a
+        # rebuild must never do that automatically -- hence false. With it, the shell lives in
+        # ezconf-terminal-session.service instead (a separate cgroup), so restarting this one
+        # only drops the viewing WebSocket connection for a moment; reconnecting re-attaches to
+        # the same session with nothing lost. Safe to let rebuilds restart it in that case, so it
+        # actually picks up package/config changes instead of never restarting at all.
+        restartIfChanged  = cfg.terminalPersist;
         serviceConfig = {
           User      = cfg.user;
           Group     = cfg.group;
           ExecStart = "${termPkg}/bin/ezconf-terminal --config /run/ezconf/ezconf.toml";
           Restart   = "on-failure";
+        };
+      };
+
+      # The actual shell lives here, not in ezconf-terminal.service -- a *separate* unit/cgroup
+      # is what lets it survive ezconf-terminal.service (or ezconf.service) restarting: systemd's
+      # default KillMode=control-group kills every process in a unit's cgroup on stop, including
+      # descendants that dtach itself forked and reparented away from ezconf-terminal.service's
+      # own PID tree, since orphaning doesn't move a process to a different cgroup. Putting the
+      # session in its own unit sidesteps that entirely. restartIfChanged = false and Restart =
+      # on-failure only (not "always") since this should be about as close to never-restarted as
+      # a systemd unit gets -- every restart is a lost terminal session.
+      systemd.services.ezconf-terminal-session = lib.mkIf (cfg.terminal && cfg.terminalPersist) {
+        description       = "ezconf persistent terminal session (dtach)";
+        wantedBy          = [ "multi-user.target" ];
+        after             = [ "ezconf.service" ]; # needs /run/ezconf/ezconf.toml, written by its preStart
+        restartIfChanged  = false;
+        serviceConfig = {
+          User                 = cfg.user;
+          Group                = cfg.group;
+          ExecStart            = "${termPkg}/bin/ezconf-terminal --config /run/ezconf/ezconf.toml --start-session";
+          Restart              = "on-failure";
+          RuntimeDirectory     = "ezconf-terminal-session";
+          RuntimeDirectoryMode = "0700";
         };
       };
   };

@@ -90,6 +90,7 @@ const _DEFAULT_THEME = '%%EZCONF_THEME%%';
   </div>
   <div class="terminal-body">
     <div id="term-output"></div>
+    <div class="term-status-banner hidden" id="term-status-banner"></div>
   </div>
 </div>
 
@@ -3749,6 +3750,7 @@ let _termFit = null;
 let _termOnData = null;
 let _termReconnectTimer = null;
 let _termReconnectAttempts = 0;
+let _termEverConnected = false;
 
 const _TERM_WS_BASE = (() => {
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -3806,6 +3808,22 @@ async function initTerminal() {
   }
 }
 
+// A fixed overlay rather than writing status into the terminal's own scrolling buffer (what this
+// replaced) -- each failed reconnect attempt writing its own line there pushed the previous one
+// out of view almost immediately on a short panel, reading as flicker rather than one steady
+// message. A separate DOM element isn't touched by that at all, and stays visible continuously
+// across attempts instead. null hides it.
+function _setTermStatusBanner(text) {
+  const el = document.getElementById('term-status-banner');
+  if (!el) return;
+  if (text == null) {
+    el.classList.add('hidden');
+    return;
+  }
+  el.textContent = text;
+  el.classList.remove('hidden');
+}
+
 function connectTerminalWs() {
   if (_termWs) { _termWs.close(); _termWs = null; }
   _termWs = new WebSocket(_TERM_WS_BASE);
@@ -3813,9 +3831,17 @@ function connectTerminalWs() {
   _termWs.onopen = () => {
     _termReconnectAttempts = 0;
     if (_termReconnectTimer) { clearTimeout(_termReconnectTimer); _termReconnectTimer = null; }
+    _setTermStatusBanner(null);
     if (_term && _termFit) {
-      const d = _termFit.proposeDimensions();
-      if (d) _termWs.send(JSON.stringify({ type: 'resize', cols: d.cols, rows: d.rows }));
+      // fit() forces an actual fresh layout/cell-metrics measurement and applies it to _term;
+      // proposeDimensions() alone is a pure calculation that can be stale right after a fast
+      // reconnect (e.g. right after a "Reconnecting..." banner was showing) -- reading _term.cols/rows after
+      // fit() is the same authoritative value a genuine resize event would produce. Sent
+      // unconditionally (not just when fit() itself changes _term's size and fires onResize)
+      // since the *server* side may be a brand new session that's never been told any size yet,
+      // e.g. after ezconf-terminal-session.service restarted independently of this connection.
+      _termFit.fit();
+      _termWs.send(JSON.stringify({ type: 'resize', cols: _term.cols, rows: _term.rows }));
     }
   };
   _termWs.onmessage = (e) => {
@@ -3824,25 +3850,31 @@ function connectTerminalWs() {
     else _term.write(e.data);
   };
   _termWs.onerror = () => {
-    if (_term) _term.write('\r\n\x1b[31mTerminal: connection error — is the ezconf server running?\x1b[0m\r\n');
+    // onclose always follows a WebSocket error, and handles the user-facing status banner --
+    // nothing extra needed here.
   };
   _termWs.onclose = (e) => {
     if (e.wasClean) {
       const panel = document.getElementById('terminal-panel');
       if (!panel.classList.contains('collapsed')) toggleTerminal();
     } else {
-      if (_term) _term.write('\r\n\x1b[33mReconnecting...\x1b[0m\r\n');
       if (_termReconnectAttempts < 10) {
+        _setTermStatusBanner('Reconnecting...');
         _termReconnectAttempts++;
         const delay = Math.min(500 * _termReconnectAttempts, 5000);
         _termReconnectTimer = setTimeout(() => connectTerminalWs(), delay);
-      } else if (_term) {
-        _term.write('\r\n\x1b[31mCould not reconnect to terminal service.\x1b[0m\r\n');
+      } else {
+        _setTermStatusBanner('Could not reconnect to terminal service.');
       }
     }
   };
   if (_termOnData) { _termOnData.dispose(); _termOnData = null; }
-  _term.reset();
+  // Only on the very first connection, not every reconnect -- a reconnect (especially to a
+  // persistent dtach session, see terminalPersist) doesn't mean the shell actually restarted, so
+  // clearing here just adds an extra blank flash before dtach's own attach-time redraw arrives.
+  // Without persistence a reconnect genuinely does get a fresh shell, but appending its output
+  // below whatever was already on screen isn't confusing enough to be worth resetting for either.
+  if (!_termEverConnected) { _term.reset(); _termEverConnected = true; }
   _termOnData = _term.onData((data) => {
     if (_termWs && _termWs.readyState === WebSocket.OPEN) _termWs.send(data);
   });

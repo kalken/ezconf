@@ -16,6 +16,7 @@ import json
 import os
 import secrets
 import select
+import shutil
 import ssl
 import struct
 import subprocess
@@ -90,11 +91,18 @@ def load_toml(path):
         return {}
 
 
-SHELL       = '/bin/sh'
-SESSION_KEY = ''
-PORT        = 9091
-WEBROOT     = '.'
-BIND_ADDR   = '127.0.0.1'
+SHELL        = '/bin/sh'
+SESSION_KEY  = ''
+PORT         = 9091
+WEBROOT      = '.'
+BIND_ADDR    = '127.0.0.1'
+DTACH_SOCKET = None  # set by dtach_socket in TOML; when set, the shell lives in a persistent
+                      # dtach session (see ezconf-terminal-session.service) instead of being
+                      # forked fresh per connection, so a running command survives this service
+                      # restarting (or a reconnect) — attach here, --start-session creates it
+DTACH_BIN    = None  # resolved via shutil.which() at startup; DTACH_SOCKET is only honored if
+                      # this is found, so a deployment without dtach installed just falls back
+                      # to today's non-persistent behavior rather than failing outright
 
 
 def _terminal_ws(handler):
@@ -146,9 +154,21 @@ def _terminal_ws(handler):
             except Exception:
                 pass
 
+        # -a: attach to the persistent session created by ezconf-terminal-session.service
+        # (see --start-session below) instead of forking a fresh shell — a running command
+        # survives this connection (or this whole process) ending, since the shell isn't a
+        # child of ours anymore. -r winch propagates resize (both at attach and live, via the
+        # same set_winsize()/SIGWINCH mechanism already used below — verified this isn't
+        # attach-time-only). -E/-z disable dtach's own detach/suspend key interception, since
+        # our WebSocket closing is what "detaching" means here — nothing in-band should do it.
+        if DTACH_SOCKET and DTACH_BIN:
+            cmd = [DTACH_BIN, '-a', DTACH_SOCKET, '-r', 'winch', '-E', '-z']
+        else:
+            cmd = [SHELL, '-l']
+
         try:
             proc = subprocess.Popen(
-                [SHELL, '-l'],
+                cmd,
                 stdin=slave_fd, stdout=slave_fd, stderr=slave_fd,
                 close_fds=True,
                 preexec_fn=_init_child,
@@ -220,7 +240,14 @@ def _terminal_ws(handler):
             proc = state['proc']
             if proc.poll() is None:
                 proc.terminate()
-            proc.wait(timeout=2)
+                try:
+                    proc.wait(timeout=1)
+                except subprocess.TimeoutExpired:
+                    # A dtach attach client (see DTACH_SOCKET above) doesn't reliably exit on
+                    # SIGTERM alone in testing — without this fallback, the old client leaked on
+                    # every disconnect instead of actually going away.
+                    proc.kill()
+                    proc.wait(timeout=2)
         except Exception:
             pass
         try:
@@ -264,6 +291,10 @@ if __name__ == '__main__':
                     help='file to load/store the session key (must match server.py)')
     ap.add_argument('--cert', metavar='FILE', default=None, help='TLS certificate (PEM)')
     ap.add_argument('--key',  metavar='FILE', default=None, help='TLS private key (PEM)')
+    ap.add_argument('--start-session', action='store_true',
+                    help='exec into a persistent dtach session at dtach_socket instead of '
+                         'starting the WebSocket server; this is ezconf-terminal-session.service, '
+                         'not something to run by hand')
     args = ap.parse_args()
 
     cfg = load_toml(args.config or 'ezconf.toml')
@@ -277,6 +308,22 @@ if __name__ == '__main__':
     except Exception:
         pass
     SHELL = cfg.get('shell') or _passwd_shell or os.environ.get('SHELL') or '/bin/sh'
+
+    DTACH_SOCKET = cfg.get('dtach_socket') or None
+    DTACH_BIN = shutil.which('dtach')
+
+    if args.start_session:
+        if not DTACH_SOCKET:
+            print('error: dtach_socket not set in config', file=sys.stderr)
+            sys.exit(1)
+        if not DTACH_BIN:
+            print('error: dtach not found on PATH', file=sys.stderr)
+            sys.exit(1)
+        # The direct-fork path below sets TERM=xterm-256color for the shell it launches; this
+        # one didn't, since it's exec'd from a plain systemd unit with no such default -- without
+        # it the shell's line editor doesn't know the right terminfo (backspace, etc. break).
+        os.environ['TERM'] = 'xterm-256color'
+        os.execv(DTACH_BIN, [DTACH_BIN, '-N', DTACH_SOCKET, '-r', 'winch', '-E', '-z', SHELL, '-l'])
 
     WEBROOT   = cfg.get('webroot') or WEBROOT
     BIND_ADDR = cfg.get('listen') or BIND_ADDR
