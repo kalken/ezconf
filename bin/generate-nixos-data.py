@@ -5,6 +5,7 @@ import argparse
 import json
 import os
 import re
+import socket
 import subprocess
 import sys
 from pathlib import Path
@@ -282,10 +283,19 @@ def main():
 
     host = args.hostname
     if not host:
-        host = hosts[0]
-        # Only worth flagging when the pick was actually ambiguous (multiple hosts, one silently
-        # chosen) — with a single host there's nothing else it could have been.
-        (warn if len(hosts) > 1 else info)(f"Using: {host}")
+        # networking.hostName is what actually becomes this machine's runtime hostname, so it's a
+        # reliable way to pick the right nixosConfigurations entry without being told explicitly —
+        # matters once a flake defines more than one host (e.g. a shared flake for several
+        # machines), where picking hosts[0] could silently generate data for the wrong one.
+        system_hostname = socket.gethostname().split(".")[0]
+        if system_hostname in hosts:
+            host = system_hostname
+            info(f"Using: {host} (matches this machine's hostname)")
+        else:
+            host = hosts[0]
+            # Only worth flagging when the pick was actually ambiguous (multiple hosts, one
+            # silently chosen) — with a single host there's nothing else it could have been.
+            (warn if len(hosts) > 1 else info)(f"Using: {host}")
     elif host not in hosts:
         error(f"Host '{host}' not found. Available: {' '.join(hosts)}")
 
