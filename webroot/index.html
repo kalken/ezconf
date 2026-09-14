@@ -1256,8 +1256,13 @@ function _showAcTooltip(opt) {
   _acTooltipEl.innerHTML = buildTooltip(opt, opt.type).innerHTML;
   _acTooltipEl.classList.add('tt-visible');
   const listRect = document.getElementById('add-ac-list').getBoundingClientRect();
-  _acTooltipEl.style.left = (listRect.right + 8) + 'px';
-  _acTooltipEl.style.top = listRect.top + 'px';
+  const ttRect = _acTooltipEl.getBoundingClientRect();
+  let left = listRect.right + 8;
+  if (left + ttRect.width > window.innerWidth) left = Math.max(4, listRect.left - ttRect.width - 8);
+  let top = listRect.top;
+  if (top + ttRect.height > window.innerHeight) top = Math.max(4, window.innerHeight - ttRect.height - 4);
+  _acTooltipEl.style.left = left + 'px';
+  _acTooltipEl.style.top = top + 'px';
 }
 function _hideAcTooltip() {
   if (_acTooltipEl) _acTooltipEl.classList.remove('tt-visible');
