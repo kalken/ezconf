@@ -44,6 +44,13 @@ body {
 .btn.primary:hover { background: var(--btn-primary-hover); }
 .btn.active { background: var(--bg4); border-color: var(--border2); color: var(--text); }
 
+/* Both header groups (.btn-group's undo/redo/etc on the left, .header-actions' Import/Export/
+   etc on the right) share this .btn class with no explicit height, so their rendered height
+   depended on each button's own content — a lone glyph (↩ ↪ ↺ ✕) versus glyph+text ("⬇ Import")
+   can have a different intrinsic line-height even at the same font-size, making the two groups
+   look mismatched. An explicit height removes that dependency so every header button matches. */
+.header .btn { height: 28px; }
+
 .btn-group { display: flex; gap: 0; }
 .btn-group .btn { border-radius: 0; }
 .btn-group .btn:first-child { border-radius: var(--radius) 0 0 var(--radius); }
