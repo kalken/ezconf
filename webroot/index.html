@@ -37,10 +37,12 @@ const _DEFAULT_THEME = '%%EZCONF_THEME%%';
 
 <div class="tab-bar-row">
   <div class="tab-bar" id="tab-bar"></div>
+  <div class="tab-bar-actions hidden" id="md-menu-wrap">
+    <button class="btn" id="md-menu-btn" onclick="showMarkdownMenu(event)" data-tooltip="Browse .md files in the system root">Docs</button>
+  </div>
   <div class="tab-bar-actions">
     <button class="btn" id="flat-mode-btn" onclick="toggleFlatMode()" data-tooltip="Toggle flat / nested view">≡</button>
     <button class="btn" id="tree-toggle-btn" onclick="toggleTree()" data-tooltip="Show/hide the configuration tree">Tree</button>
-    <button class="btn hidden" id="readme-toggle-btn" onclick="toggleReadme()" data-tooltip="Show/hide the system's README.md">Readme</button>
   </div>
 </div>
 
@@ -68,9 +70,12 @@ const _DEFAULT_THEME = '%%EZCONF_THEME%%';
     <div class="tree" id="tree-root"></div>
   </div>
 
-  <div class="readme-panel hidden" id="readme-panel">
-    <div class="sidebar-header">README.md</div>
-    <div class="readme-content" id="readme-content"></div>
+  <div class="markdown-panel hidden" id="markdown-panel">
+    <div class="sidebar-header markdown-panel-header">
+      <span id="markdown-panel-title"></span>
+      <button class="icon-btn" id="markdown-close-btn" onclick="closeMarkdownPanel()" data-tooltip="Close">✕</button>
+    </div>
+    <div class="markdown-content" id="markdown-content"></div>
   </div>
 
   <div class="main">
@@ -1854,38 +1859,64 @@ function toggleTree() {
   document.getElementById('tree-toggle-btn').classList.toggle('active', visible);
 }
 
-// The Readme button itself starts hidden in markup — initReadme() (called once at page load)
-// reveals it only if NIXOS_TARGET/README.md actually exists, since there's nothing useful to
-// toggle otherwise. Content is fetched once and cached in _readmeContent for the rest of the
-// session; it's system-root, read-only, and not something ezconf itself can change.
-let _readmeExists = false;
-let _readmeContent = '';
+// The Docs button/wrapper starts hidden in markup — initMarkdownMenu() (called once at page
+// load) reveals it only if NIXOS_TARGET's root actually has at least one *.md file, since
+// there's nothing to browse otherwise. The file list is fetched once at load; each file's
+// content is fetched lazily (on first pick) and cached in _markdownContentCache — it's
+// system-root, read-only, and not something ezconf itself can change.
+let _markdownFiles = [];
+const _markdownContentCache = {};
 
-async function initReadme() {
+async function initMarkdownMenu() {
   try {
-    const res = await fetch('/api/v1/readme');
+    const res = await apiFetch('/markdown-files');
     const data = await res.json();
-    _readmeExists = !!data.exists;
-    _readmeContent = data.content || '';
+    _markdownFiles = data.files || [];
   } catch (e) {
-    _readmeExists = false;
+    _markdownFiles = [];
   }
-  document.getElementById('readme-toggle-btn').classList.toggle('hidden', !_readmeExists);
-  if (!_readmeExists) return;
-  const visible = localStorage.getItem('ezconf-readme-visible') === 'true';
-  if (visible) {
-    document.getElementById('readme-content').textContent = _readmeContent;
-    document.getElementById('readme-panel').classList.remove('hidden');
-    document.getElementById('readme-toggle-btn').classList.add('active');
-  }
+  document.getElementById('md-menu-wrap').classList.toggle('hidden', !_markdownFiles.length);
+  if (!_markdownFiles.length) return;
+  const lastFile = localStorage.getItem('ezconf-markdown-file');
+  const visible = localStorage.getItem('ezconf-markdown-visible') === 'true';
+  if (visible && lastFile && _markdownFiles.includes(lastFile)) openMarkdownFile(lastFile);
 }
 
-function toggleReadme() {
-  if (!_readmeExists) return;
-  const visible = document.getElementById('readme-panel').classList.toggle('hidden') === false;
-  localStorage.setItem('ezconf-readme-visible', visible ? 'true' : 'false');
-  document.getElementById('readme-toggle-btn').classList.toggle('active', visible);
-  if (visible) document.getElementById('readme-content').textContent = _readmeContent;
+// Same left-click-reuses-showContextMenu trick as showBackupsMenu() — anchored to the button's
+// own bottom-left corner like a normal dropdown.
+function showMarkdownMenu(event) {
+  const btn = event.currentTarget;
+  const rect = btn.getBoundingClientRect();
+  const anchor = {
+    clientX: rect.left, clientY: rect.bottom + 4,
+    preventDefault: () => event.preventDefault(), stopPropagation: () => event.stopPropagation(),
+  };
+  showContextMenu(anchor, _markdownFiles.map(name => ({
+    label: name,
+    onclick: () => openMarkdownFile(name),
+  })), { triggerEl: btn });
+}
+
+async function openMarkdownFile(name) {
+  if (!(name in _markdownContentCache)) {
+    try {
+      const res = await apiFetch('/markdown-files/content?name=' + encodeURIComponent(name));
+      const data = await res.json();
+      _markdownContentCache[name] = data.content || '';
+    } catch (e) {
+      _markdownContentCache[name] = '(failed to load)';
+    }
+  }
+  document.getElementById('markdown-panel-title').textContent = name;
+  document.getElementById('markdown-content').textContent = _markdownContentCache[name];
+  document.getElementById('markdown-panel').classList.remove('hidden');
+  localStorage.setItem('ezconf-markdown-file', name);
+  localStorage.setItem('ezconf-markdown-visible', 'true');
+}
+
+function closeMarkdownPanel() {
+  document.getElementById('markdown-panel').classList.add('hidden');
+  localStorage.setItem('ezconf-markdown-visible', 'false');
 }
 
 let flatMode = new URLSearchParams(location.search).get('mode') === 'flat';
@@ -5265,7 +5296,7 @@ async function loadSiblingFiles() {
   initSystemImportButton();
   initImportDrop();
   initRestartWatcher();
-  initReadme();
+  initMarkdownMenu();
   document.getElementById('flat-mode-btn').classList.toggle('active', flatMode);
   const treeVisible = localStorage.getItem('ezconf-tree-visible') === 'true';
   document.getElementById('sidebar').classList.toggle('hidden', !treeVisible);
