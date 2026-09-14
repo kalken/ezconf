@@ -21,17 +21,17 @@ const _DEFAULT_THEME = '%%EZCONF_THEME%%';
 
 <div class="header">
 <div class="btn-group">
-    <button class="btn" onclick="undo()" title="Undo (Ctrl+Z)">↩</button>
-    <button class="btn" onclick="redo()" title="Redo (Ctrl+Y)">↪</button>
-    <button class="btn" onclick="reloadConfig()" title="Reload saved file">↺</button>
+    <button class="btn" onclick="undo()" data-tooltip="Undo (Ctrl+Z)">↩</button>
+    <button class="btn" onclick="redo()" data-tooltip="Redo (Ctrl+Y)">↪</button>
+    <button class="btn" onclick="reloadConfig()" data-tooltip="Reload saved file">↺</button>
   </div>
   <div class="header-actions">
     <input type="file" id="import-file-input" accept=".json,.nix,.zip" style="display:none">
     <input type="file" id="system-import-input" accept=".zip" style="display:none">
-    <button class="btn" onclick="showImportMenu(event)" title="Import a Nix/JSON snippet, or a system export zip">⬇ Import</button>
-    <button class="btn" onclick="showExportMenu(event)" title="Export the current config, or the whole system">⬆ Export</button>
-    <button class="btn" id="save-btn" onclick="saveToServer()" title="Save all changes">⬇ Save</button>
-    <button class="btn" onclick="location.href='/logout'" title="Log out">⏻</button>
+    <button class="btn" onclick="showImportMenu(event)" data-tooltip="Import a Nix/JSON snippet, or a system export zip">⬇ Import</button>
+    <button class="btn" onclick="showExportMenu(event)" data-tooltip="Export the current config, or the whole system">⬆ Export</button>
+    <button class="btn" id="save-btn" onclick="saveToServer()" data-tooltip="Save all changes">⬇ Save</button>
+    <button class="btn" onclick="location.href='/logout'" data-tooltip="Log out">⏻</button>
   </div>
 </div>
 
@@ -83,10 +83,10 @@ const _DEFAULT_THEME = '%%EZCONF_THEME%%';
     <div class="terminal-header">
       <div class="terminal-cmd-btns" id="terminal-cmd-btns"></div>
       <div class="terminal-header-actions">
-        <button class="btn btn-sm" title="Quarter screen" onclick="setTerminalSize('quarter')">◲</button>
-        <button class="btn btn-sm" title="Half screen" onclick="setTerminalSize('half')">⬓</button>
-        <button class="btn btn-sm" title="Full screen" onclick="setTerminalSize('full')">⬒</button>
-        <button class="btn btn-sm" id="term-toggle" title="Show" onclick="toggleTerminal()">▲</button>
+        <button class="btn btn-sm" data-tooltip="Quarter screen" onclick="setTerminalSize('quarter')">◲</button>
+        <button class="btn btn-sm" data-tooltip="Half screen" onclick="setTerminalSize('half')">⬓</button>
+        <button class="btn btn-sm" data-tooltip="Full screen" onclick="setTerminalSize('full')">⬒</button>
+        <button class="btn btn-sm" id="term-toggle" data-tooltip="Show" onclick="toggleTerminal()">▲</button>
       </div>
     </div>
     <div class="terminal-header hidden" id="terminal-header-install">
@@ -388,6 +388,10 @@ function _closeContextMenu() {
   _ctxMenuStack.forEach(m => m.remove());
   _ctxMenuStack = [];
   _openMenuTriggerEl = null;
+  // Removing a hovered item's element out from under the cursor doesn't reliably fire its own
+  // mouseleave (browsers vary), so _hideHoverTooltip() wouldn't otherwise run — leaving the
+  // tooltip stuck visible after the menu it belonged to is already gone.
+  _hideHoverTooltip();
   document.removeEventListener('mousedown', _ctxMenuOutsideHandler, true);
   document.removeEventListener('keydown', _ctxMenuEscHandler);
 }
@@ -458,7 +462,7 @@ function _buildMenuLevel(items, depth) {
     btn.className = 'context-menu-item' + (item.danger ? ' danger' : '') + (item.items ? ' has-submenu' : '');
     btn.textContent = item.label;
     if (item.disabled) btn.disabled = true;
-    if (item.title) btn.title = item.title;
+    if (item.title) _wireHoverTooltip(btn, item.title, 'right');
     if (item.items) {
       const openSubmenu = () => {
         _ctxMenuStack.slice(depth + 1).forEach(m => m.remove());
@@ -2187,6 +2191,64 @@ function _wireTooltipAnchor(anchor, opt, typeLabel) {
     _fieldTooltipEl.scrollTop += e.deltaY;
     e.preventDefault();
   }, { passive: false });
+}
+
+// A JS-driven, plain-text hover tooltip for ordinary buttons — same shared-element/mouseenter-
+// mouseleave pattern as _showFieldTooltip() above, used instead of the native `title` attribute
+// because native tooltips render unreliably (often not at all) inside a Chromium "app mode" /
+// installed-PWA window, which the README explicitly documents as a supported way to run this
+// app (Chrome/Brave/etc.'s "Install page as app"). Text lives in `data-tooltip`, not `title`, so
+// the browser's own native tooltip mechanism never engages at all — leaving it as `title` too
+// would show a second, native tooltip on top of this one in a normal browser tab.
+let _hoverTooltipEl = null;
+function _showHoverTooltip(anchor, text, side) {
+  if (!text) return;
+  if (!_hoverTooltipEl) {
+    _hoverTooltipEl = document.createElement('div');
+    _hoverTooltipEl.className = 'tooltip hover-tooltip';
+    _hoverTooltipEl.style.position = 'fixed';
+    document.body.appendChild(_hoverTooltipEl);
+  }
+  _hoverTooltipEl.textContent = text;
+  _hoverTooltipEl.classList.add('tt-visible');
+  const rect = anchor.getBoundingClientRect();
+  const ttRect = _hoverTooltipEl.getBoundingClientRect();
+  if (side === 'right') {
+    // For a menu item, stacked vertically among siblings — below would overlap the next item.
+    let left = rect.right + 8;
+    if (left + ttRect.width > window.innerWidth) left = Math.max(4, rect.left - ttRect.width - 8);
+    let top = rect.top;
+    if (top + ttRect.height > window.innerHeight) top = Math.max(4, window.innerHeight - ttRect.height - 4);
+    _hoverTooltipEl.style.left = left + 'px';
+    _hoverTooltipEl.style.top = top + 'px';
+  } else {
+    // For a toolbar button — below by default, flipping above if there's no room (e.g. the
+    // terminal command bar, which sits at the bottom of the page).
+    let left = rect.left;
+    if (left + ttRect.width > window.innerWidth) left = Math.max(4, window.innerWidth - ttRect.width - 4);
+    let top = rect.bottom + 6;
+    if (top + ttRect.height > window.innerHeight) top = Math.max(4, rect.top - ttRect.height - 6);
+    _hoverTooltipEl.style.left = left + 'px';
+    _hoverTooltipEl.style.top = top + 'px';
+  }
+}
+function _hideHoverTooltip() {
+  if (_hoverTooltipEl) _hoverTooltipEl.classList.remove('tt-visible');
+}
+// text, when given, is stored as data-tooltip on the element (setting it up front); omit it to
+// just (re-)wire listeners onto an element whose data-tooltip is already set in markup, or is
+// updated directly by other code later (e.g. toggleTerminal() swapping Show/Hide) — the listener
+// reads data-tooltip live at hover time either way, so later updates need no re-wiring.
+function _wireHoverTooltip(el, text, side) {
+  if (text !== undefined) el.dataset.tooltip = text;
+  el.addEventListener('mouseenter', () => _showHoverTooltip(el, el.dataset.tooltip, side));
+  el.addEventListener('mouseleave', _hideHoverTooltip);
+}
+// Wires every element under root that already has a data-tooltip set in markup (the header and
+// terminal-bar buttons) — called once at init, rather than converting each one by hand.
+function _initHoverTooltips(root) {
+  if (!root) return;
+  root.querySelectorAll('[data-tooltip]').forEach(el => _wireHoverTooltip(el));
 }
 
 // Detaches `el` from its current parent, returning a function that reinserts it in the exact
@@ -3988,7 +4050,7 @@ function toggleTerminal() {
     panel.classList.remove('collapsed');
     panel.style.height = panel._openHeight || '25vh';
     btn.textContent = '▼';
-    btn.title = 'Hide';
+    btn.dataset.tooltip = 'Hide';
     initTerminal().then(() => {
       if (_term) {
         if (!_termWs || _termWs.readyState === WebSocket.CLOSED) connectTerminalWs();
@@ -4003,7 +4065,7 @@ function toggleTerminal() {
     panel.style.height = INSTALL_MODE ? '66px' : '33px';
     panel.classList.add('collapsed');
     btn.textContent = '▲';
-    btn.title = 'Show';
+    btn.dataset.tooltip = 'Show';
   }
 }
 
@@ -4130,7 +4192,7 @@ function _renderButtonRow(container, entries, buttons, dirty, disabledTitle) {
       const b = document.createElement('button');
       b.className = 'btn term-run-btn';
       b.textContent = topMenu;
-      b.title = disabledTitle || idxs.map(i => buttons[i].label || '(no label)').join(', ');
+      _wireHoverTooltip(b, disabledTitle || idxs.map(i => buttons[i].label || '(no label)').join(', '));
       b.onclick = e => showButtonMenu(e, idxs);
       container.appendChild(b);
       return;
@@ -4138,7 +4200,7 @@ function _renderButtonRow(container, entries, buttons, dirty, disabledTitle) {
     const b = document.createElement('button');
     b.className = 'btn term-run-btn';
     b.textContent = btn.label || '(no label)';
-    b.title = disabledTitle || btn.command;
+    _wireHoverTooltip(b, disabledTitle || btn.command);
     if (btn.save_first) {
       b.dataset.saveFirst = '1';
       b.disabled = dirty;
@@ -5072,6 +5134,8 @@ async function loadSiblingFiles() {
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 (async () => {
+  _initHoverTooltips(document.querySelector('.header'));
+  _initHoverTooltips(document.querySelector('.terminal-header-group'));
   if (!TERMINAL_ENABLED) {
     const tp = document.getElementById('terminal-panel');
     if (tp) tp.style.display = 'none';
@@ -5081,12 +5145,12 @@ async function loadSiblingFiles() {
     document.getElementById('terminal-header-install').classList.remove('hidden');
     const ordinaryRow = document.getElementById('terminal-cmd-btns');
     ordinaryRow.classList.add('install-mode-disabled');
-    ordinaryRow.title = 'Disabled in install mode';
+    _wireHoverTooltip(ordinaryRow, 'Disabled in install mode');
   }
   if (MKOPTIONS_ENABLED) {
     const btn = document.createElement('button');
     btn.className = 'btn'; btn.id = 'update-ac-btn';
-    btn.title = 'Regenerate autocomplete data from NixOS options';
+    _wireHoverTooltip(btn, 'Regenerate autocomplete data from NixOS options');
     btn.textContent = '↻ Autocomplete';
     btn.onclick = updateAutocomplete;
     const actions = document.querySelector('.header-actions');
@@ -5095,7 +5159,7 @@ async function loadSiblingFiles() {
   if (BACKUP_ENABLED) {
     const btn = document.createElement('button');
     btn.className = 'btn'; btn.id = 'backups-btn';
-    btn.title = 'Load a backup of the active file';
+    _wireHoverTooltip(btn, 'Load a backup of the active file');
     btn.textContent = '🕐 Backups';
     btn.onclick = showBackupsMenu;
     const actions = document.querySelector('.header-actions');

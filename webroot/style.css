@@ -277,6 +277,11 @@ body {
    positioning above, and above .floating-add-container (z-index 2000) since that's usually
    where #add-ac-list lives while this is shown. */
 .ac-tooltip { z-index: 2100; }
+/* Button tooltips (_showHoverTooltip) are one plain-text line, not the rich description/default/
+   example HTML .tooltip's default sizing was built for — the 260px min-width above would pad
+   most of them with a lot of empty space. Wrapping (white-space/word-break/max-width) stays
+   inherited from .tooltip, for the rare long command that needs it. */
+.hover-tooltip { min-width: 0; padding: 5px 8px; z-index: 1100; }
 /* Tooltip visibility: .tt-anchor wraps just the rendered title text so the hover target is the
    text itself, not the whole reserved-width key column (which is wider than short titles). It's
    JS-driven (_wireTooltipAnchor toggles .tt-visible) rather than plain :hover because .tt-anchor
