@@ -186,6 +186,11 @@ BOOT_ID = secrets.token_hex(8)
 # — a restart alone doesn't necessarily mean anything the frontend serves actually changed, but a
 # real upgrade always does, and unlike a settings change there's no way to apply it live at all.
 WEBROOT_HASH = ''
+# The ezconf flake's own short git revision, baked into a VERSION file inside WEBROOT at build
+# time (see modules/ezconf-packages.nix) — read once, same timing as WEBROOT_HASH. Falls back to
+# 'dev' when that file doesn't exist, which is the normal case for a plain `python3 server.py`
+# run straight from a git checkout rather than through the Nix package.
+EZCONF_VERSION = 'dev'
 
 
 def make_ssl_context():
@@ -655,6 +660,16 @@ def _config_stem(name):
         return None
     rel = os.path.relpath(path, os.path.realpath(CONFIG_DIR))
     return _flatten_stem(rel)
+
+
+def _read_ezconf_version():
+    """See EZCONF_VERSION above."""
+    try:
+        with open(os.path.join(WEBROOT, 'VERSION')) as f:
+            v = f.read().strip()
+        return v or 'dev'
+    except OSError:
+        return 'dev'
 
 
 def _compute_webroot_hash():
@@ -1254,6 +1269,7 @@ class StaticHandler(http.server.SimpleHTTPRequestHandler):
                 .replace('%%EZCONF_NIXOS_TARGET%%', NIXOS_TARGET.replace('\\', '\\\\').replace("'", "\\'"))
                 .replace('%%EZCONF_BOOT_ID%%', BOOT_ID)
                 .replace('%%EZCONF_WEBROOT_HASH%%', WEBROOT_HASH)
+                .replace('%%EZCONF_VERSION%%', EZCONF_VERSION)
                 # Escape "</" so a command/label containing "</script>" can't prematurely close
                 # the <script> block this gets embedded into as a JS array literal.
                 .replace('%%EZCONF_BUTTONS%%', json.dumps(STATIC_BUTTONS).replace('</', '<\\/'))
@@ -1463,6 +1479,7 @@ if __name__ == '__main__':
     BACKUP_COUNT = args.backup_count if args.backup_count is not None else int(cfg.get('backup_count', 5))
 
     WEBROOT_HASH = _compute_webroot_hash()
+    EZCONF_VERSION = _read_ezconf_version()
 
     use_tls = os.path.exists(CERT_FILE) and os.path.exists(KEY_FILE)
     scheme = 'https' if use_tls else 'http'

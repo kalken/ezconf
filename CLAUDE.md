@@ -195,6 +195,8 @@ The command-button bar sits below the terminal output, not above it — `.termin
 
 The `ezconf` derivation installs `webroot/` and `bin/server.py`. Autocomplete data is not installed — it's user-generated, belongs in a writable directory.
 
+**Version tracking**: `ezconf-packages.nix` takes a `version` argument (default `"dev"`) written verbatim into `$out/share/ezconf/VERSION` at build time; `bin/server.py` reads that file once at startup (`EZCONF_VERSION`, `_read_ezconf_version()` — same timing as `WEBROOT_HASH`) and templates it into `index.html` (`%%EZCONF_VERSION%%`), shown in the statusbar's bottom-right corner. Both `flake.nix`'s own `packages.ezconf` and `modules/ezconf.nix` (the NixOS module — `self.shortRev or "dev"`, `self` being ezconf's *own* flake self-reference regardless of which flake consumes it as an input) pass `self.shortRev`, so a deployed system's VERSION file reflects exactly which commit the consuming flake's `flake.lock` has ezconf pinned to. `self.shortRev` (like `self.rev`) is only set for a clean, committed git tree — a dirty checkout falls back to `"dev"` via `or`, not an eval error.
+
 ## NixOS module (`modules/ezconf.nix`)
 
 Up to three systemd services under `services.ezconf.enable`:

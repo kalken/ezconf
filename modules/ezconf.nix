@@ -1,8 +1,8 @@
-_:
+self:
 { config, lib, pkgs, ... }:
 let
   cfg      = config.services.ezconf;
-  p        = import ./ezconf-packages.nix { inherit pkgs; };
+  p        = import ./ezconf-packages.nix { inherit pkgs; version = self.shortRev or "dev"; };
   package  = p.ezconf;
   termPkg  = p."ezconf-terminal";
   mkoptions = p."ezconf-mkoptions";

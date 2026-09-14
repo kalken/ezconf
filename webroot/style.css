@@ -570,7 +570,9 @@ textarea { resize: vertical; min-height: unset; line-height: 1.5; }
 }
 .status-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--green2); display: inline-block; margin-right: 4px; transition: background .2s; }
 .status-dot.dirty { background: var(--dirty-color); }
-.theme-switcher { display: flex; gap: 5px; align-items: center; margin-left: auto; }
+.statusbar-right { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; margin-left: auto; }
+.status-version { font-size: 9px; color: var(--text3); white-space: nowrap; cursor: default; }
+.theme-switcher { display: flex; gap: 5px; align-items: center; }
 .theme-swatch { width: 12px; height: 12px; border-radius: 50%; cursor: pointer; border: 2px solid transparent; padding: 0; flex-shrink: 0; transition: outline .15s; }
 .theme-swatch.active { outline: 2px solid var(--accent); outline-offset: 1px; }
 .theme-swatch-nixos { background: #060e1a; border-color: #2a3a54; }

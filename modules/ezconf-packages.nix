@@ -1,9 +1,10 @@
-{ pkgs }:
+{ pkgs, version ? "dev" }:
 rec {
   python = pkgs.python3.withPackages (ps: [ ps.python-pam ps.cryptography ]);
 
   ezconf = pkgs.stdenv.mkDerivation {
-    name             = "ezconf";
+    pname             = "ezconf";
+    inherit version;
     src              = ../.;
     nativeBuildInputs = [ pkgs.makeWrapper ];
     meta = {
@@ -15,6 +16,7 @@ rec {
       mkdir -p $out/share
       cp -r webroot $out/share/ezconf
       install -Dm644 bin/server.py -t $out/share/ezconf/
+      echo -n "${version}" > $out/share/ezconf/VERSION
       makeWrapper ${python}/bin/python3 $out/bin/ezconf \
         --add-flags "$out/share/ezconf/server.py" \
         --add-flags "--webroot $out/share/ezconf"

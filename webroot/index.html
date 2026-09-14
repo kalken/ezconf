@@ -106,11 +106,14 @@ const _DEFAULT_THEME = '%%EZCONF_THEME%%';
   <span><span class="status-dot"></span><span class="status-ready">Ready</span></span>
   <span id="status-path" data-tooltip="Click to copy" onclick="navigator.clipboard.writeText(this.textContent).then(()=>setStatus('Copied',1200))">root</span>
   <span id="status-info"></span>
-  <span class="theme-switcher">
-    <button class="theme-swatch theme-swatch-nixos" onclick="setTheme('nixos')" data-tooltip="NixOS theme"></button>
-    <button class="theme-swatch theme-swatch-dark"  onclick="setTheme('dark')"  data-tooltip="Dark theme"></button>
-    <button class="theme-swatch theme-swatch-light" onclick="setTheme('light')" data-tooltip="Light theme"></button>
-  </span>
+  <div class="statusbar-right">
+    <span id="status-version" data-tooltip="ezconf version">%%EZCONF_VERSION%%</span>
+    <span class="theme-switcher">
+      <button class="theme-swatch theme-swatch-nixos" onclick="setTheme('nixos')" data-tooltip="NixOS theme"></button>
+      <button class="theme-swatch theme-swatch-dark"  onclick="setTheme('dark')"  data-tooltip="Dark theme"></button>
+      <button class="theme-swatch theme-swatch-light" onclick="setTheme('light')" data-tooltip="Light theme"></button>
+    </span>
+  </div>
 </div>
 
 <div class="modal-overlay hidden" id="import-modal">

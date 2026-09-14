@@ -14,7 +14,7 @@
       perSystem = forAllSystems (system:
         let
           pkgs = nixpkgs.legacyPackages.${system};
-          p    = import ./modules/ezconf-packages.nix { inherit pkgs; };
+          p    = import ./modules/ezconf-packages.nix { inherit pkgs; version = self.shortRev or "dev"; };
         in {
           packages = {
             default              = p.ezconf;
