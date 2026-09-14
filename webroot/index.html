@@ -5490,21 +5490,21 @@ async function loadSiblingFiles() {
     ordinaryRow.classList.add('install-mode-disabled');
     _wireHoverTooltip(ordinaryRow, 'Disabled in install mode');
   }
-  if (MKOPTIONS_ENABLED) {
-    const btn = document.createElement('button');
-    btn.className = 'btn'; btn.id = 'update-ac-btn';
-    _wireHoverTooltip(btn, 'Regenerate autocomplete data from NixOS options');
-    btn.innerHTML = _nixosLogoSvg(false) + ' Autocomplete';
-    btn.onclick = updateAutocomplete;
-    const actions = document.querySelector('.header-actions');
-    actions.insertBefore(btn, actions.firstChild);
-  }
   if (BACKUP_ENABLED) {
     const btn = document.createElement('button');
     btn.className = 'btn'; btn.id = 'backups-btn';
     _wireHoverTooltip(btn, 'Load a backup of the active file');
     btn.textContent = '🕐 Backups';
     btn.onclick = showBackupsMenu;
+    const actions = document.querySelector('.header-actions');
+    actions.insertBefore(btn, actions.firstChild);
+  }
+  if (MKOPTIONS_ENABLED) {
+    const btn = document.createElement('button');
+    btn.className = 'btn'; btn.id = 'update-ac-btn';
+    _wireHoverTooltip(btn, 'Regenerate autocomplete data from NixOS options');
+    btn.innerHTML = _nixosLogoSvg(false) + ' Autocomplete';
+    btn.onclick = updateAutocomplete;
     const actions = document.querySelector('.header-actions');
     actions.insertBefore(btn, actions.firstChild);
   }
