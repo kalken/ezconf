@@ -922,6 +922,7 @@ textarea { resize: vertical; min-height: unset; line-height: 1.5; }
   font-size: 12px;
   z-index: 5;
 }
-.nixos-spinner { width: 28px; height: 28px; animation: nixos-spin 1.4s linear infinite; flex-shrink: 0; }
+.nixos-spinner { width: 28px; height: 28px; flex-shrink: 0; }
+.nixos-spinner.spin { animation: nixos-spin 1.4s linear infinite; }
 .btn .nixos-spinner { width: 13px; height: 13px; }
 @keyframes nixos-spin { to { transform: rotate(360deg); } }

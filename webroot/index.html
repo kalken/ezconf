@@ -4282,14 +4282,16 @@ async function initTerminal() {
   }
 }
 
-// Shared spinning-icon markup, used both by the terminal reconnect banner below and by
-// updateAutocomplete()'s button while a regen is running. The icon is the NixOS snowflake
-// (nix-snowflake-colours.svg from github.com/NixOS/nixos-artwork, CC-BY-SA), pared down to just
-// its drawable geometry -- one path (plus its own mirrored twin) repeated via <use> at 60deg
-// rotations, keeping the original coordinates/transforms as-is so re-checking against the source
-// stays straightforward. .nixos-spinner's own size (style.css) is what each call site scales it
-// to -- the markup itself is size-agnostic.
-const _NIXOS_SPINNER_SVG = `<svg class="nixos-spinner" viewBox="0 0 501.56251 501.56249" aria-hidden="true">
+// Shared NixOS-snowflake icon markup, used both by the terminal reconnect banner below and by
+// updateAutocomplete()'s button (both as a static idle icon and, with spinning: true, while a
+// regen is running). The icon is the NixOS snowflake (nix-snowflake-colours.svg from
+// github.com/NixOS/nixos-artwork, CC-BY-SA), pared down to just its drawable geometry -- one
+// path (plus its own mirrored twin) repeated via <use> at 60deg rotations, keeping the original
+// coordinates/transforms as-is so re-checking against the source stays straightforward.
+// .nixos-spinner's own size (style.css) is what each call site scales it to -- the markup itself
+// is size-agnostic; the "spin" class is what actually animates it (see @keyframes nixos-spin).
+function _nixosLogoSvg(spinning = false) {
+  return `<svg class="nixos-spinner${spinning ? ' spin' : ''}" viewBox="0 0 501.56251 501.56249" aria-hidden="true">
   <defs>
     <linearGradient id="ns-grad-a" x1="200.59668" y1="351.41116" x2="290.08701" y2="506.18814" gradientUnits="userSpaceOnUse" gradientTransform="translate(70.650339,-1055.1511)">
       <stop offset="0" stop-color="#699ad7"/><stop offset="0.24345198" stop-color="#7eb1dd"/><stop offset="1" stop-color="#7ebae4"/>
@@ -4310,6 +4312,7 @@ const _NIXOS_SPINNER_SVG = `<svg class="nixos-spinner" viewBox="0 0 501.56251 50
     </g>
   </g>
 </svg>`;
+}
 
 // A fixed overlay rather than writing status into the terminal's own scrolling buffer (what this
 // replaced) -- each failed reconnect attempt writing its own line there pushed the previous one
@@ -4323,7 +4326,7 @@ function _setTermStatusBanner(text, spinning = false) {
     el.classList.add('hidden');
     return;
   }
-  el.innerHTML = (spinning ? _NIXOS_SPINNER_SVG : '') + '<span>' + _escHtml(text) + '</span>';
+  el.innerHTML = (spinning ? _nixosLogoSvg(true) : '') + '<span>' + _escHtml(text) + '</span>';
   el.classList.remove('hidden');
 }
 
@@ -5254,7 +5257,7 @@ function closeMkoptionsOutputModal() {
 async function updateAutocomplete() {
   const btn = document.getElementById('update-ac-btn');
   btn.disabled = true;
-  btn.innerHTML = _NIXOS_SPINNER_SVG + ' Updating…';
+  btn.innerHTML = _nixosLogoSvg(true) + ' Autocomplete';
   try {
     const res = await apiFetch('/autocomplete/update', { method: 'POST' });
     const data = await res.json().catch(() => ({}));
@@ -5277,7 +5280,7 @@ async function updateAutocomplete() {
     setStatus('Update failed: ' + e.message, 6000, 'err');
   } finally {
     btn.disabled = false;
-    btn.textContent = '↻ Autocomplete';
+    btn.innerHTML = _nixosLogoSvg(false) + ' Autocomplete';
   }
 }
 
@@ -5491,7 +5494,7 @@ async function loadSiblingFiles() {
     const btn = document.createElement('button');
     btn.className = 'btn'; btn.id = 'update-ac-btn';
     _wireHoverTooltip(btn, 'Regenerate autocomplete data from NixOS options');
-    btn.textContent = '↻ Autocomplete';
+    btn.innerHTML = _nixosLogoSvg(false) + ' Autocomplete';
     btn.onclick = updateAutocomplete;
     const actions = document.querySelector('.header-actions');
     actions.insertBefore(btn, actions.firstChild);
