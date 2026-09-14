@@ -388,10 +388,6 @@ function _closeContextMenu() {
   _ctxMenuStack.forEach(m => m.remove());
   _ctxMenuStack = [];
   _openMenuTriggerEl = null;
-  // Removing a hovered item's element out from under the cursor doesn't reliably fire its own
-  // mouseleave (browsers vary), so _hideMenuItemTooltip() wouldn't otherwise run — leaving the
-  // tooltip stuck visible after the menu it belonged to is already gone.
-  _hideMenuItemTooltip();
   document.removeEventListener('mousedown', _ctxMenuOutsideHandler, true);
   document.removeEventListener('keydown', _ctxMenuEscHandler);
 }
@@ -444,37 +440,6 @@ function _positionSubmenu(menu, anchorRect) {
   menu.style.top = y + 'px';
 }
 
-// A plain-text tooltip for menu items, shown/hidden via mouseenter/mouseleave rather than the
-// native title attribute — title tooltips only (re)appear after the browser's own hover-and-wait
-// heuristic, which often just doesn't retrigger at all when moving directly from one menu item
-// to an adjacent one (no title-less gap for the browser to reset on), so switching between two
-// button-command tooltips inside an open dropdown could show the first and then go silent for
-// every item after it. JS-driven display reacts to the actual mouseenter event instead, the same
-// approach _showFieldTooltip()/_wireTooltipAnchor() already use for field descriptions.
-let _menuItemTooltipEl = null;
-function _showMenuItemTooltip(anchor, text) {
-  if (!text) return;
-  if (!_menuItemTooltipEl) {
-    _menuItemTooltipEl = document.createElement('div');
-    _menuItemTooltipEl.className = 'tooltip menu-item-tooltip';
-    _menuItemTooltipEl.style.position = 'fixed';
-    document.body.appendChild(_menuItemTooltipEl);
-  }
-  _menuItemTooltipEl.textContent = text;
-  _menuItemTooltipEl.classList.add('tt-visible');
-  const rect = anchor.getBoundingClientRect();
-  const ttRect = _menuItemTooltipEl.getBoundingClientRect();
-  let left = rect.right + 8;
-  if (left + ttRect.width > window.innerWidth) left = Math.max(4, rect.left - ttRect.width - 8);
-  let top = rect.top;
-  if (top + ttRect.height > window.innerHeight) top = Math.max(4, window.innerHeight - ttRect.height - 4);
-  _menuItemTooltipEl.style.left = left + 'px';
-  _menuItemTooltipEl.style.top = top + 'px';
-}
-function _hideMenuItemTooltip() {
-  if (_menuItemTooltipEl) _menuItemTooltipEl.classList.remove('tt-visible');
-}
-
 // Builds one menu level's <div>. depth is this level's own index once it's pushed onto
 // _ctxMenuStack — an item with `items` (a submenu trigger, click-to-open per this app's
 // convention rather than hover) uses it to trim any previously-open child level before opening
@@ -493,10 +458,7 @@ function _buildMenuLevel(items, depth) {
     btn.className = 'context-menu-item' + (item.danger ? ' danger' : '') + (item.items ? ' has-submenu' : '');
     btn.textContent = item.label;
     if (item.disabled) btn.disabled = true;
-    if (item.title) {
-      btn.addEventListener('mouseenter', () => _showMenuItemTooltip(btn, item.title));
-      btn.addEventListener('mouseleave', _hideMenuItemTooltip);
-    }
+    if (item.title) btn.title = item.title;
     if (item.items) {
       const openSubmenu = () => {
         _ctxMenuStack.slice(depth + 1).forEach(m => m.remove());
