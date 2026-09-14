@@ -1257,7 +1257,7 @@ function _showAcTooltip(opt, itemEl) {
   _acTooltipEl.classList.add('tt-visible');
   const listRect = document.getElementById('add-ac-list').getBoundingClientRect();
   const itemRect = (itemEl || document.getElementById('add-ac-list')).getBoundingClientRect();
-  const left = listRect.right + 8;
+  const left = listRect.right + 2;
   _acTooltipEl.style.left = left + 'px';
   _acTooltipEl.style.top = itemRect.top + 'px';
 }
