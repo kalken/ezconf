@@ -458,6 +458,7 @@ function _buildMenuLevel(items, depth) {
     btn.className = 'context-menu-item' + (item.danger ? ' danger' : '') + (item.items ? ' has-submenu' : '');
     btn.textContent = item.label;
     if (item.disabled) btn.disabled = true;
+    if (item.title) btn.title = item.title;
     if (item.items) {
       const openSubmenu = () => {
         _ctxMenuStack.slice(depth + 1).forEach(m => m.remove());
@@ -4158,6 +4159,7 @@ function _buildButtonMenuItems(entries, dirty) {
     if (path.length === 0) {
       items.push({
         label: btn.label || '(no label)',
+        title: btn.command,
         disabled: !!btn.save_first && dirty,
         onclick: () => runButton(idx),
       });
@@ -4169,7 +4171,11 @@ function _buildButtonMenuItems(entries, dirty) {
     const sub = entries
       .filter(e => e.path[0] === head)
       .map(e => ({ btn: e.btn, idx: e.idx, path: e.path.slice(1) }));
-    items.push({ label: head, items: _buildButtonMenuItems(sub, dirty) });
+    items.push({
+      label: head,
+      title: sub.map(e => e.btn.label || '(no label)').join(', '),
+      items: _buildButtonMenuItems(sub, dirty),
+    });
   });
   return items;
 }
