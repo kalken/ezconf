@@ -24,7 +24,6 @@ const _DEFAULT_THEME = '%%EZCONF_THEME%%';
     <button class="btn" onclick="undo()" title="Undo (Ctrl+Z)">↩</button>
     <button class="btn" onclick="redo()" title="Redo (Ctrl+Y)">↪</button>
     <button class="btn" onclick="reloadConfig()" title="Reload saved file">↺</button>
-    <button class="btn" onclick="clearConfig()" title="Clear all configuration">✕</button>
   </div>
   <div class="header-actions">
     <input type="file" id="import-file-input" accept=".json,.nix,.zip" style="display:none">
@@ -3185,12 +3184,6 @@ function redo() {
   if (globalHistoryIndex >= globalHistory.length - 1) return;
   globalHistoryIndex++;
   _restoreSnapshot(globalHistory[globalHistoryIndex]);
-}
-
-function clearConfig() {
-  if (!confirm('Clear all configuration?')) return;
-  Object.keys(config).forEach(k => delete config[k]);
-  renderAll();
 }
 
 async function reloadConfig() {
