@@ -2216,10 +2216,10 @@ function _showHoverTooltip(text, x, y) {
   // Anchored to the actual cursor position (where mouseenter fired), not the hovered element's
   // own box — a wide element (a long tab, a terminal command button) would otherwise show the
   // tooltip anchored to its edge, potentially far from where the mouse actually is.
-  let left = x + 12;
-  if (left + ttRect.width > window.innerWidth) left = Math.max(4, x - ttRect.width - 12);
-  let top = y + 16;
-  if (top + ttRect.height > window.innerHeight) top = Math.max(4, y - ttRect.height - 16);
+  let left = x + 4;
+  if (left + ttRect.width > window.innerWidth) left = Math.max(4, x - ttRect.width - 4);
+  let top = y + 12;
+  if (top + ttRect.height > window.innerHeight) top = Math.max(4, y - ttRect.height - 12);
   _hoverTooltipEl.style.left = left + 'px';
   _hoverTooltipEl.style.top = top + 'px';
 }
