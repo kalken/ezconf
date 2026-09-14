@@ -647,14 +647,14 @@ textarea { resize: vertical; min-height: unset; line-height: 1.5; }
 .floating-add-container { position: fixed; z-index: 2000; display: flex; flex-direction: column; gap: 6px; }
 /* Row width matches .autocomplete-list's own max-width below, so the input+button row and the
    suggestion dropdown line up as one unified block instead of the row looking narrower than the
-   list underneath it. Input and button are both flex: 1 -- an equal 50/50 split of that 520px,
-   not a fixed input width alongside the button's own natural size. */
+   list underneath it. The input takes whatever's left after the Add button's own natural width
+   (flex: 1) -- both share an explicit height instead, so they read as one seamless unit rather
+   than two controls of slightly different sizes sitting side by side. */
 .floating-add-row { display: flex; align-items: center; width: 520px; }
-.floating-add-row .autocomplete-wrap.floating-add,
-.floating-add-row #add-commit-btn { flex: 1; min-width: 0; }
-.floating-add-row #add-commit-btn { justify-content: center; }
+.autocomplete-wrap.floating-add { flex: 1; min-width: 0; }
+.floating-add-row #add-commit-btn { height: 30px; box-sizing: border-box; }
 .autocomplete-wrap.floating-add input {
-  width: 100%; background: var(--select-option-bg); border: 1px solid var(--border2);
+  width: 100%; height: 30px; box-sizing: border-box; background: var(--select-option-bg); border: 1px solid var(--border2);
   border-radius: var(--radius); box-shadow: 0 4px 16px var(--shadow); padding: 6px 10px;
 }
 /* Flush against the input row below it, instead of the small gap .autocomplete-list normally
