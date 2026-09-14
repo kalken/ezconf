@@ -107,7 +107,7 @@ const _DEFAULT_THEME = '%%EZCONF_THEME%%';
   <span id="status-path" data-tooltip="Click to copy" onclick="navigator.clipboard.writeText(this.textContent).then(()=>setStatus('Copied',1200))">root</span>
   <span id="status-info"></span>
   <div class="statusbar-right">
-    <span id="status-version" data-tooltip="ezconf version">%%EZCONF_VERSION%%</span>
+    <span id="status-version" data-tooltip="ezconf version">version: %%EZCONF_VERSION%%</span>
     <span class="theme-switcher">
       <button class="theme-swatch theme-swatch-nixos" onclick="setTheme('nixos')" data-tooltip="NixOS theme"></button>
       <button class="theme-swatch theme-swatch-dark"  onclick="setTheme('dark')"  data-tooltip="Dark theme"></button>
