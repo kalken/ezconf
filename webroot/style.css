@@ -104,15 +104,24 @@ body {
 .layout { display: flex; flex: 1; overflow: hidden; flex-direction: row-reverse; }
 
 /* ── Sidebar ── */
+/* Floats over .editor-area (position: absolute, anchored to .main below) instead of occupying
+   its own column at the screen's right edge — .main stays the visible width either way, this
+   panel just overlaps its right side rather than shrinking it. */
 .sidebar {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
   width: max-content;
   min-width: 140px;
+  max-width: 70%;
   background: var(--bg2);
   border-left: 1px solid var(--border);
+  box-shadow: -8px 0 24px var(--shadow);
   display: flex;
   flex-direction: column;
-  flex-shrink: 0;
   overflow: hidden;
+  z-index: 20;
 }
 .sidebar-header {
   padding: 8px 12px;
@@ -223,7 +232,7 @@ body {
 .markdown-content img { max-width: 100%; border-radius: var(--radius-sm); }
 
 /* ── Main ── */
-.main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+.main { flex: 1; display: flex; flex-direction: column; overflow: hidden; position: relative; }
 
 /* Only ever houses the always-hidden add-input/button below — a home for showAddOptionMenu() to
    detach them from and restore them to (right-click "Add option..."/"Add sub option..." is the

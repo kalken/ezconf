@@ -65,11 +65,6 @@ const _DEFAULT_THEME = '%%EZCONF_THEME%%';
 </div>
 
 <div class="layout">
-  <div class="sidebar hidden" id="sidebar">
-    <div class="sidebar-header">Configuration tree</div>
-    <div class="tree" id="tree-root"></div>
-  </div>
-
   <div class="markdown-panel hidden" id="markdown-panel">
     <div class="sidebar-header markdown-panel-header">
       <span id="markdown-panel-title"></span>
@@ -81,6 +76,12 @@ const _DEFAULT_THEME = '%%EZCONF_THEME%%';
   <div class="main">
     <div class="editor-area" id="editor-area">
       <div class="editor-placeholder">Loading…</div>
+    </div>
+    <!-- Floats over the editor area (position: absolute, .main is its positioning context)
+         instead of occupying its own column at the screen's right edge. -->
+    <div class="sidebar hidden" id="sidebar">
+      <div class="sidebar-header">Configuration tree</div>
+      <div class="tree" id="tree-root"></div>
     </div>
   </div>
 </div>
