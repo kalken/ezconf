@@ -107,7 +107,7 @@ const _DEFAULT_THEME = '%%EZCONF_THEME%%';
   <span id="status-path" data-tooltip="Click to copy" onclick="navigator.clipboard.writeText(this.textContent).then(()=>setStatus('Copied',1200))">root</span>
   <span id="status-info"></span>
   <div class="statusbar-right">
-    <span id="status-version" data-tooltip="ezconf version">version: %%EZCONF_VERSION%%</span>
+    <span id="status-version" data-tooltip="ezconf version"></span>
     <span class="theme-switcher">
       <button class="theme-swatch theme-swatch-nixos" onclick="setTheme('nixos')" data-tooltip="NixOS theme"></button>
       <button class="theme-swatch theme-swatch-dark"  onclick="setTheme('dark')"  data-tooltip="Dark theme"></button>
@@ -201,6 +201,21 @@ function _applyInitialTheme() {
   document.querySelectorAll('.theme-swatch').forEach(b =>
     b.classList.toggle('active', b.classList.contains('theme-swatch-' + t))
   );
+}
+
+// VERSION lives right next to index.html/style.css in WEBROOT (written there by the Nix
+// derivation, see modules/ezconf-packages.nix) — no backend involvement needed at all, it's
+// already served like any other static file. A 404 (no Nix build, e.g. running
+// `python3 server.py` straight from a git checkout) is the normal local-dev case, hence the
+// 'dev' fallback. Fetched once at load, not polled — it can only change via a process restart,
+// which the existing restart-detection/reload logic already handles.
+async function initVersion() {
+  let v = 'dev';
+  try {
+    const res = await fetch('VERSION', { cache: 'no-cache' });
+    if (res.ok) v = (await res.text()).trim() || 'dev';
+  } catch (e) { /* stays 'dev' */ }
+  document.getElementById('status-version').textContent = 'version: ' + v;
 }
 
 // ── State ─────────────────────────────────────────────────────────────────────
@@ -5486,6 +5501,7 @@ async function loadSiblingFiles() {
   initImportDrop();
   initRestartWatcher();
   initMarkdownMenu();
+  initVersion();
   document.getElementById('flat-mode-btn').classList.toggle('active', flatMode);
   const treeVisible = localStorage.getItem('ezconf-tree-visible') === 'true';
   document.getElementById('sidebar').classList.toggle('hidden', !treeVisible);
