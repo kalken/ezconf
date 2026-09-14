@@ -2250,7 +2250,7 @@ function _wireHoverTooltip(el, text) {
   const rearm = e => {
     lastX = e.clientX; lastY = e.clientY;
     _hideHoverTooltip();
-    _hoverTooltipTimer = setTimeout(() => _showHoverTooltip(el.dataset.tooltip, lastX, lastY), 1500);
+    _hoverTooltipTimer = setTimeout(() => _showHoverTooltip(el.dataset.tooltip, lastX, lastY), 1000);
   };
   el.addEventListener('mouseenter', rearm);
   el.addEventListener('mousemove', rearm);
