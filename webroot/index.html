@@ -4357,7 +4357,7 @@ function _makeTab(name) {
   tab.className = 'btn tab' + (name === activeFile ? ' active' : '') + (disabled ? ' is-disabled' : '');
   tab.tabIndex = 0;
   tab.dataset.file = name;
-  _wireHoverTooltip(tab, name + ' — double-click to rename, drag to move between folders');
+  _wireHoverTooltip(tab, 'Right-click for options — double-click to rename, drag to move between folders');
   const label = document.createElement('span');
   label.textContent = _tabLabel(name);
   tab.appendChild(label);
