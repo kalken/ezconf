@@ -1859,6 +1859,125 @@ function toggleTree() {
   document.getElementById('tree-toggle-btn').classList.toggle('active', visible);
 }
 
+// Minimal Markdown → HTML parser, no dependencies — ported near-verbatim from
+// github.com/kalken/ezblog's app.js (same zero-dependency philosophy as this project). Raw HTML
+// in the source passes through unescaped outside of code spans/blocks, same as that source —
+// acceptable here since these files come straight from NIXOS_TARGET's root, which an
+// authenticated ezconf user already has full local access to (see resolve_config_path()'s "not
+// a security boundary" note).
+function parseMarkdown(text) {
+  const escape = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+  // Stash fenced code blocks before any other processing
+  const stash = [];
+  const stashPush = s => { stash.push(s); return `\x02${stash.length - 1}\x03`; };
+  const stashPop = s => s.replace(/\x02(\d+)\x03/g, (_, i) => stash[+i]);
+
+  text = text.replace(/^```(\w*)\n([\s\S]*?)^```/gm, (_, lang, code) =>
+    stashPush(`<pre><code${lang ? ` class="language-${lang}"` : ''}>${escape(code.trimEnd())}</code></pre>`)
+  );
+
+  function inline(s) {
+    return stashPop(s
+      .replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (_, alt, src) => { const s = src.replace(/^\.\.\//, ''); return `<a href="${s}"><img alt="${alt}" src="${s}"></a>`; })
+      .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>')
+      .replace(/`([^`]+)`/g, (_, c) => `<code>${escape(c)}</code>`)
+      .replace(/\*\*\*(.+?)\*\*\*/g, '<strong><em>$1</em></strong>')
+      .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+      .replace(/(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)/g, '<em>$1</em>')
+      .replace(/~~(.+?)~~/g, '<del>$1</del>')
+    );
+  }
+
+  const lines = text.split('\n');
+  const out = [];
+  let i = 0;
+
+  const isBlock = l =>
+    /^#{1,6}\s/.test(l) ||
+    /^[-*+]\s/.test(l) ||
+    /^\d+\.\s/.test(l) ||
+    /^>\s/.test(l) ||
+    /^(?:---|\*\*\*|___)\s*$/.test(l) ||
+    /^\x02\d+\x03$/.test(l.trim());
+
+  while (i < lines.length) {
+    const line = lines[i];
+
+    // Stashed code block
+    if (/^\x02\d+\x03$/.test(line.trim())) {
+      out.push(stashPop(line.trim()));
+      i++;
+      continue;
+    }
+
+    // Heading
+    const hm = line.match(/^(#{1,6})\s+(.+)/);
+    if (hm) {
+      const lvl = hm[1].length;
+      out.push(`<h${lvl}>${inline(hm[2])}</h${lvl}>`);
+      i++;
+      continue;
+    }
+
+    // Horizontal rule
+    if (/^(?:---|\*\*\*|___)\s*$/.test(line)) {
+      out.push('<hr>');
+      i++;
+      continue;
+    }
+
+    // Blockquote
+    if (/^>\s?/.test(line)) {
+      const bq = [];
+      while (i < lines.length && /^>\s?/.test(lines[i])) {
+        bq.push(lines[i].replace(/^>\s?/, ''));
+        i++;
+      }
+      out.push(`<blockquote>${parseMarkdown(bq.join('\n'))}</blockquote>`);
+      continue;
+    }
+
+    // Unordered list
+    if (/^[-*+]\s/.test(line)) {
+      const items = [];
+      while (i < lines.length && /^[-*+]\s/.test(lines[i])) {
+        items.push(`<li>${inline(lines[i].replace(/^[-*+]\s/, ''))}</li>`);
+        i++;
+      }
+      out.push(`<ul>${items.join('')}</ul>`);
+      continue;
+    }
+
+    // Ordered list
+    if (/^\d+\.\s/.test(line)) {
+      const items = [];
+      while (i < lines.length && /^\d+\.\s/.test(lines[i])) {
+        items.push(`<li>${inline(lines[i].replace(/^\d+\.\s/, ''))}</li>`);
+        i++;
+      }
+      out.push(`<ol>${items.join('')}</ol>`);
+      continue;
+    }
+
+    // Blank line
+    if (!line.trim()) {
+      i++;
+      continue;
+    }
+
+    // Paragraph — collect until blank line or block element
+    const p = [];
+    while (i < lines.length && lines[i].trim() && !isBlock(lines[i])) {
+      p.push(lines[i]);
+      i++;
+    }
+    if (p.length) out.push(`<p>${inline(p.join(' '))}</p>`);
+  }
+
+  return out.join('\n');
+}
+
 // The Docs button/wrapper starts hidden in markup — initMarkdownMenu() (called once at page
 // load) reveals it only if NIXOS_TARGET's root actually has at least one *.md file, since
 // there's nothing to browse otherwise. The file list is fetched once at load; each file's
@@ -1908,7 +2027,7 @@ async function openMarkdownFile(name) {
     }
   }
   document.getElementById('markdown-panel-title').textContent = name;
-  document.getElementById('markdown-content').textContent = _markdownContentCache[name];
+  document.getElementById('markdown-content').innerHTML = parseMarkdown(_markdownContentCache[name]);
   document.getElementById('markdown-panel').classList.remove('hidden');
   localStorage.setItem('ezconf-markdown-file', name);
   localStorage.setItem('ezconf-markdown-visible', 'true');
