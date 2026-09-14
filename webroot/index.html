@@ -215,7 +215,7 @@ async function initVersion() {
     const res = await fetch('VERSION', { cache: 'no-cache' });
     if (res.ok) v = (await res.text()).trim() || 'dev';
   } catch (e) { /* stays 'dev' */ }
-  document.getElementById('status-version').textContent = 'version: ' + v;
+  document.getElementById('status-version').textContent = v;
 }
 
 // ── State ─────────────────────────────────────────────────────────────────────
