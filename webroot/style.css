@@ -662,11 +662,11 @@ textarea { resize: vertical; min-height: unset; line-height: 1.5; }
   border-radius: var(--radius) 0 0 0; box-shadow: 0 4px 16px var(--shadow); padding: 6px 10px;
 }
 .floating-add-row #add-commit-btn { border-radius: 0 var(--radius) 0 0; }
-/* Flush against the input row above it (instead of the small gap .autocomplete-list normally
+/* A 1px gap below the input row above it (much smaller than the gap .autocomplete-list normally
    leaves for its other, non-floating uses elsewhere in the editor) and exactly as wide as that
    row, so its rounded bottom corners land exactly under the row's own outer edges. */
 .autocomplete-wrap.floating-add .autocomplete-list {
-  top: 100%; width: 520px; border-radius: 0 0 var(--radius) var(--radius);
+  top: calc(100% + 1px); width: 520px; border-radius: 0 0 var(--radius) var(--radius);
 }
 .floating-add-container .force-type-bar {
   border: 1px solid var(--border2); border-radius: var(--radius);
