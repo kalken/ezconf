@@ -161,28 +161,35 @@ body {
 
 /* ── Markdown panels ── */
 /* Wrapper floats over .editor-area same as .sidebar above (position: absolute, .main as
-   positioning context), right: 0 with no explicit width so it shrinks-to-fit its actual
-   .markdown-panel children — empty (no docs open) collapses to zero width and doesn't block
-   clicks on the editor beneath it. Holds one .markdown-panel per currently-open file, laid out
-   side by side so several can be viewed at once instead of one replacing another. */
+   positioning context). Fixed width matching one panel — children are position: absolute now
+   (cascaded, see .markdown-panel below), so they no longer contribute to the wrapper's own
+   intrinsic size the way flex children did. */
 .markdown-panels {
   position: absolute;
   top: 0;
   right: 0;
   bottom: 0;
-  display: flex;
-  overflow-x: auto;
+  width: 520px;
   z-index: 15;
 }
+/* Every panel shares this same base position (right: 0) — openMarkdownFile()/
+   _layoutMarkdownPanels() then offset each one leftward via transform, proportional to its
+   distance from the front, so older panels peek out from behind newer ones instead of being
+   fully hidden underneath. Clicking a panel (_bringMarkdownPanelToFront()) raises it to the
+   front of that stack, same as clicking a background window. */
 .markdown-panel {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: 0;
   width: 520px;
-  flex-shrink: 0;
   background: var(--bg);
   border-left: 1px solid var(--border);
   box-shadow: -8px 0 24px var(--shadow);
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  transition: transform .15s;
 }
 .markdown-panel-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .markdown-content {

@@ -1987,10 +1987,36 @@ function parseMarkdown(text) {
 // fetched fresh every time a panel is opened (openMarkdownFile()), not cached, so reopening a
 // file after editing it on disk shows the current content.
 let _markdownFiles = [];
+// Iteration order doubles as stacking order — last entry is frontmost. Map preserves insertion
+// order, and deleting + re-setting an existing key moves it to the end, which is exactly what
+// _bringMarkdownPanelToFront() below needs to "raise" a panel.
 const _openMarkdownPanels = new Map();
+const MARKDOWN_PANEL_OVERLAP = 40; // px each panel behind the front one peeks out by
 
 function _persistOpenMarkdownDocs() {
   localStorage.setItem('ezconf-markdown-open', JSON.stringify([..._openMarkdownPanels.keys()]));
+}
+
+// Cascades open panels so each one behind the front peeks out by MARKDOWN_PANEL_OVERLAP px
+// instead of sitting fully hidden underneath — that sliver is always clickable
+// (_bringMarkdownPanelToFront) so any open file stays reachable regardless of how many are open.
+function _layoutMarkdownPanels() {
+  const entries = [..._openMarkdownPanels.values()];
+  const n = entries.length;
+  entries.forEach((panel, i) => {
+    const fromFront = n - 1 - i;
+    panel.style.zIndex = i + 1;
+    panel.style.transform = `translateX(${-fromFront * MARKDOWN_PANEL_OVERLAP}px)`;
+  });
+}
+
+function _bringMarkdownPanelToFront(name) {
+  const panel = _openMarkdownPanels.get(name);
+  if (!panel) return;
+  _openMarkdownPanels.delete(name);
+  _openMarkdownPanels.set(name, panel);
+  _layoutMarkdownPanels();
+  _persistOpenMarkdownDocs();
 }
 
 async function initMarkdownMenu() {
@@ -2049,8 +2075,14 @@ async function openMarkdownFile(name) {
   const closeBtn = panel.querySelector('.icon-btn');
   closeBtn.onclick = () => closeMarkdownPanel(name);
   _wireHoverTooltip(closeBtn, 'Close');
+  // Clicking anywhere on a panel (background or front) raises it, same as clicking a background
+  // window — except the close button itself, which should just close it.
+  panel.addEventListener('mousedown', e => {
+    if (!e.target.closest('.icon-btn')) _bringMarkdownPanelToFront(name);
+  });
   document.getElementById('markdown-panels').appendChild(panel);
   _openMarkdownPanels.set(name, panel);
+  _layoutMarkdownPanels();
   _persistOpenMarkdownDocs();
 
   let content;
@@ -2069,6 +2101,7 @@ function closeMarkdownPanel(name) {
   if (!panel) return;
   panel.remove();
   _openMarkdownPanels.delete(name);
+  _layoutMarkdownPanels();
   _persistOpenMarkdownDocs();
 }
 
