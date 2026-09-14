@@ -643,10 +643,15 @@ textarea { resize: vertical; min-height: unset; line-height: 1.5; }
 }
 
 /* ── Floating "Add option" panel (the topbar add-input/Add-button/force-type-bar,
-   temporarily relocated to the cursor by showAddOptionMenu()) ── */
+   temporarily relocated to the target object's top-left by showAddOptionMenu()) ── */
 .floating-add-container { position: fixed; z-index: 2000; display: flex; flex-direction: column; gap: 6px; }
-.floating-add-row { display: flex; align-items: center; gap: 6px; }
-.autocomplete-wrap.floating-add { width: 340px; }
+/* Row width matches .autocomplete-list's own max-width below, so the input+button row and the
+   suggestion dropdown line up as one unified block instead of the row looking narrower than the
+   list underneath it. The input itself is flex: 1 (not a fixed width) so it's exactly whatever's
+   left after the Add button's own natural width, keeping the two exactly summing to 520px
+   regardless of that button's rendered size. */
+.floating-add-row { display: flex; align-items: center; gap: 6px; width: 520px; }
+.autocomplete-wrap.floating-add { flex: 1; min-width: 0; }
 .autocomplete-wrap.floating-add input {
   width: 100%; background: var(--select-option-bg); border: 1px solid var(--border2);
   border-radius: var(--radius); box-shadow: 0 4px 16px var(--shadow); padding: 6px 10px;
