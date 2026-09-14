@@ -154,7 +154,7 @@ body {
 .markdown-panel {
   width: 480px;
   max-width: 60vw;
-  background: var(--bg2);
+  background: var(--bg);
   border-left: 1px solid var(--border);
   display: flex;
   flex-direction: column;
