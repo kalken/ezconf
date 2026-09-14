@@ -1983,10 +1983,10 @@ function parseMarkdown(text) {
 // there's nothing to browse otherwise. That initial list is only used for this visibility check
 // and for restoring the last-viewed file — showMarkdownMenu() below re-fetches fresh every time
 // the dropdown opens, so a file added/removed on disk after page load shows up without a reload.
-// Each file's content is fetched lazily (on first pick) and cached in _markdownContentCache —
-// it's system-root, read-only, and not something ezconf itself can change.
+// Each file's content is fetched fresh every time it's picked (openMarkdownFile()), not cached —
+// same reasoning as showMarkdownMenu() re-fetching the list on every open: it should reflect
+// whatever's on disk right now, including edits made since the last time this file was viewed.
 let _markdownFiles = [];
-const _markdownContentCache = {};
 
 async function initMarkdownMenu() {
   try {
@@ -2031,17 +2031,16 @@ async function showMarkdownMenu(event) {
 }
 
 async function openMarkdownFile(name) {
-  if (!(name in _markdownContentCache)) {
-    try {
-      const res = await apiFetch('/markdown-files/content?name=' + encodeURIComponent(name));
-      const data = await res.json();
-      _markdownContentCache[name] = data.content || '';
-    } catch (e) {
-      _markdownContentCache[name] = '(failed to load)';
-    }
+  let content;
+  try {
+    const res = await apiFetch('/markdown-files/content?name=' + encodeURIComponent(name));
+    const data = await res.json();
+    content = data.content || '';
+  } catch (e) {
+    content = '(failed to load)';
   }
   document.getElementById('markdown-panel-title').textContent = name;
-  document.getElementById('markdown-content').innerHTML = parseMarkdown(_markdownContentCache[name]);
+  document.getElementById('markdown-content').innerHTML = parseMarkdown(content);
   document.getElementById('markdown-panel').classList.remove('hidden');
   localStorage.setItem('ezconf-markdown-file', name);
   localStorage.setItem('ezconf-markdown-visible', 'true');
