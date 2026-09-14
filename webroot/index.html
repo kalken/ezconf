@@ -4351,6 +4351,7 @@ function _makeTab(name) {
     }
     items.push({ label: 'Export', onclick: () => exportFile(name) });
     items.push({ separator: true });
+    items.push({ label: 'Clear', onclick: () => clearFile(name) });
     items.push({ label: 'Delete', danger: true, onclick: () => deleteFile(name) });
     showContextMenu(e, items);
   };
@@ -4595,6 +4596,17 @@ async function createFolder() {
   folders.push(name);
   renderFileSelector();
   _startFolderRename(name);
+}
+
+// Empties a file's content in place (mutating the existing fileConfigs[name] object, not
+// replacing it) rather than deleting the file/tab itself — for a file that should stay around
+// but start over, without the extra step of deleting and recreating a tab under the same name.
+// No confirmation prompt, matching deleteAtPath()'s own field/section Delete and deleteFile()
+// below: nothing here is written to disk until Save, and it's a normal, undoable history entry
+// like any other edit until then.
+function clearFile(name) {
+  Object.keys(fileConfigs[name]).forEach(k => delete fileConfigs[name][k]);
+  renderAll();
 }
 
 // Nothing here ever touches the server directly — a delete/rename/disable that targets
