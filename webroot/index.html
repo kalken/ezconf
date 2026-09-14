@@ -65,24 +65,19 @@ const _DEFAULT_THEME = '%%EZCONF_THEME%%';
 </div>
 
 <div class="layout">
-  <div class="markdown-panel hidden" id="markdown-panel">
-    <div class="sidebar-header markdown-panel-header">
-      <span id="markdown-panel-title"></span>
-      <button class="icon-btn" id="markdown-close-btn" onclick="closeMarkdownPanel()" data-tooltip="Close">✕</button>
-    </div>
-    <div class="markdown-content" id="markdown-content"></div>
-  </div>
-
   <div class="main">
     <div class="editor-area" id="editor-area">
       <div class="editor-placeholder">Loading…</div>
     </div>
-    <!-- Floats over the editor area (position: absolute, .main is its positioning context)
-         instead of occupying its own column at the screen's right edge. -->
+    <!-- Both float over the editor area (position: absolute, .main is their positioning
+         context) instead of occupying their own column and pushing/shrinking it. Multiple
+         markdown-panel elements can exist side by side inside #markdown-panels — one per
+         currently-open .md file — populated by openMarkdownFile()/closeMarkdownPanel(). -->
     <div class="sidebar hidden" id="sidebar">
       <div class="sidebar-header">Configuration tree</div>
       <div class="tree" id="tree-root"></div>
     </div>
+    <div class="markdown-panels" id="markdown-panels"></div>
   </div>
 </div>
 
@@ -1982,12 +1977,21 @@ function parseMarkdown(text) {
 // The Docs button/wrapper starts hidden in markup — initMarkdownMenu() (called once at page
 // load) reveals it only if NIXOS_TARGET's root actually has at least one *.md file, since
 // there's nothing to browse otherwise. That initial list is only used for this visibility check
-// and for restoring the last-viewed file — showMarkdownMenu() below re-fetches fresh every time
-// the dropdown opens, so a file added/removed on disk after page load shows up without a reload.
-// Each file's content is fetched fresh every time it's picked (openMarkdownFile()), not cached —
-// same reasoning as showMarkdownMenu() re-fetching the list on every open: it should reflect
-// whatever's on disk right now, including edits made since the last time this file was viewed.
+// and for restoring whichever docs were open on last visit — showMarkdownMenu() below
+// re-fetches fresh every time the dropdown opens, so a file added/removed on disk after page
+// load shows up without a reload.
+//
+// Multiple files can be open at once, each its own floating panel (see #markdown-panels in the
+// markup and .markdown-panel/.markdown-panels in style.css) — _openMarkdownPanels maps an open
+// file's name to its panel element, doubling as "is this file currently open". Content is
+// fetched fresh every time a panel is opened (openMarkdownFile()), not cached, so reopening a
+// file after editing it on disk shows the current content.
 let _markdownFiles = [];
+const _openMarkdownPanels = new Map();
+
+function _persistOpenMarkdownDocs() {
+  localStorage.setItem('ezconf-markdown-open', JSON.stringify([..._openMarkdownPanels.keys()]));
+}
 
 async function initMarkdownMenu() {
   try {
@@ -1999,15 +2003,17 @@ async function initMarkdownMenu() {
   }
   document.getElementById('md-menu-wrap').classList.toggle('hidden', !_markdownFiles.length);
   if (!_markdownFiles.length) return;
-  const lastFile = localStorage.getItem('ezconf-markdown-file');
-  const visible = localStorage.getItem('ezconf-markdown-visible') === 'true';
-  if (visible && lastFile && _markdownFiles.includes(lastFile)) openMarkdownFile(lastFile);
+  let openNames = [];
+  try { openNames = JSON.parse(localStorage.getItem('ezconf-markdown-open') || '[]'); } catch (e) { /* ignore */ }
+  openNames.filter(name => _markdownFiles.includes(name)).forEach(openMarkdownFile);
 }
 
 // Same left-click-reuses-showContextMenu trick as showBackupsMenu() — anchored to the button's
 // own bottom-left corner like a normal dropdown. Re-fetches the file list on every open (unlike
 // the initial load-time fetch in initMarkdownMenu()) so it reflects the current state of
-// NIXOS_TARGET's root, not just whatever existed when the page loaded.
+// NIXOS_TARGET's root, not just whatever existed when the page loaded. Each item toggles that
+// file's panel open/closed rather than replacing whatever's already open, so picking several in
+// a row opens several panels side by side.
 async function showMarkdownMenu(event) {
   const btn = event.currentTarget;
   const rect = btn.getBoundingClientRect();
@@ -2026,12 +2032,27 @@ async function showMarkdownMenu(event) {
     return;
   }
   showContextMenu(anchor, _markdownFiles.map(name => ({
-    label: name,
-    onclick: () => openMarkdownFile(name),
+    label: (_openMarkdownPanels.has(name) ? '✓ ' : '') + name,
+    onclick: () => _openMarkdownPanels.has(name) ? closeMarkdownPanel(name) : openMarkdownFile(name),
   })), { triggerEl: btn });
 }
 
 async function openMarkdownFile(name) {
+  if (_openMarkdownPanels.has(name)) return;
+  const panel = document.createElement('div');
+  panel.className = 'markdown-panel';
+  panel.innerHTML =
+    '<div class="sidebar-header markdown-panel-header"><span></span>' +
+    '<button class="icon-btn" data-tooltip="Close">✕</button></div>' +
+    '<div class="markdown-content">Loading…</div>';
+  panel.querySelector('span').textContent = name;
+  const closeBtn = panel.querySelector('.icon-btn');
+  closeBtn.onclick = () => closeMarkdownPanel(name);
+  _wireHoverTooltip(closeBtn, 'Close');
+  document.getElementById('markdown-panels').appendChild(panel);
+  _openMarkdownPanels.set(name, panel);
+  _persistOpenMarkdownDocs();
+
   let content;
   try {
     const res = await apiFetch('/markdown-files/content?name=' + encodeURIComponent(name));
@@ -2040,16 +2061,15 @@ async function openMarkdownFile(name) {
   } catch (e) {
     content = '(failed to load)';
   }
-  document.getElementById('markdown-panel-title').textContent = name;
-  document.getElementById('markdown-content').innerHTML = parseMarkdown(content);
-  document.getElementById('markdown-panel').classList.remove('hidden');
-  localStorage.setItem('ezconf-markdown-file', name);
-  localStorage.setItem('ezconf-markdown-visible', 'true');
+  panel.querySelector('.markdown-content').innerHTML = parseMarkdown(content);
 }
 
-function closeMarkdownPanel() {
-  document.getElementById('markdown-panel').classList.add('hidden');
-  localStorage.setItem('ezconf-markdown-visible', 'false');
+function closeMarkdownPanel(name) {
+  const panel = _openMarkdownPanels.get(name);
+  if (!panel) return;
+  panel.remove();
+  _openMarkdownPanels.delete(name);
+  _persistOpenMarkdownDocs();
 }
 
 let flatMode = new URLSearchParams(location.search).get('mode') === 'flat';

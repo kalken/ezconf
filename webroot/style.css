@@ -101,7 +101,7 @@ body {
 }
 
 /* ── Layout ── */
-.layout { display: flex; flex: 1; overflow: hidden; flex-direction: row-reverse; }
+.layout { display: flex; flex: 1; overflow: hidden; }
 
 /* ── Sidebar ── */
 /* Floats over .editor-area (position: absolute, anchored to .main below) instead of occupying
@@ -159,15 +159,29 @@ body {
 .tree-leaf:hover { opacity: 1; }
 .tree-children { margin-left: 8px; }
 
-/* ── Markdown panel ── */
+/* ── Markdown panels ── */
+/* Wrapper floats over .editor-area same as .sidebar above (position: absolute, .main as
+   positioning context), right: 0 with no explicit width so it shrinks-to-fit its actual
+   .markdown-panel children — empty (no docs open) collapses to zero width and doesn't block
+   clicks on the editor beneath it. Holds one .markdown-panel per currently-open file, laid out
+   side by side so several can be viewed at once instead of one replacing another. */
+.markdown-panels {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  overflow-x: auto;
+  z-index: 15;
+}
 .markdown-panel {
-  width: 480px;
-  max-width: 60vw;
+  width: 380px;
+  flex-shrink: 0;
   background: var(--bg);
   border-left: 1px solid var(--border);
+  box-shadow: -8px 0 24px var(--shadow);
   display: flex;
   flex-direction: column;
-  flex-shrink: 0;
   overflow: hidden;
 }
 .markdown-panel-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
