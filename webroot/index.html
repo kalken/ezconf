@@ -38,7 +38,7 @@ const _DEFAULT_THEME = '%%EZCONF_THEME%%';
 <div class="tab-bar-row">
   <div class="tab-bar" id="tab-bar"></div>
   <div class="tab-bar-actions hidden" id="md-menu-wrap">
-    <button class="btn" id="md-menu-btn" onclick="toggleMarkdownPanel()" oncontextmenu="showMarkdownMenu(event)" data-tooltip="Show/hide docs, right-click to pick a file">Docs</button>
+    <button class="btn" id="md-menu-btn" onclick="showMarkdownMenu(event)" data-tooltip="Browse .md files in the system root">Docs</button>
   </div>
   <div class="tab-bar-actions">
     <button class="btn" id="flat-mode-btn" onclick="toggleFlatMode()" data-tooltip="Toggle flat / nested view">≡</button>
@@ -2001,23 +2001,8 @@ async function initMarkdownMenu() {
   if (visible && lastFile && _markdownFiles.includes(lastFile)) openMarkdownFile(lastFile);
 }
 
-// The Docs button itself is a plain show/hide toggle (like toggleTree()) — it doesn't care which
-// file ends up in the panel, only whether the panel is open. Right-click is how you pick a
-// different file (see showMarkdownMenu below), consistent with this app's "right-click for
-// options" convention elsewhere.
-function toggleMarkdownPanel() {
-  if (!_markdownFiles.length) return;
-  if (document.getElementById('markdown-panel').classList.contains('hidden')) {
-    const lastFile = localStorage.getItem('ezconf-markdown-file');
-    openMarkdownFile(lastFile && _markdownFiles.includes(lastFile) ? lastFile : _markdownFiles[0]);
-  } else {
-    closeMarkdownPanel();
-  }
-}
-
-// Right-click on the Docs button opens a file-picker dropdown — same left-click-reuses-
-// showContextMenu trick as showBackupsMenu() would use for a left click, anchored to the
-// button's own bottom-left corner like a normal dropdown.
+// Same left-click-reuses-showContextMenu trick as showBackupsMenu() — anchored to the button's
+// own bottom-left corner like a normal dropdown.
 function showMarkdownMenu(event) {
   const btn = event.currentTarget;
   const rect = btn.getBoundingClientRect();
@@ -2044,14 +2029,12 @@ async function openMarkdownFile(name) {
   document.getElementById('markdown-panel-title').textContent = name;
   document.getElementById('markdown-content').innerHTML = parseMarkdown(_markdownContentCache[name]);
   document.getElementById('markdown-panel').classList.remove('hidden');
-  document.getElementById('md-menu-btn').classList.add('active');
   localStorage.setItem('ezconf-markdown-file', name);
   localStorage.setItem('ezconf-markdown-visible', 'true');
 }
 
 function closeMarkdownPanel() {
   document.getElementById('markdown-panel').classList.add('hidden');
-  document.getElementById('md-menu-btn').classList.remove('active');
   localStorage.setItem('ezconf-markdown-visible', 'false');
 }
 
