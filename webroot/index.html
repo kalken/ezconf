@@ -4360,7 +4360,7 @@ function connectTerminalWs() {
       if (!panel.classList.contains('collapsed')) toggleTerminal();
     } else {
       if (_termReconnectAttempts < 10) {
-        _setTermStatusBanner('Reconnecting...', true);
+        _setTermStatusBanner('Reconnecting', true);
         _termReconnectAttempts++;
         const delay = Math.min(500 * _termReconnectAttempts, 5000);
         _termReconnectTimer = setTimeout(() => connectTerminalWs(), delay);
