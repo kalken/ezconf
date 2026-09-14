@@ -2236,24 +2236,24 @@ function _hideHoverTooltip() {
 // reads data-tooltip live at hover time either way, so later updates need no re-wiring.
 function _wireHoverTooltip(el, text) {
   if (text !== undefined) el.dataset.tooltip = text;
-  // Tracked continuously while hovering, not just captured once on mouseenter — otherwise the
-  // tooltip shows up wherever the pointer *entered*, not wherever it actually is by the time the
-  // delay below elapses and it appears, which felt disconnected from the cursor on anything
-  // larger than a small icon.
   let lastX = 0, lastY = 0;
-  const trackPos = e => { lastX = e.clientX; lastY = e.clientY; };
-  // A short delay before showing, like a native tooltip — otherwise it pops up on every
-  // incidental pass of the mouse, not just an actual pause to read it.
-  el.addEventListener('mouseenter', e => {
-    // mouseenter fires on an ancestor too when the pointer moves directly onto a descendant
-    // inside it (e.g. a tab nested inside .tab-row-root) — without canceling first, that
-    // ancestor's own still-pending timer would just get silently overwritten here rather than
-    // canceled, leaving it to fire later on its own and show the wrong (ancestor's) tooltip.
-    if (_hoverTooltipTimer) clearTimeout(_hoverTooltipTimer);
-    trackPos(e);
+  // Re-armed on every mouseenter/mousemove, not just once on entry — the delay means "show 1.5s
+  // after the pointer stops moving entirely", not "show 1.5s after it first arrived" (which let
+  // it pop up mid-move, wherever the pointer happened to be exactly 1.5s after entry, rather than
+  // only once genuinely stationary). _hideHoverTooltip() cancels any existing timer (and hides an
+  // already-shown tooltip, so continuing to move dismisses it too — showing it and then letting
+  // it keep following the cursor without a fresh full pause felt wrong) before this reschedules
+  // from the new position. That cancel-first ordering also covers the same nested-element case
+  // as before: mouseenter fires on an ancestor too when the pointer moves directly onto a nested
+  // descendant, so without it the ancestor's own timer would just get silently overwritten
+  // (rather than canceled) by the descendant's — orphaned, free to fire later on its own.
+  const rearm = e => {
+    lastX = e.clientX; lastY = e.clientY;
+    _hideHoverTooltip();
     _hoverTooltipTimer = setTimeout(() => _showHoverTooltip(el.dataset.tooltip, lastX, lastY), 1500);
-  });
-  el.addEventListener('mousemove', trackPos);
+  };
+  el.addEventListener('mouseenter', rearm);
+  el.addEventListener('mousemove', rearm);
   el.addEventListener('mouseleave', _hideHoverTooltip);
   // A click means the user already knows what the button does — don't let a still-pending or
   // already-shown tooltip linger (or a fresh one start) while the cursor happens to rest there
