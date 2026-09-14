@@ -14,9 +14,10 @@ ezconf server — single listener bound to 127.0.0.1:
                                    own auto-reconnect landing on the new process, not to a timer;
                                    webroot_hash covers an ezconf package upgrade itself (new
                                    HTML/CSS/JS), not just a settings change
-    GET  /api/v1/markdown-files          {"files": [...]} — *.md basenames directly in
-                                          NIXOS_TARGET's root (not recursive), sorted
-    GET  /api/v1/markdown-files/content  {"content"} for one of those files, by ?name=
+    GET  /api/v1/markdown-files          {"files": [...]} — every *.md file under NIXOS_TARGET,
+                                          recursively, as relative paths (e.g.
+                                          "services/nginx/README.md"), sorted
+    GET  /api/v1/markdown-files/content  {"content"} for one of those files, by ?name=<relative path>
     GET  /api/v1/files            lists the config files (tabs) and folders in CONFIG_DIR
     GET  /api/v1/file             serves a resolved config file's raw JSON content
     POST /api/v1/file/save        writes a config file (backs up first); creates it if new
@@ -445,27 +446,40 @@ def resolve_backup_path(name):
 
 
 def list_markdown_files():
-    """List *.md files directly in NIXOS_TARGET's root (not recursive — this is meant for a
-    handful of top-level docs like README.md, not a general file browser), sorted, skipping
-    dotfiles."""
-    try:
-        entries = os.listdir(NIXOS_TARGET)
-    except OSError:
-        return []
-    names = [n for n in entries if n.endswith('.md') and not n.startswith('.')
-             and os.path.isfile(os.path.join(NIXOS_TARGET, n))]
+    """Recursively list every *.md file under NIXOS_TARGET as a relative POSIX path (e.g.
+    "services/nginx/README.md"), sorted. Same dotfile/dotdir/symlink exclusions as
+    _iter_system_export_files() — a dot-prefixed directory is pruned before os.walk descends
+    into it (so it's never even visited, not just filtered out after), and a symlinked
+    directory or file is skipped too, so this can't follow a `result`/`result-*` symlink into
+    /nix/store or loop on a cycle."""
+    base = os.path.realpath(NIXOS_TARGET)
+    names = []
+    for root, dirs, filenames in os.walk(base):
+        dirs[:] = [d for d in dirs if not d.startswith('.') and not os.path.islink(os.path.join(root, d))]
+        for fn in filenames:
+            if fn.startswith('.') or not fn.endswith('.md'):
+                continue
+            full = os.path.join(root, fn)
+            if os.path.islink(full):
+                continue
+            rel = os.path.relpath(full, base).replace(os.sep, '/')
+            names.append(rel)
     names.sort()
     return names
 
 
 def resolve_markdown_path(name):
-    """Return the absolute path for a *.md file name directly in NIXOS_TARGET's root, or None
-    if invalid/outside/missing. Same shape as resolve_backup_path()."""
-    if not name or '/' in name or '\\' in name or name in ('.', '..') or not name.endswith('.md'):
+    """Return the absolute path for a *.md file's relative path under NIXOS_TARGET, or None if
+    invalid/outside/missing. Same shape as resolve_config_path() (subpaths allowed, .. and
+    absolute paths rejected)."""
+    if not name or not name.endswith('.md'):
+        return None
+    parts = name.replace('\\', '/').split('/')
+    if os.path.isabs(name) or any(p in ('', '.', '..') for p in parts):
         return None
     base = os.path.realpath(NIXOS_TARGET)
     full = os.path.realpath(os.path.join(base, name))
-    if os.path.dirname(full) != base or not os.path.isfile(full):
+    if os.path.commonpath([base, full]) != base or not os.path.isfile(full):
         return None
     return full
 

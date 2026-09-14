@@ -9,7 +9,7 @@ Graphical editor for nix configurations. Zero dependencies, no build step, no fr
 - Edit NixOS configuration through a clean web UI with option autocomplete
 - Split config across multiple files and folders — organize however you like, merged only at Nix-eval time
 - Inline terminal panel with configurable shortcut buttons
-- Browse any `.md` files in the system root (e.g. `README.md`), rendered in a side panel
+- Browse any `.md` files anywhere in the system config (e.g. `README.md`), rendered in a side panel
 - PAM auth (system credentials) or custom username/password
 - HTTPS with automatic local CA generation and browser trust store installation
 - Three themes: NixOS blue, dark, light
