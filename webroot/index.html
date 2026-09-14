@@ -2202,6 +2202,7 @@ function _wireTooltipAnchor(anchor, opt, typeLabel) {
 // would show a second, native tooltip on top of this one in a normal browser tab.
 let _hoverTooltipEl = null;
 let _hoverTooltipTimer = null;
+let _hoverTooltipOwner = null; // the element whose tooltip is currently pending/shown
 function _showHoverTooltip(text, x, y) {
   if (!text) return;
   if (!_hoverTooltipEl) {
@@ -2229,6 +2230,7 @@ function _hideHoverTooltip() {
   // once the delayed timer below fires against a now-irrelevant (or removed) anchor.
   if (_hoverTooltipTimer) { clearTimeout(_hoverTooltipTimer); _hoverTooltipTimer = null; }
   if (_hoverTooltipEl) _hoverTooltipEl.classList.remove('tt-visible');
+  _hoverTooltipOwner = null;
 }
 // text, when given, is stored as data-tooltip on the element (setting it up front); omit it to
 // just (re-)wire listeners onto an element whose data-tooltip is already set in markup, or is
@@ -2248,8 +2250,18 @@ function _wireHoverTooltip(el, text) {
   // descendant, so without it the ancestor's own timer would just get silently overwritten
   // (rather than canceled) by the descendant's — orphaned, free to fire later on its own.
   const rearm = e => {
+    // mousemove (unlike mouseenter/mouseleave) bubbles — every movement over a nested element
+    // (e.g. a tab inside .tab-row-root) also fires here for every ancestor wired with its own
+    // tooltip, not just the actual target. Without this check, the ancestor's own rearm call
+    // (running after the target's, since bubbling reaches it later) would keep re-scheduling
+    // *its* tooltip on top of the more specific one the target just scheduled, on every single
+    // pixel of movement — so whatever's pending right before the pointer actually stops is
+    // always the ancestor's, not the element actually being hovered. Skip rescheduling here if a
+    // more specific descendant already owns the current pending/shown tooltip.
+    if (_hoverTooltipOwner && _hoverTooltipOwner !== el && el.contains(_hoverTooltipOwner)) return;
     lastX = e.clientX; lastY = e.clientY;
     _hideHoverTooltip();
+    _hoverTooltipOwner = el;
     _hoverTooltipTimer = setTimeout(() => _showHoverTooltip(el.dataset.tooltip, lastX, lastY), 1000);
   };
   el.addEventListener('mouseenter', rearm);
