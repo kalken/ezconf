@@ -792,6 +792,7 @@ textarea { resize: vertical; min-height: unset; line-height: 1.5; }
   overflow: hidden;
   position: relative;
   background: var(--term-bg);
+  padding: var(--term-padding);
 }
 
 /* Shown/hidden by connectTerminalWs() while the WebSocket itself has no connection -- a fixed
