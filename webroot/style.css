@@ -910,8 +910,9 @@ textarea { resize: vertical; min-height: unset; line-height: 1.5; }
    own Terminal.open() may clear that container's contents when it initializes. */
 .term-status-banner {
   position: absolute;
-  top: 8px;
-  left: 8px;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
   color: var(--term-fg);
   font-family: var(--font);
   font-size: 12px;
