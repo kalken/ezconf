@@ -38,8 +38,8 @@ const _DEFAULT_THEME = '%%EZCONF_THEME%%';
 <div class="tab-bar-row">
   <div class="tab-bar" id="tab-bar"></div>
   <div class="tab-bar-actions">
-    <button class="btn" id="flat-mode-btn" onclick="toggleFlatMode()" title="Toggle flat / nested view">≡</button>
-    <button class="btn" id="tree-toggle-btn" onclick="toggleTree()" title="Show/hide the configuration tree">Tree</button>
+    <button class="btn" id="flat-mode-btn" onclick="toggleFlatMode()" data-tooltip="Toggle flat / nested view">≡</button>
+    <button class="btn" id="tree-toggle-btn" onclick="toggleTree()" data-tooltip="Show/hide the configuration tree">Tree</button>
   </div>
 </div>
 
@@ -97,12 +97,12 @@ const _DEFAULT_THEME = '%%EZCONF_THEME%%';
 
 <div class="statusbar">
   <span><span class="status-dot"></span><span class="status-ready">Ready</span></span>
-  <span id="status-path" title="Click to copy" onclick="navigator.clipboard.writeText(this.textContent).then(()=>setStatus('Copied',1200))">root</span>
+  <span id="status-path" data-tooltip="Click to copy" onclick="navigator.clipboard.writeText(this.textContent).then(()=>setStatus('Copied',1200))">root</span>
   <span id="status-info"></span>
   <span class="theme-switcher">
-    <button class="theme-swatch theme-swatch-nixos" onclick="setTheme('nixos')" title="NixOS theme"></button>
-    <button class="theme-swatch theme-swatch-dark"  onclick="setTheme('dark')"  title="Dark theme"></button>
-    <button class="theme-swatch theme-swatch-light" onclick="setTheme('light')" title="Light theme"></button>
+    <button class="theme-swatch theme-swatch-nixos" onclick="setTheme('nixos')" data-tooltip="NixOS theme"></button>
+    <button class="theme-swatch theme-swatch-dark"  onclick="setTheme('dark')"  data-tooltip="Dark theme"></button>
+    <button class="theme-swatch theme-swatch-light" onclick="setTheme('light')" data-tooltip="Light theme"></button>
   </span>
 </div>
 
@@ -1864,7 +1864,7 @@ function makeFlatDragHandle() {
   const h = document.createElement('span');
   h.className = 'drag-handle';
   h.innerHTML = '⠿';
-  h.title = 'Drag to reorder';
+  _wireHoverTooltip(h, 'Drag to reorder');
   return h;
 }
 
@@ -1885,12 +1885,12 @@ function makeFlatSubHeader(k, childPath, depth) {
   actions.className = 'flat-sublevel-actions';
 
   const exprBtn = document.createElement('button');
-  exprBtn.className = 'icon-btn expr-wrap-btn'; exprBtn.textContent = '{ }'; exprBtn.title = 'Convert to Nix';
+  exprBtn.className = 'icon-btn expr-wrap-btn'; exprBtn.textContent = '{ }'; _wireHoverTooltip(exprBtn, 'Convert to Nix');
   exprBtn.onclick = () => { const cur = getAtPath(config, childPath); setAtPath(config, childPath, { _expr: jsonToNix(cur) }); renderAll(); };
   actions.appendChild(exprBtn);
 
   const delBtn = document.createElement('button');
-  delBtn.className = 'icon-btn del'; delBtn.textContent = '✕'; delBtn.title = 'Delete';
+  delBtn.className = 'icon-btn del'; delBtn.textContent = '✕'; _wireHoverTooltip(delBtn, 'Delete');
   delBtn.onclick = () => { deleteAtPath(config, childPath); renderAll(); };
   actions.appendChild(delBtn);
 
@@ -1962,11 +1962,11 @@ function makeFlatGroupHeader(k, childPath) {
   const actions = document.createElement('div');
   actions.className = 'flat-sublevel-actions';
   const exprBtn = document.createElement('button');
-  exprBtn.className = 'icon-btn expr-wrap-btn'; exprBtn.textContent = '{ }'; exprBtn.title = 'Convert to Nix';
+  exprBtn.className = 'icon-btn expr-wrap-btn'; exprBtn.textContent = '{ }'; _wireHoverTooltip(exprBtn, 'Convert to Nix');
   exprBtn.onclick = () => { const cur = getAtPath(config, childPath); setAtPath(config, childPath, { _expr: jsonToNix(cur) }); renderAll(); };
   actions.appendChild(exprBtn);
   const delBtn = document.createElement('button');
-  delBtn.className = 'icon-btn del'; delBtn.textContent = '✕'; delBtn.title = 'Delete';
+  delBtn.className = 'icon-btn del'; delBtn.textContent = '✕'; _wireHoverTooltip(delBtn, 'Delete');
   delBtn.onclick = () => { deleteAtPath(config, childPath); renderAll(); };
   actions.appendChild(delBtn);
   row.appendChild(actions);
@@ -2253,8 +2253,10 @@ function _wireHoverTooltip(el, text, side) {
   });
   el.addEventListener('mouseleave', _hideHoverTooltip);
 }
-// Wires every element under root that already has a data-tooltip set in markup (the header and
-// terminal-bar buttons) — called once at init, rather than converting each one by hand.
+// Wires every element under root that already has a data-tooltip set in markup — called once at
+// init against document.body, rather than converting each static button by hand. Elements
+// created later (tabs, drag handles, terminal command buttons, ...) call _wireHoverTooltip
+// directly instead, since a one-time sweep can't reach them.
 function _initHoverTooltips(root) {
   if (!root) return;
   root.querySelectorAll('[data-tooltip]').forEach(el => _wireHoverTooltip(el));
@@ -2547,7 +2549,7 @@ function makeCustomSelect(items, curValue, onChange, { search = true } = {}) {
       const el = document.createElement('div');
       el.className = 'custom-select-option' + (item.value === curValue ? ' selected' : '');
       el.textContent = item.label;
-      if (item.title) el.title = item.title;
+      if (item.title) _wireHoverTooltip(el, item.title, 'right');
       el.addEventListener('mousedown', e => {
         e.preventDefault();
         curValue = item.value;
@@ -4345,7 +4347,7 @@ function _makeTab(name) {
   tab.className = 'btn tab' + (name === activeFile ? ' active' : '') + (disabled ? ' is-disabled' : '');
   tab.tabIndex = 0;
   tab.dataset.file = name;
-  tab.title = name + ' — double-click to rename, drag to move between folders';
+  _wireHoverTooltip(tab, name + ' — double-click to rename, drag to move between folders');
   const label = document.createElement('span');
   label.textContent = _tabLabel(name);
   tab.appendChild(label);
@@ -4562,7 +4564,7 @@ function renderFileSelector() {
 
   const rootRow = document.createElement('div');
   rootRow.className = 'tab-row tab-row-root';
-  rootRow.title = 'Right-click for New file / New folder';
+  _wireHoverTooltip(rootRow, 'Right-click for New file / New folder');
   rootFiles.sort().forEach(name => rootRow.appendChild(_makeTab(name)));
   bar.appendChild(rootRow);
 
@@ -5143,8 +5145,7 @@ async function loadSiblingFiles() {
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 (async () => {
-  _initHoverTooltips(document.querySelector('.header'));
-  _initHoverTooltips(document.querySelector('.terminal-header-group'));
+  _initHoverTooltips(document.body);
   if (!TERMINAL_ENABLED) {
     const tp = document.getElementById('terminal-panel');
     if (tp) tp.style.display = 'none';
