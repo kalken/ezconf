@@ -171,6 +171,7 @@ Key constraints:
 - `ResizeObserver` on `#term-output` is debounced 200ms so `fit()` only fires once the panel's CSS transition (180ms) settles.
 - `fit()` is the only thing that triggers a PTY resize. `connectTerminalWs()`'s `onopen` calls it explicitly and sends `_term.cols`/`_term.rows` unconditionally (not `proposeDimensions()`, which is a pure calculation that can be stale right after a fast reconnect, and not gated on `onResize` firing, since a brand new server-side session — e.g. after `ezconf-terminal-session.service` restarts independently — has never been told any size at all).
 - Never use a continuous `requestAnimationFrame` loop for rendering — on Linux without GPU acceleration it burns CPU proportional to canvas size.
+- Any padding meant to inset the rendered terminal from `#term-output`'s edges has to go on `.terminal.xterm` (xterm's own root element, a child `Terminal.open()` creates inside it) — `FitAddon.proposeDimensions()` reads `padding-*` from that element specifically when computing rows/cols, not from its parent, so padding on `#term-output` itself is invisible to the fit calculation (it only shifts where the child starts via normal box flow) and left the calculated grid oversized for the actual padded area, clipped unevenly by `#term-output`'s own `overflow: hidden`.
 
 **CSS file roles**: `style.css` = layout, `theme-{nixos,dark,light}.css` = per-theme variables, `addons/xterm.css` = vendor file (unmodified).
 
