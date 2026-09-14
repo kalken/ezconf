@@ -2249,7 +2249,7 @@ function _wireHoverTooltip(el, text, side) {
   // A short delay before showing, like a native tooltip — otherwise it pops up on every
   // incidental pass of the mouse, not just an actual pause to read it.
   el.addEventListener('mouseenter', () => {
-    _hoverTooltipTimer = setTimeout(() => _showHoverTooltip(el, el.dataset.tooltip, side), 2000);
+    _hoverTooltipTimer = setTimeout(() => _showHoverTooltip(el, el.dataset.tooltip, side), 1500);
   });
   el.addEventListener('mouseleave', _hideHoverTooltip);
 }
