@@ -2252,6 +2252,11 @@ function _wireHoverTooltip(el, text, side) {
     _hoverTooltipTimer = setTimeout(() => _showHoverTooltip(el, el.dataset.tooltip, side), 1500);
   });
   el.addEventListener('mouseleave', _hideHoverTooltip);
+  // A click means the user already knows what the button does — don't let a still-pending or
+  // already-shown tooltip linger (or a fresh one start) while the cursor happens to rest there
+  // afterward without moving; mouseenter can't refire without the pointer actually leaving and
+  // re-entering, so this alone is enough — it'll show again normally on a genuine future hover.
+  el.addEventListener('click', _hideHoverTooltip);
 }
 // Wires every element under root that already has a data-tooltip set in markup — called once at
 // init against document.body, rather than converting each static button by hand. Elements
