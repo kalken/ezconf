@@ -178,6 +178,12 @@ function setTheme(name) {
   );
   link.addEventListener('load', () => {
     if (_term) _term.options.theme = _buildTermTheme();
+    // A theme swap can also change --term-padding, which affects #term-output's content box
+    // without changing its own outer size — the ResizeObserver that normally drives fit() only
+    // fires on an actual element resize, so without this explicit call the terminal keeps
+    // rendering at its old (pre-swap) size/position until something else forces a fresh fit(),
+    // e.g. a full page reload.
+    if (_termFit) _termFit.fit();
   }, { once: true });
 }
 function _applyInitialTheme() {
