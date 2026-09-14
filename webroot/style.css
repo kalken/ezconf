@@ -175,7 +175,7 @@ body {
   z-index: 15;
 }
 .markdown-panel {
-  width: 380px;
+  width: 520px;
   flex-shrink: 0;
   background: var(--bg);
   border-left: 1px solid var(--border);
