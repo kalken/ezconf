@@ -792,16 +792,10 @@ textarea { resize: vertical; min-height: unset; line-height: 1.5; }
   overflow: hidden;
   position: relative;
   background: var(--term-bg);
-}
-/* Padding lives on xterm's own root element (.terminal.xterm, created by Terminal.open() inside
-   #term-output), not on #term-output itself — FitAddon's proposeDimensions() specifically reads
-   padding-top/bottom/left/right from the terminal's own element when computing how many rows/
-   cols fit, not from its parent. Padding on #term-output alone is invisible to that calculation
-   (only shifting where the child starts via normal box flow, not how large a grid it's sized
-   for), which left the calculated grid oversized for the actual padded area and clipped unevenly
-   by this container's own overflow: hidden. */
-#term-output .terminal.xterm {
   padding: var(--term-padding);
+}
+#term-output .terminal.xterm {
+  padding: 0;
 }
 
 /* Shown/hidden by connectTerminalWs() while the WebSocket itself has no connection -- a fixed
