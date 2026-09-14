@@ -35,14 +35,6 @@ file = "example/configuration.json"
 # Shell to launch in the terminal panel (default: login shell or $SHELL)
 # shell = "/bin/bash"
 
-# Path to a dtach socket. When set, the terminal attaches to a persistent session there instead
-# of forking a fresh shell per connection, so a running command survives terminal.py restarting
-# or a reconnect -- rather than dying with the connection. Requires dtach to be installed.
-# Something needs to actually create the session first: run
-#   terminal.py --config ezconf.toml --start-session
-# as a long-running process (the NixOS module does this via ezconf-terminal-session.service) --
-# terminal.py's normal WebSocket server just attaches to whatever's already there.
-# dtach_socket = "/run/ezconf/terminal.dtach"
 
 # Path to ezconf-mkoptions binary. When set, enables the "↻ Autocomplete"
 # button in the GUI to regenerate autocomplete data on demand.
