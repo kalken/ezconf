@@ -1245,7 +1245,7 @@ let addSelectedOption = null; // the matched option entry
 // the list's own overflow-y:auto would clip anything positioned outside its box (the same reason
 // the field/section tooltip is kept as a sibling of .key-label instead of a descendant).
 let _acTooltipEl = null;
-function _showAcTooltip(opt) {
+function _showAcTooltip(opt, itemEl) {
   if (!opt) { _hideAcTooltip(); return; }
   if (!_acTooltipEl) {
     _acTooltipEl = document.createElement('div');
@@ -1256,12 +1256,10 @@ function _showAcTooltip(opt) {
   _acTooltipEl.innerHTML = buildTooltip(opt, opt.type).innerHTML;
   _acTooltipEl.classList.add('tt-visible');
   const listRect = document.getElementById('add-ac-list').getBoundingClientRect();
-  const ttRect = _acTooltipEl.getBoundingClientRect();
+  const itemRect = (itemEl || document.getElementById('add-ac-list')).getBoundingClientRect();
   const left = listRect.right + 8;
-  let top = listRect.top;
-  if (top + ttRect.height > window.innerHeight) top = Math.max(4, window.innerHeight - ttRect.height - 4);
   _acTooltipEl.style.left = left + 'px';
-  _acTooltipEl.style.top = top + 'px';
+  _acTooltipEl.style.top = itemRect.top + 'px';
 }
 function _hideAcTooltip() {
   if (_acTooltipEl) _acTooltipEl.classList.remove('tt-visible');
@@ -1319,7 +1317,7 @@ function initAddPanel() {
       const desc = (o.description || '').split('\n')[0];
       const reqBadge = o.required ? `<span class="ac-required">required</span>` : '';
       item.innerHTML = `<span class="ac-name">${o.displayPath}</span><span class="ac-desc">${desc}</span>${reqBadge}<span class="ac-type">${o.type || ''}</span>`;
-      item.addEventListener('mouseenter', () => _showAcTooltip(o));
+      item.addEventListener('mouseenter', () => _showAcTooltip(o, item));
       item.addEventListener('mouseleave', _hideAcTooltip);
       item.addEventListener('mousedown', e => {
         e.preventDefault();
@@ -1363,7 +1361,7 @@ function initAddPanel() {
         items[acIdx].scrollIntoView({ block: 'nearest' });
         if (!items[acIdx].classList.contains('ac-wildcard-hint'))
           inp.value = items[acIdx].querySelector('.ac-name').textContent;
-        _showAcTooltip(items[acIdx]._acOpt);
+        _showAcTooltip(items[acIdx]._acOpt, items[acIdx]);
       } else {
         inp.value = acSaved;
         _hideAcTooltip();
@@ -1425,7 +1423,7 @@ function initAddPanel() {
         const desc = isLeaf ? (hit.description || '').split('\n')[0] : '';
         item.innerHTML = `<span class="ac-name">${segPath}</span><span class="ac-desc">${desc}</span><span class="ac-type">${isLeaf ? (hit.type || '') : ''}</span>`;
         if (isLeaf) {
-          item.addEventListener('mouseenter', () => _showAcTooltip(hit));
+          item.addEventListener('mouseenter', () => _showAcTooltip(hit, item));
           item.addEventListener('mouseleave', _hideAcTooltip);
         }
         item.addEventListener('mousedown', ev => {
