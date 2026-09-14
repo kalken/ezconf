@@ -28,9 +28,9 @@ const _DEFAULT_THEME = '%%EZCONF_THEME%%';
   <div class="header-actions">
     <input type="file" id="import-file-input" accept=".json,.nix,.zip" style="display:none">
     <input type="file" id="system-import-input" accept=".zip" style="display:none">
-    <button class="btn" onclick="showImportMenu(event)">⬇ Import</button>
-    <button class="btn" onclick="showExportMenu(event)">⬆ Export</button>
-    <button class="btn" id="save-btn" onclick="saveToServer()">⬇ Save</button>
+    <button class="btn" onclick="showImportMenu(event)" title="Import a Nix/JSON snippet, or a system export zip">⬇ Import</button>
+    <button class="btn" onclick="showExportMenu(event)" title="Export the current config, or the whole system">⬆ Export</button>
+    <button class="btn" id="save-btn" onclick="saveToServer()" title="Save all changes">⬇ Save</button>
     <button class="btn" onclick="location.href='/logout'" title="Log out">⏻</button>
   </div>
 </div>
