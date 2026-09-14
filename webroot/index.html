@@ -2201,6 +2201,7 @@ function _wireTooltipAnchor(anchor, opt, typeLabel) {
 // the browser's own native tooltip mechanism never engages at all — leaving it as `title` too
 // would show a second, native tooltip on top of this one in a normal browser tab.
 let _hoverTooltipEl = null;
+let _hoverTooltipTimer = null;
 function _showHoverTooltip(anchor, text, side) {
   if (!text) return;
   if (!_hoverTooltipEl) {
@@ -2233,6 +2234,10 @@ function _showHoverTooltip(anchor, text, side) {
   }
 }
 function _hideHoverTooltip() {
+  // Cancels a still-pending show too, not just an already-visible tooltip — otherwise leaving an
+  // element (or a menu closing) right after hovering it could still pop the tooltip up later,
+  // once the delayed timer below fires against a now-irrelevant (or removed) anchor.
+  if (_hoverTooltipTimer) { clearTimeout(_hoverTooltipTimer); _hoverTooltipTimer = null; }
   if (_hoverTooltipEl) _hoverTooltipEl.classList.remove('tt-visible');
 }
 // text, when given, is stored as data-tooltip on the element (setting it up front); omit it to
@@ -2241,7 +2246,11 @@ function _hideHoverTooltip() {
 // reads data-tooltip live at hover time either way, so later updates need no re-wiring.
 function _wireHoverTooltip(el, text, side) {
   if (text !== undefined) el.dataset.tooltip = text;
-  el.addEventListener('mouseenter', () => _showHoverTooltip(el, el.dataset.tooltip, side));
+  // A short delay before showing, like a native tooltip — otherwise it pops up on every
+  // incidental pass of the mouse, not just an actual pause to read it.
+  el.addEventListener('mouseenter', () => {
+    _hoverTooltipTimer = setTimeout(() => _showHoverTooltip(el, el.dataset.tooltip, side), 400);
+  });
   el.addEventListener('mouseleave', _hideHoverTooltip);
 }
 // Wires every element under root that already has a data-tooltip set in markup (the header and
