@@ -3733,8 +3733,8 @@ function showExportMenu(event) {
     preventDefault: () => event.preventDefault(), stopPropagation: () => event.stopPropagation(),
   };
   showContextMenu(anchor, [
-    { label: 'Export all', onclick: () => exportAll() },
-    { label: 'Export system (' + NIXOS_TARGET + ')', onclick: () => exportSystem() },
+    { label: 'Files', onclick: () => exportAll() },
+    { label: 'System', title: NIXOS_TARGET, onclick: () => exportSystem() },
   ], { triggerEl: btn });
 }
 
@@ -3757,8 +3757,8 @@ function showImportMenu(event) {
     preventDefault: () => event.preventDefault(), stopPropagation: () => event.stopPropagation(),
   };
   showContextMenu(anchor, [
-    { label: 'Import', onclick: () => showImportModal() },
-    { label: 'Import system…', onclick: () => importSystem() },
+    { label: 'Files', onclick: () => showImportModal() },
+    { label: 'System', onclick: () => importSystem() },
   ], { triggerEl: btn });
 }
 

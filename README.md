@@ -129,15 +129,15 @@ A single file tab or a folder each has an **Export** action on its right-click m
 
 The header's **⬆ Export** button is a dropdown with two broader options:
 
-- **Export all** — every file across every folder, as one `.zip`.
-- **Export system** — a `.zip` of the *entire* NixOS config tree (`nixos_target`, default `/etc/nixos`), not just what's open in the editor: flake.nix, flake.lock, and everything else alongside ezconf's own files. This one comes straight from disk on the server, so it always reflects what's actually saved there, not any unsaved edits. Symlinks (`nix build`'s `result`/`result-*`, which point into `/nix/store`) are always excluded. Dotfiles/dotdirs (`.git`, `.ssh`, age/sops keys, etc.) and `hardware-configuration.nix` (machine-specific — not something you want bundled into a config meant to be reused elsewhere) are excluded by default, configurable via `system_export_exclude_dotfiles`/`system_export_exclude` (or `systemExportExcludeDotfiles`/`systemExportExclude` in the NixOS module).
+- **Files** — every file across every folder, as one `.zip`.
+- **System** — a `.zip` of the *entire* NixOS config tree (`nixos_target`, default `/etc/nixos`), not just what's open in the editor: flake.nix, flake.lock, and everything else alongside ezconf's own files. This one comes straight from disk on the server, so it always reflects what's actually saved there, not any unsaved edits. Symlinks (`nix build`'s `result`/`result-*`, which point into `/nix/store`) are always excluded. Dotfiles/dotdirs (`.git`, `.ssh`, age/sops keys, etc.) and `hardware-configuration.nix` (machine-specific — not something you want bundled into a config meant to be reused elsewhere) are excluded by default, configurable via `system_export_exclude_dotfiles`/`system_export_exclude` (or `systemExportExcludeDotfiles`/`systemExportExclude` in the NixOS module).
 
 To import, just drag `.json` file(s), a whole folder, or a `.zip` (your own export, or one built by another tool) onto the window and drop it. Each file is loaded straight into the editor as an unsaved, dirty tab — nothing touches disk until you hit **Save** — so importing is always safe to undo by just not saving. Dropping a file with the same name as an existing tab replaces that tab's in-editor content (again, only once saved).
 
 No drag-and-drop handy? The header's **⬇ Import** button is a dropdown too, mirroring **⬆ Export**:
 
-- **Import** — the "Load file" picker (or paste box) for a single Nix/JSON snippet to merge into one file; it also takes a `.zip`, imported the same way a drop does.
-- **Import system** — the exception to all of the above: pick a `.zip` and it's written straight to `nixos_target` on disk immediately — there's no editor staging step for it to defer to, since these aren't ezconf's own tabs. You'll get one confirmation prompt before anything happens, and it's the only one left anywhere in the app. Existing files with the same name are overwritten; anything not in the zip is left alone (nothing is deleted), and dotfiles/dotdirs are skipped on the way in too — this can't restore secrets an export never captured in the first place.
+- **Files** — the "Load file" picker (or paste box) for a single Nix/JSON snippet to merge into one file; it also takes a `.zip`, imported the same way a drop does.
+- **System** — the exception to all of the above: pick a `.zip` and it's written straight to `nixos_target` on disk immediately — there's no editor staging step for it to defer to, since these aren't ezconf's own tabs. You'll get one confirmation prompt before anything happens, and it's the only one left anywhere in the app. Existing files with the same name are overwritten; anything not in the zip is left alone (nothing is deleted), and dotfiles/dotdirs are skipped on the way in too — this can't restore secrets an export never captured in the first place.
 
 ## 🔐 Authentication
 
@@ -353,9 +353,9 @@ services.ezconf = {
 | `openFirewall` | bool | `false` | Open firewall ports for the web and terminal services; enabled automatically when `listen` is set to a non-localhost address |
 | `interface` | str or null | `null` | Network interface to open firewall ports on (e.g. `"eth0"`); when set, ports are opened only on that interface instead of all interfaces |
 | `trustedHosts` | list of str | `[]` | Extra hostnames trusted for CSRF check — required when behind a reverse proxy; `listen` and `certNames` are trusted automatically. `[ "*" ]` disables the check entirely (accepts any Host header) — for cases like an installer ISO where the address can't be known ahead of time |
-| `nixosTarget` | str | `"/etc/nixos"` | Flake path passed to `ezconf-mkoptions`; also what **Export system** zips up |
-| `systemExportExcludeDotfiles` | bool | `true` | Exclude dotfiles/dotdirs from the **Export system** zip |
-| `systemExportExclude` | list of str | `["hardware-configuration.nix"]` | Basenames the **Export system** zip always skips, anywhere in the tree |
+| `nixosTarget` | str | `"/etc/nixos"` | Flake path passed to `ezconf-mkoptions`; also what system export zips up |
+| `systemExportExcludeDotfiles` | bool | `true` | Exclude dotfiles/dotdirs from the system export zip |
+| `systemExportExclude` | list of str | `["hardware-configuration.nix"]` | Basenames the system export zip always skips, anywhere in the tree |
 | `backupDir` | str | `"/var/lib/ezconf/backups"` | Directory to store config file backups (one subset per file) |
 | `backupCount` | int | `5` | Number of backups to keep, made on every save; `0` disables backups |
 | `ports.web` | port | `9090` | Web server port |
