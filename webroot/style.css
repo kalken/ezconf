@@ -150,6 +150,29 @@ body {
 .tree-leaf:hover { opacity: 1; }
 .tree-children { margin-left: 8px; }
 
+/* ── Readme panel ── */
+.readme-panel {
+  width: 480px;
+  max-width: 60vw;
+  background: var(--bg2);
+  border-left: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+.readme-content {
+  overflow-y: auto;
+  flex: 1;
+  padding: 12px 16px;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  font-family: var(--font);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text);
+}
+
 /* ── Main ── */
 .main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
 

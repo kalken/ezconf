@@ -14,6 +14,9 @@ ezconf server — single listener bound to 127.0.0.1:
                                    own auto-reconnect landing on the new process, not to a timer;
                                    webroot_hash covers an ezconf package upgrade itself (new
                                    HTML/CSS/JS), not just a settings change
+    GET  /api/v1/readme           {"exists", "content"} — README.md from the root of NIXOS_TARGET,
+                                   if any; always 200, "exists" tells the frontend whether to show
+                                   a placeholder instead of content
     GET  /api/v1/files            lists the config files (tabs) and folders in CONFIG_DIR
     GET  /api/v1/file             serves a resolved config file's raw JSON content
     POST /api/v1/file/save        writes a config file (backs up first); creates it if new
@@ -1077,6 +1080,21 @@ class StaticHandler(http.server.SimpleHTTPRequestHandler):
                     self.wfile.flush()
             except (BrokenPipeError, ConnectionResetError, OSError):
                 pass
+            return
+        if parsed.path == '/api/v1/readme':
+            try:
+                with open(os.path.join(NIXOS_TARGET, 'README.md'), 'r', encoding='utf-8') as f:
+                    payload = {'exists': True, 'content': f.read()}
+            except FileNotFoundError:
+                payload = {'exists': False}
+            except Exception as e:
+                self.send_error(500, str(e)); return
+            data = json.dumps(payload).encode()
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Content-Length', str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
             return
         if parsed.path == '/api/v1/files':
             try:
