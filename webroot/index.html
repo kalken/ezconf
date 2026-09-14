@@ -462,7 +462,7 @@ function _buildMenuLevel(items, depth) {
     btn.className = 'context-menu-item' + (item.danger ? ' danger' : '') + (item.items ? ' has-submenu' : '');
     btn.textContent = item.label;
     if (item.disabled) btn.disabled = true;
-    if (item.title) _wireHoverTooltip(btn, item.title, 'right');
+    if (item.title) _wireHoverTooltip(btn, item.title);
     if (item.items) {
       const openSubmenu = () => {
         _ctxMenuStack.slice(depth + 1).forEach(m => m.remove());
@@ -2202,7 +2202,7 @@ function _wireTooltipAnchor(anchor, opt, typeLabel) {
 // would show a second, native tooltip on top of this one in a normal browser tab.
 let _hoverTooltipEl = null;
 let _hoverTooltipTimer = null;
-function _showHoverTooltip(anchor, text, side) {
+function _showHoverTooltip(text, x, y) {
   if (!text) return;
   if (!_hoverTooltipEl) {
     _hoverTooltipEl = document.createElement('div');
@@ -2212,26 +2212,16 @@ function _showHoverTooltip(anchor, text, side) {
   }
   _hoverTooltipEl.textContent = text;
   _hoverTooltipEl.classList.add('tt-visible');
-  const rect = anchor.getBoundingClientRect();
   const ttRect = _hoverTooltipEl.getBoundingClientRect();
-  if (side === 'right') {
-    // For a menu item, stacked vertically among siblings — below would overlap the next item.
-    let left = rect.right + 8;
-    if (left + ttRect.width > window.innerWidth) left = Math.max(4, rect.left - ttRect.width - 8);
-    let top = rect.top;
-    if (top + ttRect.height > window.innerHeight) top = Math.max(4, window.innerHeight - ttRect.height - 4);
-    _hoverTooltipEl.style.left = left + 'px';
-    _hoverTooltipEl.style.top = top + 'px';
-  } else {
-    // For a toolbar button — below by default, flipping above if there's no room (e.g. the
-    // terminal command bar, which sits at the bottom of the page).
-    let left = rect.left;
-    if (left + ttRect.width > window.innerWidth) left = Math.max(4, window.innerWidth - ttRect.width - 4);
-    let top = rect.bottom + 6;
-    if (top + ttRect.height > window.innerHeight) top = Math.max(4, rect.top - ttRect.height - 6);
-    _hoverTooltipEl.style.left = left + 'px';
-    _hoverTooltipEl.style.top = top + 'px';
-  }
+  // Anchored to the actual cursor position (where mouseenter fired), not the hovered element's
+  // own box — a wide element (a long tab, a terminal command button) would otherwise show the
+  // tooltip anchored to its edge, potentially far from where the mouse actually is.
+  let left = x + 12;
+  if (left + ttRect.width > window.innerWidth) left = Math.max(4, x - ttRect.width - 12);
+  let top = y + 16;
+  if (top + ttRect.height > window.innerHeight) top = Math.max(4, y - ttRect.height - 16);
+  _hoverTooltipEl.style.left = left + 'px';
+  _hoverTooltipEl.style.top = top + 'px';
 }
 function _hideHoverTooltip() {
   // Cancels a still-pending show too, not just an already-visible tooltip — otherwise leaving an
@@ -2244,17 +2234,20 @@ function _hideHoverTooltip() {
 // just (re-)wire listeners onto an element whose data-tooltip is already set in markup, or is
 // updated directly by other code later (e.g. toggleTerminal() swapping Show/Hide) — the listener
 // reads data-tooltip live at hover time either way, so later updates need no re-wiring.
-function _wireHoverTooltip(el, text, side) {
+function _wireHoverTooltip(el, text) {
   if (text !== undefined) el.dataset.tooltip = text;
   // A short delay before showing, like a native tooltip — otherwise it pops up on every
   // incidental pass of the mouse, not just an actual pause to read it.
-  el.addEventListener('mouseenter', () => {
+  el.addEventListener('mouseenter', e => {
     // mouseenter fires on an ancestor too when the pointer moves directly onto a descendant
     // inside it (e.g. a tab nested inside .tab-row-root) — without canceling first, that
     // ancestor's own still-pending timer would just get silently overwritten here rather than
     // canceled, leaving it to fire later on its own and show the wrong (ancestor's) tooltip.
     if (_hoverTooltipTimer) clearTimeout(_hoverTooltipTimer);
-    _hoverTooltipTimer = setTimeout(() => _showHoverTooltip(el, el.dataset.tooltip, side), 1500);
+    // Captured now, not read from the event inside the timeout callback (which won't exist by
+    // then) — position is where the pointer entered, not wherever it ends up after the delay.
+    const x = e.clientX, y = e.clientY;
+    _hoverTooltipTimer = setTimeout(() => _showHoverTooltip(el.dataset.tooltip, x, y), 1500);
   });
   el.addEventListener('mouseleave', _hideHoverTooltip);
   // A click means the user already knows what the button does — don't let a still-pending or
@@ -2559,7 +2552,7 @@ function makeCustomSelect(items, curValue, onChange, { search = true } = {}) {
       const el = document.createElement('div');
       el.className = 'custom-select-option' + (item.value === curValue ? ' selected' : '');
       el.textContent = item.label;
-      if (item.title) _wireHoverTooltip(el, item.title, 'right');
+      if (item.title) _wireHoverTooltip(el, item.title);
       el.addEventListener('mousedown', e => {
         e.preventDefault();
         curValue = item.value;
