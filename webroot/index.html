@@ -531,7 +531,10 @@ function _buildMenuLevel(items, depth) {
     btn.className = 'context-menu-item' + (item.danger ? ' danger' : '') + (item.items && !item.noArrow ? ' has-submenu' : '');
     btn.textContent = item.label;
     if (item.disabled) btn.disabled = true;
-    if (item.title) _wireHoverTooltip(btn, item.title);
+    // Skipped for a submenu-trigger item -- hovering it already opens its full contents
+    // instantly (below), so a text tooltip repeating the same info would just be a redundant
+    // popup layered on top of (or beside) the submenu that already answers the same question.
+    if (item.title && !item.items) _wireHoverTooltip(btn, item.title);
     if (item.items) {
       const openSubmenu = () => {
         _ctxMenuStack.slice(depth + 1).forEach(m => m.remove());
