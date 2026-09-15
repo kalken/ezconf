@@ -377,15 +377,20 @@ if __name__ == '__main__':
         # service (see ezconf-terminal-configure.timer) catches up once it does.
         # status off: no tmux chrome in a panel that's meant to look like a plain shell.
         # history-limit: matched to TMUX_HISTORY_LINES above, so a scrollback replay can
-        # actually reach back that far. mouse on: without it, xterm.js has no native scrollback
-        # to wheel-scroll into while attached (tmux owns the screen), so it falls back to
-        # sending Up/Down keypresses -- which the shell reads as readline history navigation
-        # instead of scrolling. With mouse mode, tmux itself captures the wheel and handles
-        # entering/exiting copy-mode to scroll its own scrollback, no prefix-key needed.
+        # actually reach back that far.
         subprocess.run([TMUX_BIN, 'set-option', '-t', TMUX_SESSION, 'status', 'off'])
         subprocess.run([TMUX_BIN, 'set-option', '-t', TMUX_SESSION, 'history-limit',
                          str(TMUX_HISTORY_LINES)])
-        subprocess.run([TMUX_BIN, 'set-option', '-t', TMUX_SESSION, 'mouse', 'on'])
+        # mouse off: tmux's own mouse tracking intercepts EVERY mouse gesture once enabled, not
+        # just the wheel -- a plain click-drag stops being a native browser text selection and
+        # becomes tmux's own copy-mode selection instead (which also vanishes the instant the
+        # mouse button is released, tmux's default binding for that gesture), and there's no way
+        # to get native selection back for an unmodified drag while it's on, no matter what tmux
+        # key bindings do or don't exist for it -- xterm.js decides whether to intercept a mouse
+        # event at all before any of that runs. Left off so drag-select/copy just works normally;
+        # the frontend replicates wheel-scroll-into-copy-mode itself instead (see C-S-Up/C-S-Down
+        # below), entirely independent of tmux's own mouse handling.
+        subprocess.run([TMUX_BIN, 'set-option', '-t', TMUX_SESSION, 'mouse', 'off'])
         # remain-on-exit + pane-died: without this, typing "exit" at the prompt kills the pane's
         # shell, and since it's the session's only pane, tmux tears down the whole session with
         # it -- the "persistent" session is gone for good until something recreates it by hand.
@@ -396,34 +401,36 @@ if __name__ == '__main__':
         # affect any other tmux session a human might run under the same user on this socket.
         subprocess.run([TMUX_BIN, 'set-option', '-t', TMUX_SESSION, 'remain-on-exit', 'on'])
         subprocess.run([TMUX_BIN, 'set-hook', '-t', TMUX_SESSION, 'pane-died', 'respawn-pane -k'])
-        # tmux's own default wheel-scroll binding moves 5 lines per tick (select-pane is dropped
-        # here since there's never more than one pane to focus) -- noticeably jumpier than a
-        # native scrollbar. These bindings are server-wide, not session-scoped (tmux key tables
-        # aren't per-session), so they'd also apply to any other tmux a human runs under the same
-        # user on this same (default) socket.
-        for table in ('copy-mode', 'copy-mode-vi'):
-            subprocess.run([TMUX_BIN, 'bind-key', '-T', table, 'WheelUpPane',
-                             'send-keys', '-X', '-N', '3', 'scroll-up'])
-            subprocess.run([TMUX_BIN, 'bind-key', '-T', table, 'WheelDownPane',
-                             'send-keys', '-X', '-N', '3', 'scroll-down'])
-        # Root table: the wheel only enters copy-mode by default (tmux's own guard --
-        # #{alternate_on}/#{pane_in_mode}/#{mouse_any_flag} -- still applies, so a full-screen
-        # program that wants the raw wheel itself, e.g. vim or htop, still gets it) -- it doesn't
-        # scroll anything on that very first tick, which read as unresponsive. Entering *and*
-        # scrolling in the same action fixes that. Shift+PageUp gets the same entry point, since
-        # plain PageUp is left alone (unbound at the root, same as tmux's own default) -- most
-        # terminal emulators already use Shift+PageUp/PageDown for native scrollback, so it reads
-        # as the expected gesture rather than a new one.
-        guard = '#{||:#{alternate_on},#{pane_in_mode},#{mouse_any_flag}}'
-        subprocess.run([TMUX_BIN, 'bind-key', '-T', 'root', 'WheelUpPane', 'if-shell', '-F',
-                         guard, 'send-keys -M', 'copy-mode -e; send-keys -X -N 3 scroll-up'])
+        # Root table: Shift+PageUp only enters copy-mode by default (tmux's own guard --
+        # #{alternate_on}/#{pane_in_mode} -- still applies, so a full-screen program that wants
+        # the raw key itself, e.g. vim or htop, still gets it) -- it doesn't scroll anything on
+        # that very first press, which reads as unresponsive. Entering *and* scrolling in the
+        # same action fixes that. Plain PageUp is left alone (unbound at the root, same as tmux's
+        # own default) -- most terminal emulators already use Shift+PageUp/PageDown for native
+        # scrollback, so it reads as the expected gesture rather than a new one.
+        #
+        # C-S-Up/C-S-Down (Ctrl+Shift+Up/Down) are a second, separate entry point for the exact
+        # same mechanism, driven by the frontend's own wheel handler now that tmux's mouse
+        # tracking is off -- an obscure combo real keyboard use is unlikely to reach for on its
+        # own, reserved here purely as a synthetic "scroll a few lines" signal. -N 3 rather than
+        # page-up/-down: a wheel tick should feel like a few lines, not jump a full screen.
+        guard = '#{||:#{alternate_on},#{pane_in_mode}}'
         subprocess.run([TMUX_BIN, 'bind-key', '-T', 'root', 'S-PPage', 'if-shell', '-F',
                          guard, 'send-keys S-PPage', 'copy-mode -e; send-keys -X page-up'])
+        subprocess.run([TMUX_BIN, 'bind-key', '-T', 'root', 'C-S-Up', 'if-shell', '-F',
+                         guard, 'send-keys C-S-Up', 'copy-mode -e; send-keys -X -N 3 scroll-up'])
+        # No root C-S-Down binding, same as the original wheel design -- there's nothing to enter
+        # copy-mode by scrolling *down* into when you're already at the live bottom; C-S-Down only
+        # needs to do anything once already in copy-mode, covered by the per-table bindings below.
         # Once already in copy-mode, keys dispatch through this table instead of root -- tmux's
-        # own defaults only cover plain PPage/NPage there, not the shifted variants above.
+        # own defaults only cover plain PPage/NPage there, not the combos above.
         for table in ('copy-mode', 'copy-mode-vi'):
             subprocess.run([TMUX_BIN, 'bind-key', '-T', table, 'S-PPage', 'send-keys', '-X', 'page-up'])
             subprocess.run([TMUX_BIN, 'bind-key', '-T', table, 'S-NPage', 'send-keys', '-X', 'page-down'])
+            subprocess.run([TMUX_BIN, 'bind-key', '-T', table, 'C-S-Up',
+                             'send-keys', '-X', '-N', '3', 'scroll-up'])
+            subprocess.run([TMUX_BIN, 'bind-key', '-T', table, 'C-S-Down',
+                             'send-keys', '-X', '-N', '3', 'scroll-down'])
         sys.exit(0)
 
     WEBROOT   = cfg.get('webroot') or WEBROOT

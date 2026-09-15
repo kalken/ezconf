@@ -4290,6 +4290,27 @@ async function initTerminal() {
       _term.loadAddon(webgl);
     } catch (_) {}
     _term.open(container);
+    if (TERMINAL_PERSIST) {
+      // tmux's own mouse tracking is off (see --configure-session) since it intercepted every
+      // mouse gesture, not just the wheel, breaking normal drag-to-select/copy -- this replaces
+      // just the wheel-scroll part it used to provide, entirely client-side. Captured ahead of
+      // xterm.js's own wheel handling (which would otherwise scroll its client-side scrollback --
+      // just a raw recording of tmux's screen redraws, not tmux's own line-based history -- or
+      // fall back to arrow keys) and stopped from propagating there at all.
+      let _wheelAccum = 0;
+      const WHEEL_TICK = 50; // px of accumulated deltaY per synthetic "tick" -- roughly one
+                              // physical mouse-wheel notch; trackpads send much smaller deltas
+                              // per event, accumulated here so a light touch doesn't fire dozens
+                              // of scrolls a second.
+      container.addEventListener('wheel', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (!_termWs || _termWs.readyState !== WebSocket.OPEN) return;
+        _wheelAccum += e.deltaY;
+        while (_wheelAccum >= WHEEL_TICK) { _wheelAccum -= WHEEL_TICK; _termWs.send('\x1b[1;6B'); }
+        while (_wheelAccum <= -WHEEL_TICK) { _wheelAccum += WHEEL_TICK; _termWs.send('\x1b[1;6A'); }
+      }, { passive: false, capture: true });
+    }
     _termFit.fit();
     let _fitTimer = null;
     new ResizeObserver(() => {
