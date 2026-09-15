@@ -4683,12 +4683,11 @@ function showButtonMenu(event, idxs) {
     btn: buttons[idx], idx,
     path: buttons[idx].menu.split('/').slice(1),
   }));
-  // Opens beside the button, top-aligned with it (see _positionSubmenu) rather than as a dropup
-  // above it -- so a nested "Disk/Advanced" flyout reads as one continuous rightward cascade
-  // starting level with the button itself, instead of the first level popping up above it and
-  // only the deeper ones cascading sideways.
+  // Opens above the button (the bar sits at the bottom of the page) — see _positionMenuAboveAnchor.
+  // Windows' Start-menu pattern: the top-level menu is a dropup, but any nested submenu inside it
+  // (see _positionSubmenu) still cascades to the side, aligned with whatever row triggered it.
   // triggerEl: btn is what makes a second click on the same button toggle it closed.
-  showContextMenu(anchor, _buildButtonMenuItems(entries, dirty), { anchorRect: rect, triggerEl: btn, sideOfAnchor: true });
+  showContextMenu(anchor, _buildButtonMenuItems(entries, dirty), { anchorRect: rect, triggerEl: btn });
 }
 
 // ── API auth ──────────────────────────────────────────────────────────────────
