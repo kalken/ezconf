@@ -326,7 +326,8 @@ in
       systemd.services.ezconf-terminal = lib.mkIf cfg.terminal {
         description       = "ezconf terminal WebSocket service";
         wantedBy          = [ "multi-user.target" ];
-        after             = [ "ezconf.service" ] ++ lib.optional cfg.terminalPersist "ezconf-terminal-session.service";
+        after             = [ "ezconf.service" ]
+          ++ lib.optionals cfg.terminalPersist [ "ezconf-terminal-session.service" "ezconf-terminal-configure.service" ];
         # Without terminalPersist, restarting this unit kills whatever's running inside it, so a
         # rebuild must never do that automatically -- hence false. With it, the shell lives in
         # ezconf-terminal-session.service instead (a separate cgroup), so restarting this one
@@ -346,43 +347,82 @@ in
       # unit/cgroup is what lets it survive ezconf-terminal.service (or ezconf.service)
       # restarting: systemd's default KillMode=control-group kills every process in a unit's
       # cgroup on stop, including a daemon like tmux's server that's forked and reparented away
-      # from ezconf-terminal.service's own PID tree, since orphaning doesn't move a process to a
-      # different cgroup. Putting the session in its own unit sidesteps that entirely.
-      # Type=oneshot + RemainAfterExit=true: --start-session (see bin/terminal.py) just tells
-      # tmux to create/configure the session and exits immediately -- the tmux server it spawned
-      # keeps running independently in this unit's cgroup, so the unit itself has nothing to
-      # stay running as. restartIfChanged = false and Restart = on-failure only (not "always")
-      # since this should be about as close to never-restarted as a systemd unit gets -- every
-      # restart tears down the session along with the cgroup.
+      # from this unit's own PID tree, since orphaning doesn't move a process to a different
+      # cgroup. Putting the session in its own unit sidesteps that entirely.
+      #
+      # ExecStart is a *bare* tmux invocation, deliberately never referencing ${termPkg} (or
+      # anything else that changes when ezconf's own code does) -- restartIfChanged = false is a
+      # backstop, but the real guarantee here is that this unit's definition simply doesn't change
+      # across ezconf updates at all, so there's nothing for a rebuild to even consider restarting
+      # in the first place. Only a tmux package bump (or changing services.ezconf.shell) would.
+      # All of the actual tmux *configuration* (scrollback, mouse, key bindings, remain-on-exit)
+      # lives in ezconf-terminal-configure.service instead, precisely so it's free to reference
+      # ${termPkg} and restart normally -- it holds nothing persistent of its own.
+      #
+      # The leading "-" tolerates tmux's own "duplicate session" exit code on every re-run once
+      # the session already exists (the common case) -- without it, each periodic re-run below
+      # would otherwise report as a failed unit for doing nothing wrong.
+      # Type=oneshot + RemainAfterExit=true: this creates the session and exits immediately -- the
+      # tmux server it spawned keeps running independently in this unit's cgroup, so the unit
+      # itself has nothing to stay running as.
       systemd.services.ezconf-terminal-session = lib.mkIf (cfg.terminal && cfg.terminalPersist) {
         description       = "ezconf persistent terminal session (tmux)";
         wantedBy          = [ "multi-user.target" ];
-        after             = [ "ezconf.service" ]; # needs /run/ezconf/ezconf.toml, written by its preStart
         restartIfChanged  = false;
         serviceConfig = {
-          Type      = "oneshot";
+          Type            = "oneshot";
           RemainAfterExit = true;
-          User      = cfg.user;
-          Group     = cfg.group;
-          ExecStart = "${termPkg}/bin/ezconf-terminal --config /run/ezconf/ezconf.toml --start-session";
-          Restart   = "on-failure";
+          User            = cfg.user;
+          Group           = cfg.group;
+          Environment     = "TERM=xterm-256color";
+          ExecStart       = "-${pkgs.tmux}/bin/tmux new-session -d -s ${tmuxSession}"
+            + lib.optionalString (cfg.shell != null) " ${cfg.shell} -l";
         };
       };
 
-      # Periodically re-fires the oneshot service above (itself unchanged -- --start-session is
-      # idempotent: new-session no-ops if the session already exists, and every set-option/
-      # bind-key call is safe to redo) so the session gets recreated if the tmux *server itself*
-      # ever disappears -- e.g. someone runs `tmux kill-server` directly, or an OOM kill takes out
-      # the server process. That's distinct from a single pane's shell exiting, which remain-on-
-      # exit/pane-died (configured by --start-session) already recovers from immediately, no
-      # waiting on this timer. A once-a-minute check is deliberately not aggressive: this is a
-      # safety net for a rare, usually self-inflicted event, not a hot path.
+      # Periodically re-fires the oneshot service above (a bare `tmux new-session -d`, itself
+      # unchanged) so the session gets recreated if the tmux *server itself* ever disappears --
+      # e.g. someone runs `tmux kill-server` directly, or an OOM kill takes out the server
+      # process. That's distinct from a single pane's shell exiting, which remain-on-exit/
+      # pane-died (configured by ezconf-terminal-configure.service, not this one) already recovers
+      # from immediately, no waiting on any timer. A once-a-minute check is deliberately not
+      # aggressive: this is a safety net for a rare, usually self-inflicted event, not a hot path.
       systemd.timers.ezconf-terminal-session = lib.mkIf (cfg.terminal && cfg.terminalPersist) {
         description = "Periodically ensure the persistent ezconf terminal session still exists";
         wantedBy    = [ "timers.target" ];
         timerConfig = {
           OnUnitActiveSec = "60s";
           Unit            = "ezconf-terminal-session.service";
+        };
+      };
+
+      # All of the actual tmux *configuration* -- separated from ezconf-terminal-session.service
+      # above specifically so this unit (which references ${termPkg}, unlike that one) is free to
+      # restart normally on every ezconf update instead of needing restartIfChanged = false itself:
+      # it holds nothing persistent, just reapplies settings to a session created elsewhere, so
+      # there's nothing lost by restarting it whenever it likes.
+      systemd.services.ezconf-terminal-configure = lib.mkIf (cfg.terminal && cfg.terminalPersist) {
+        description = "Apply ezconf's tmux session settings (scrollback, mouse, key bindings, remain-on-exit)";
+        wantedBy    = [ "multi-user.target" ];
+        after       = [ "ezconf.service" "ezconf-terminal-session.service" ]; # needs the toml (ezconf.service's preStart) and a session to configure
+        serviceConfig = {
+          Type      = "oneshot";
+          User      = cfg.user;
+          Group     = cfg.group;
+          ExecStart = "${termPkg}/bin/ezconf-terminal --config /run/ezconf/ezconf.toml --configure-session";
+        };
+      };
+
+      # Same idea as ezconf-terminal-session.timer -- reapplies settings periodically too, so a
+      # session recreated by that timer (after the tmux server disappeared) doesn't sit
+      # unconfigured (status bar visible, no mouse mode, no remain-on-exit) until the *next*
+      # config change happens to restart this unit.
+      systemd.timers.ezconf-terminal-configure = lib.mkIf (cfg.terminal && cfg.terminalPersist) {
+        description = "Periodically reapply ezconf's tmux session settings";
+        wantedBy    = [ "timers.target" ];
+        timerConfig = {
+          OnUnitActiveSec = "60s";
+          Unit            = "ezconf-terminal-configure.service";
         };
       };
   };

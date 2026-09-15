@@ -101,8 +101,9 @@ BIND_ADDR    = '127.0.0.1'
 TMUX_SESSION = None  # set by tmux_session in TOML; when set, the shell attaches to a
                       # persistent tmux session instead of being forked fresh per connection,
                       # so a running command survives this service restarting (or a reconnect)
-                      # — attach here, --start-session creates it (see ezconf-terminal-session
-                      # .service in the NixOS module)
+                      # — attach here, created directly by ezconf-terminal-session.service (a
+                      # bare tmux command, not this script) and configured by --configure-session
+                      # (ezconf-terminal-configure.service) in the NixOS module
 TMUX_BIN     = None   # resolved via shutil.which() at startup; TMUX_SESSION is only honored if
                       # this is found, so a deployment without tmux installed just falls back
                       # to today's non-persistent behavior rather than failing
@@ -179,8 +180,9 @@ def _terminal_ws(handler):
             except Exception:
                 pass
 
-        # attach-session: attach to the persistent session created by ezconf-terminal-session
-        # .service (see --start-session below) instead of forking a fresh shell — a running
+        # attach-session: attach to the persistent session created directly by
+        # ezconf-terminal-session.service (a bare tmux command, not this script) instead of
+        # forking a fresh shell — a running
         # command survives this connection (or this whole process) ending, since the shell isn't
         # a child of ours anymore. tmux resizes the session to the attaching client automatically,
         # and redraws its current screen on attach — _tmux_capture_scrollback() above covers the
@@ -335,10 +337,13 @@ if __name__ == '__main__':
                     help='file to load/store the session key (must match server.py)')
     ap.add_argument('--cert', metavar='FILE', default=None, help='TLS certificate (PEM)')
     ap.add_argument('--key',  metavar='FILE', default=None, help='TLS private key (PEM)')
-    ap.add_argument('--start-session', action='store_true',
-                    help='create (or configure) the persistent tmux session at tmux_session '
-                         'instead of starting the WebSocket server; this is '
-                         'ezconf-terminal-session.service, not something to run by hand')
+    ap.add_argument('--configure-session', action='store_true',
+                    help='apply settings (scrollback, mouse, key bindings, remain-on-exit) to '
+                         'the already-existing persistent tmux session at tmux_session, instead '
+                         'of starting the WebSocket server; this is '
+                         'ezconf-terminal-configure.service, not something to run by hand -- '
+                         'the session itself is created directly by ezconf-terminal-session'
+                         '.service, not by this script')
     args = ap.parse_args()
 
     cfg = load_toml(args.config or 'ezconf.toml')
@@ -356,20 +361,20 @@ if __name__ == '__main__':
     TMUX_SESSION = cfg.get('tmux_session') or None
     TMUX_BIN = shutil.which('tmux')
 
-    if args.start_session:
+    if args.configure_session:
         if not TMUX_SESSION:
             print('error: tmux_session not set in config', file=sys.stderr)
             sys.exit(1)
         if not TMUX_BIN:
             print('error: tmux not found on PATH', file=sys.stderr)
             sys.exit(1)
-        os.environ['TERM'] = 'xterm-256color'
-        # -d: create/leave it detached, no client attached from here — this process's job is
-        # just to bring the session into existence (or no-op if it's already there, e.g. a
-        # redundant unit start) and configure it, then exit; the actual attaching happens per
-        # connection in launch_shell() above. Not check=True: a pre-existing session makes
-        # new-session fail, which is fine, we only care that one exists by the time we're done.
-        subprocess.run([TMUX_BIN, 'new-session', '-d', '-s', TMUX_SESSION, SHELL, '-l'])
+        # Applies settings to a session that already exists (see ezconf-terminal-session.service
+        # in the NixOS module, which creates it directly via a bare `tmux new-session` -- not this
+        # script -- specifically so that unit's definition never references this package and so
+        # never needs restarting when ezconf's own code changes). Every call below is safe to
+        # redo against an existing session, and harmless (just a no-op error, not fatal to this
+        # script) if the session doesn't exist yet -- the next periodic re-run of this same
+        # service (see ezconf-terminal-configure.timer) catches up once it does.
         # status off: no tmux chrome in a panel that's meant to look like a plain shell.
         # history-limit: matched to TMUX_HISTORY_LINES above, so a scrollback replay can
         # actually reach back that far. mouse on: without it, xterm.js has no native scrollback
