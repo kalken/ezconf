@@ -4359,17 +4359,26 @@ function connectTerminalWs() {
     _termReconnectAttempts = 0;
     if (_termReconnectTimer) { clearTimeout(_termReconnectTimer); _termReconnectTimer = null; }
     _setTermStatusBanner(null);
-    if (_term && _termFit) {
-      // fit() forces an actual fresh layout/cell-metrics measurement and applies it to _term;
-      // proposeDimensions() alone is a pure calculation that can be stale right after a fast
-      // reconnect (e.g. right after a "Reconnecting..." banner was showing) -- reading _term.cols/rows after
-      // fit() is the same authoritative value a genuine resize event would produce. Sent
-      // unconditionally (not just when fit() itself changes _term's size and fires onResize)
-      // since the *server* side may be a brand new session that's never been told any size yet,
-      // e.g. after ezconf-terminal-session.service restarted independently of this connection.
-      _termFit.fit();
-      _termWs.send(JSON.stringify({ type: 'resize', cols: _term.cols, rows: _term.rows }));
-    }
+    // Deferred by the same ~200ms the ResizeObserver above debounces by (see its own comment)
+    // -- opening the panel and connecting happen in the same breath on a cold start (toggleTerminal()
+    // synchronously starts both), so fit() here can otherwise run mid-transition (the panel's
+    // CSS height animating from collapsed to open, ~180ms) and measure a near-zero-height
+    // container. That produced a degenerate resize (seen in testing: 1 row) sent to a session
+    // that then ran real commands into an unusably tiny pane -- looking like the command never
+    // ran, when it was actually just rendered somewhere no one could see it.
+    setTimeout(() => {
+      if (_term && _termFit && _termWs && _termWs.readyState === WebSocket.OPEN) {
+        // fit() forces an actual fresh layout/cell-metrics measurement and applies it to _term;
+        // proposeDimensions() alone is a pure calculation that can be stale right after a fast
+        // reconnect (e.g. right after a "Reconnecting..." banner was showing) -- reading _term.cols/rows after
+        // fit() is the same authoritative value a genuine resize event would produce. Sent
+        // unconditionally (not just when fit() itself changes _term's size and fires onResize)
+        // since the *server* side may be a brand new session that's never been told any size yet,
+        // e.g. after ezconf-terminal-session.service restarted independently of this connection.
+        _termFit.fit();
+        _termWs.send(JSON.stringify({ type: 'resize', cols: _term.cols, rows: _term.rows }));
+      }
+    }, 200);
   };
   _termWs.onmessage = (e) => {
     if (e.data instanceof ArrayBuffer) { if (_term) _term.write(new Uint8Array(e.data)); return; }
