@@ -369,7 +369,8 @@ in
       # anything else that changes when ezconf's own code does) -- restartIfChanged = false is a
       # backstop, but the real guarantee here is that this unit's definition simply doesn't change
       # across ezconf updates at all, so there's nothing for a rebuild to even consider restarting
-      # in the first place. Only a tmux package bump (or changing services.ezconf.shell) would.
+      # in the first place. Only a tmux package bump (or a change to the service user's own
+      # configured shell) would.
       # All of the actual tmux *configuration* (scrollback, mouse, key bindings, remain-on-exit)
       # lives in ezconf-terminal-configure.service instead, precisely so it's free to reference
       # ${termPkg} and restart normally -- it holds nothing persistent of its own.
