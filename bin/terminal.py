@@ -107,28 +107,7 @@ TMUX_SESSION = None  # set by tmux_session in TOML; when set, the shell attaches
 TMUX_BIN     = None   # resolved via shutil.which() at startup; TMUX_SESSION is only honored if
                       # this is found, so a deployment without tmux installed just falls back
                       # to today's non-persistent behavior rather than failing
-TMUX_HISTORY_LINES = 2000  # how much tmux scrollback to replay into a (re)connecting client
-
-
-def _tmux_capture_scrollback():
-    """Return this session's tmux scrollback with \\n normalized to \\r\\n for a raw terminal
-    stream, or b'' if the session doesn't exist yet (nothing to replay) or tmux errors out.
-    Sent to a (re)connecting client before it starts receiving live output, so it sees what it
-    missed instead of a blank screen — tmux's own attach only redraws the current on-screen
-    contents, not the scrollback leading up to it."""
-    try:
-        has = subprocess.run([TMUX_BIN, 'has-session', '-t', TMUX_SESSION],
-                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        if has.returncode != 0:
-            return b''
-        cap = subprocess.run(
-            [TMUX_BIN, 'capture-pane', '-p', '-e', '-t', TMUX_SESSION,
-             '-S', f'-{TMUX_HISTORY_LINES}'],
-            capture_output=True, timeout=5,
-        )
-        return cap.stdout.replace(b'\n', b'\r\n')
-    except Exception:
-        return b''
+TMUX_HISTORY_LINES = 2000  # tmux's own history-limit, how far Shift+PageUp/copy-mode can scroll
 
 
 def _terminal_ws(handler):
@@ -185,8 +164,9 @@ def _terminal_ws(handler):
         # forking a fresh shell — a running
         # command survives this connection (or this whole process) ending, since the shell isn't
         # a child of ours anymore. tmux resizes the session to the attaching client automatically,
-        # and redraws its current screen on attach — _tmux_capture_scrollback() above covers the
-        # scrollback leading up to that, which attach alone doesn't replay.
+        # and redraws its current screen on attach; anything that scrolled off before this client
+        # connected is still in tmux's own history and reachable via Shift+PageUp/copy-mode, just
+        # not shown until scrolled to.
         cmd = [TMUX_BIN, 'attach-session', '-t', TMUX_SESSION] if TMUX_SESSION and TMUX_BIN \
             else [SHELL, '-l']
 
@@ -212,23 +192,8 @@ def _terminal_ws(handler):
     if not launch_shell():
         return
 
-    # Captured only now, right after the actual attach-session client is already spawned, not
-    # before -- has-session/capture-pane are their own subprocess calls with real overhead, and
-    # running them first delayed the attach itself for no benefit (a snapshot taken a few ms
-    # later here is no different). That delay mattered: the client's WebSocket is already
-    # considered OPEN as soon as our handshake response is sent, well before this point, so a
-    # command sent immediately on open could reach a server that hadn't even started attaching
-    # to tmux yet.
-    replay = _tmux_capture_scrollback() if TMUX_SESSION and TMUX_BIN else b''
-
-    if replay:
-        try:
-            _ws_send(wfile, replay, opcode=0x02)
-        except Exception:
-            pass
-
     # A text frame is always a control message from here on (real terminal output is always
-    # sent binary, see pty_to_ws/replay above) -- 'ready' tells the client it's now safe to send
+    # sent binary, see pty_to_ws below) -- 'ready' tells the client it's now safe to send
     # input, rather than the client guessing readiness from the WebSocket's own open state or
     # the first byte of output, either of which can race ahead of the shell/tmux attach actually
     # being ready to receive it.
@@ -376,8 +341,8 @@ if __name__ == '__main__':
         # script) if the session doesn't exist yet -- the next periodic re-run of this same
         # service (see ezconf-terminal-configure.timer) catches up once it does.
         # status off: no tmux chrome in a panel that's meant to look like a plain shell.
-        # history-limit: matched to TMUX_HISTORY_LINES above, so a scrollback replay can
-        # actually reach back that far.
+        # history-limit: matched to TMUX_HISTORY_LINES above, so Shift+PageUp/copy-mode can
+        # actually scroll back that far.
         subprocess.run([TMUX_BIN, 'set-option', '-t', TMUX_SESSION, 'status', 'off'])
         subprocess.run([TMUX_BIN, 'set-option', '-t', TMUX_SESSION, 'history-limit',
                          str(TMUX_HISTORY_LINES)])

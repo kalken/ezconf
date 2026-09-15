@@ -4466,8 +4466,8 @@ function connectTerminalWs() {
   if (_termOnData) { _termOnData.dispose(); _termOnData = null; }
   // Only on the very first connection, not every reconnect -- a reconnect (especially to a
   // persistent tmux session, see terminalPersist) doesn't mean the shell actually restarted, so
-  // clearing here just adds an extra blank flash before the scrollback replay/tmux's own
-  // attach-time redraw arrives. Without persistence a reconnect genuinely does get a fresh
+  // clearing here just adds an extra blank flash before tmux's own attach-time redraw arrives.
+  // Without persistence a reconnect genuinely does get a fresh
   // shell, but appending its output below whatever was already on screen isn't confusing enough
   // to be worth resetting for either.
   if (!_termEverConnected) { _term.reset(); _termEverConnected = true; }
