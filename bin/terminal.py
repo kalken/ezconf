@@ -6,8 +6,7 @@ Run:
   python3 terminal.py --config /run/ezconf/ezconf.toml
   python3 terminal.py --port 9092 --session-key-file /run/ezconf/session.key
 
-Config keys read from TOML: terminal_port, session_key_file, shell, cert, key, webroot,
-tmux_session
+Config keys read from TOML: terminal_port, session_key_file, shell, cert, key, webroot
 """
 import argparse
 import base64
@@ -17,7 +16,6 @@ import json
 import os
 import secrets
 import select
-import shutil
 import ssl
 import struct
 import subprocess
@@ -98,17 +96,6 @@ PORT         = 9091
 WEBROOT      = '.'
 BIND_ADDR    = '127.0.0.1'
 
-TMUX_SESSION = None  # set by tmux_session in TOML; when set, the shell attaches to a
-                      # persistent tmux session instead of being forked fresh per connection,
-                      # so a running command survives this service restarting (or a reconnect)
-                      # — attach here, created directly by ezconf-terminal-session.service (a
-                      # bare tmux command, not this script) and configured by --configure-session
-                      # (ezconf-terminal-configure.service) in the NixOS module
-TMUX_BIN     = None   # resolved via shutil.which() at startup; TMUX_SESSION is only honored if
-                      # this is found, so a deployment without tmux installed just falls back
-                      # to today's non-persistent behavior rather than failing
-TMUX_HISTORY_LINES = 2000  # tmux's own history-limit, how far Shift+PageUp/copy-mode can scroll
-
 
 def _terminal_ws(handler):
     if not _PTY:
@@ -159,16 +146,7 @@ def _terminal_ws(handler):
             except Exception:
                 pass
 
-        # attach-session: attach to the persistent session created directly by
-        # ezconf-terminal-session.service (a bare tmux command, not this script) instead of
-        # forking a fresh shell — a running
-        # command survives this connection (or this whole process) ending, since the shell isn't
-        # a child of ours anymore. tmux resizes the session to the attaching client automatically,
-        # and redraws its current screen on attach; anything that scrolled off before this client
-        # connected is still in tmux's own history and reachable via Shift+PageUp/copy-mode, just
-        # not shown until scrolled to.
-        cmd = [TMUX_BIN, 'attach-session', '-t', TMUX_SESSION] if TMUX_SESSION and TMUX_BIN \
-            else [SHELL, '-l']
+        cmd = [SHELL, '-l']
 
         try:
             proc = subprocess.Popen(
@@ -195,8 +173,8 @@ def _terminal_ws(handler):
     # A text frame is always a control message from here on (real terminal output is always
     # sent binary, see pty_to_ws below) -- 'ready' tells the client it's now safe to send
     # input, rather than the client guessing readiness from the WebSocket's own open state or
-    # the first byte of output, either of which can race ahead of the shell/tmux attach actually
-    # being ready to receive it.
+    # the first byte of output, either of which can race ahead of the shell actually being ready
+    # to receive it.
     try:
         _ws_send(wfile, json.dumps({'type': 'ready'}).encode(), opcode=0x01)
     except Exception:
@@ -302,13 +280,6 @@ if __name__ == '__main__':
                     help='file to load/store the session key (must match server.py)')
     ap.add_argument('--cert', metavar='FILE', default=None, help='TLS certificate (PEM)')
     ap.add_argument('--key',  metavar='FILE', default=None, help='TLS private key (PEM)')
-    ap.add_argument('--configure-session', action='store_true',
-                    help='apply settings (scrollback, mouse, key bindings, remain-on-exit) to '
-                         'the already-existing persistent tmux session at tmux_session, instead '
-                         'of starting the WebSocket server; this is '
-                         'ezconf-terminal-configure.service, not something to run by hand -- '
-                         'the session itself is created directly by ezconf-terminal-session'
-                         '.service, not by this script')
     args = ap.parse_args()
 
     cfg = load_toml(args.config or 'ezconf.toml')
@@ -322,89 +293,6 @@ if __name__ == '__main__':
     except Exception:
         pass
     SHELL = cfg.get('shell') or _passwd_shell or os.environ.get('SHELL') or '/bin/sh'
-
-    TMUX_SESSION = cfg.get('tmux_session') or None
-    TMUX_BIN = shutil.which('tmux')
-
-    if args.configure_session:
-        if not TMUX_SESSION:
-            print('error: tmux_session not set in config', file=sys.stderr)
-            sys.exit(1)
-        if not TMUX_BIN:
-            print('error: tmux not found on PATH', file=sys.stderr)
-            sys.exit(1)
-        # Applies settings to a session that already exists (see ezconf-terminal-session.service
-        # in the NixOS module, which creates it directly via a bare `tmux new-session` -- not this
-        # script -- specifically so that unit's definition never references this package and so
-        # never needs restarting when ezconf's own code changes). Every call below is safe to
-        # redo against an existing session, and harmless (just a no-op error, not fatal to this
-        # script) if the session doesn't exist yet -- the next periodic re-run of this same
-        # service (see ezconf-terminal-configure.timer) catches up once it does.
-        # status off: no tmux chrome in a panel that's meant to look like a plain shell.
-        # history-limit: matched to TMUX_HISTORY_LINES above, so Shift+PageUp/copy-mode can
-        # actually scroll back that far.
-        subprocess.run([TMUX_BIN, 'set-option', '-t', TMUX_SESSION, 'status', 'off'])
-        subprocess.run([TMUX_BIN, 'set-option', '-t', TMUX_SESSION, 'history-limit',
-                         str(TMUX_HISTORY_LINES)])
-        # mouse off: tmux's own mouse tracking intercepts EVERY mouse gesture once enabled, not
-        # just the wheel -- a plain click-drag stops being a native browser text selection and
-        # becomes tmux's own copy-mode selection instead (which also vanishes the instant the
-        # mouse button is released, tmux's default binding for that gesture), and there's no way
-        # to get native selection back for an unmodified drag while it's on, no matter what tmux
-        # key bindings do or don't exist for it -- xterm.js decides whether to intercept a mouse
-        # event at all before any of that runs. Left off so drag-select/copy just works normally;
-        # the frontend replicates wheel-scroll-into-copy-mode itself instead (see C-S-Up/C-S-Down
-        # below), entirely independent of tmux's own mouse handling.
-        subprocess.run([TMUX_BIN, 'set-option', '-t', TMUX_SESSION, 'mouse', 'off'])
-        # remain-on-exit + pane-died: without this, typing "exit" at the prompt kills the pane's
-        # shell, and since it's the session's only pane, tmux tears down the whole session with
-        # it -- the "persistent" session is gone for good until something recreates it by hand.
-        # remain-on-exit keeps the pane (and session) alive with a dead placeholder instead of
-        # closing it; the pane-died hook immediately respawns a fresh shell into it, so "exit"
-        # behaves like it would on a plain (non-persistent) connection -- you just get a new
-        # shell -- instead of destroying the session. Session-scoped (-t), not -g, so it doesn't
-        # affect any other tmux session a human might run under the same user on this socket.
-        subprocess.run([TMUX_BIN, 'set-option', '-t', TMUX_SESSION, 'remain-on-exit', 'on'])
-        subprocess.run([TMUX_BIN, 'set-hook', '-t', TMUX_SESSION, 'pane-died', 'respawn-pane -k'])
-        # Root table: Shift+PageUp only enters copy-mode by default (tmux's own guard --
-        # #{alternate_on}/#{pane_in_mode} -- still applies, so a full-screen program that wants
-        # the raw key itself, e.g. vim or htop, still gets it) -- it doesn't scroll anything on
-        # that very first press, which reads as unresponsive. Entering *and* scrolling in the
-        # same action fixes that. Plain PageUp is left alone (unbound at the root, same as tmux's
-        # own default) -- most terminal emulators already use Shift+PageUp/PageDown for native
-        # scrollback, so it reads as the expected gesture rather than a new one.
-        #
-        # C-S-Up/C-S-Down (Ctrl+Shift+Up/Down) are a second, separate entry point for the exact
-        # same mechanism, driven by the frontend's own wheel handler now that tmux's mouse
-        # tracking is off -- an obscure combo real keyboard use is unlikely to reach for on its
-        # own, reserved here purely as a synthetic "scroll a few lines" signal. -N 3 rather than
-        # page-up/-down: a wheel tick should feel like a few lines, not jump a full screen.
-        guard = '#{||:#{alternate_on},#{pane_in_mode}}'
-        subprocess.run([TMUX_BIN, 'bind-key', '-T', 'root', 'S-PPage', 'if-shell', '-F',
-                         guard, 'send-keys S-PPage', 'copy-mode -e; send-keys -X page-up'])
-        subprocess.run([TMUX_BIN, 'bind-key', '-T', 'root', 'C-S-Up', 'if-shell', '-F',
-                         guard, 'send-keys C-S-Up', 'copy-mode -e; send-keys -X -N 3 scroll-up'])
-        # C-S-Down still needs a root binding even though there's nothing to scroll down into at
-        # the live bottom -- an *unbound* key falls through to the pane's application instead of
-        # being consumed, and this is a synthetic sequence no real keyboard sends, so it would
-        # land in the shell as literal garbage input (confirmed: scrolling down at the bottom
-        # printed raw escape-sequence fragments at the prompt) rather than being silently
-        # dropped. Forward it only if the pane's own app wants raw keys (alternate_on, e.g. vim);
-        # otherwise the binding's false-branch is simply omitted, which is a real no-op in tmux,
-        # discarding the key instead of forwarding it. Once already in copy-mode, keys dispatch
-        # through that table instead of root anyway, where C-S-Down does the real scroll-down.
-        subprocess.run([TMUX_BIN, 'bind-key', '-T', 'root', 'C-S-Down', 'if-shell', '-F',
-                         '#{alternate_on}', 'send-keys C-S-Down'])
-        # Once already in copy-mode, keys dispatch through this table instead of root -- tmux's
-        # own defaults only cover plain PPage/NPage there, not the combos above.
-        for table in ('copy-mode', 'copy-mode-vi'):
-            subprocess.run([TMUX_BIN, 'bind-key', '-T', table, 'S-PPage', 'send-keys', '-X', 'page-up'])
-            subprocess.run([TMUX_BIN, 'bind-key', '-T', table, 'S-NPage', 'send-keys', '-X', 'page-down'])
-            subprocess.run([TMUX_BIN, 'bind-key', '-T', table, 'C-S-Up',
-                             'send-keys', '-X', '-N', '3', 'scroll-up'])
-            subprocess.run([TMUX_BIN, 'bind-key', '-T', table, 'C-S-Down',
-                             'send-keys', '-X', '-N', '3', 'scroll-down'])
-        sys.exit(0)
 
     WEBROOT   = cfg.get('webroot') or WEBROOT
     BIND_ADDR = cfg.get('listen') or BIND_ADDR

@@ -3511,7 +3511,6 @@ function initRestartWatcher() {
     const reloadNeeded = data.webroot_hash !== WEBROOT_HASH
       || data.theme !== THEME
       || !!data.terminal_enabled !== TERMINAL_ENABLED
-      || !!data.terminal_persist !== TERMINAL_PERSIST
       || !!data.mkoptions_enabled !== MKOPTIONS_ENABLED
       || !!data.backup_enabled !== BACKUP_ENABLED
       || data.nixos_target !== NIXOS_TARGET;
@@ -4229,7 +4228,7 @@ let _termEverConnected = false;
 // Set once the server's {"type":"ready"} control message arrives for the current connection
 // (see connectTerminalWs()'s onmessage) -- waiting for this instead of guessing readiness from
 // the WebSocket's own open state or the first byte received avoids sending input before the
-// shell/tmux attach on the other end is actually ready to receive it, which could otherwise
+// shell on the other end is actually ready to receive it, which could otherwise
 // silently go nowhere. _termReadyWaiters holds callbacks queued by _waitTermReady() while not
 // yet ready; both reset at the top of every connectTerminalWs() call (a fresh connection is
 // never ready yet, and stale waiters from an abandoned connection would never fire otherwise).
@@ -4272,8 +4271,8 @@ async function initTerminal() {
       // xterm.js's own bypass for forcing native (browser) selection instead of reporting the
       // drag as a mouse event to the program -- Shift+drag on Windows/Linux, but on macOS it's
       // Option+drag *and* only if this is explicitly turned on (matching the same Option-click
-      // convention Terminal.app/iTerm use). Without it, there was no way at all to get a native
-      // selection out of a mouse drag on a Mac once tmux's own mouse mode was on.
+      // convention Terminal.app/iTerm use). Useful whenever something inside the shell turns on
+      // its own mouse tracking (vim, htop, etc.), which would otherwise swallow a plain drag.
       macOptionClickForcesSelection: true,
       ...(Object.keys(_termTheme).length && { theme: _termTheme }),
     });
@@ -4285,27 +4284,6 @@ async function initTerminal() {
       _term.loadAddon(webgl);
     } catch (_) {}
     _term.open(container);
-    if (TERMINAL_PERSIST) {
-      // tmux's own mouse tracking is off (see --configure-session) since it intercepted every
-      // mouse gesture, not just the wheel, breaking normal drag-to-select/copy -- this replaces
-      // just the wheel-scroll part it used to provide, entirely client-side. Captured ahead of
-      // xterm.js's own wheel handling (which would otherwise scroll its client-side scrollback --
-      // just a raw recording of tmux's screen redraws, not tmux's own line-based history -- or
-      // fall back to arrow keys) and stopped from propagating there at all.
-      let _wheelAccum = 0;
-      const WHEEL_TICK = 50; // px of accumulated deltaY per synthetic "tick" -- roughly one
-                              // physical mouse-wheel notch; trackpads send much smaller deltas
-                              // per event, accumulated here so a light touch doesn't fire dozens
-                              // of scrolls a second.
-      container.addEventListener('wheel', (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        if (!_termWs || _termWs.readyState !== WebSocket.OPEN) return;
-        _wheelAccum += e.deltaY;
-        while (_wheelAccum >= WHEEL_TICK) { _wheelAccum -= WHEEL_TICK; _termWs.send('\x1b[1;6B'); }
-        while (_wheelAccum <= -WHEEL_TICK) { _wheelAccum += WHEEL_TICK; _termWs.send('\x1b[1;6A'); }
-      }, { passive: false, capture: true });
-    }
     _termFit.fit();
     let _fitTimer = null;
     new ResizeObserver(() => {
@@ -4329,18 +4307,6 @@ async function initTerminal() {
       if (e.ctrlKey && !e.metaKey && (e.key === 'c' || e.key === 'C') && _term.hasSelection()) {
         e.preventDefault();
         navigator.clipboard?.writeText(_term.getSelection()).catch(() => {});
-        return false;
-      }
-      if (TERMINAL_PERSIST && e.shiftKey && (e.key === 'PageUp' || e.key === 'PageDown')) {
-        // xterm.js handles Shift+PageUp/PageDown itself by default, scrolling its own
-        // (client-side) scrollback -- fine for a plain forked shell, but with a persistent tmux
-        // session that buffer is just a raw recording of every screen redraw tmux issues, not
-        // tmux's own line-based history. Sending the actual xterm sequence instead routes it
-        // into tmux's copy-mode scrolling (see --configure-session's S-PPage/S-NPage bindings),
-        // returning false so xterm.js doesn't also scroll its own buffer for it.
-        e.preventDefault();
-        if (_termWs && _termWs.readyState === WebSocket.OPEN)
-          _termWs.send(e.key === 'PageUp' ? '\x1b[5;2~' : '\x1b[6;2~');
         return false;
       }
       return true;
@@ -4464,12 +4430,9 @@ function connectTerminalWs() {
     }
   };
   if (_termOnData) { _termOnData.dispose(); _termOnData = null; }
-  // Only on the very first connection, not every reconnect -- a reconnect (especially to a
-  // persistent tmux session, see terminalPersist) doesn't mean the shell actually restarted, so
-  // clearing here just adds an extra blank flash before tmux's own attach-time redraw arrives.
-  // Without persistence a reconnect genuinely does get a fresh
-  // shell, but appending its output below whatever was already on screen isn't confusing enough
-  // to be worth resetting for either.
+  // Only on the very first connection, not every reconnect -- a reconnect genuinely does get a
+  // fresh shell, but appending its output below whatever was already on screen isn't confusing
+  // enough to be worth resetting for.
   if (!_termEverConnected) { _term.reset(); _termEverConnected = true; }
   // Tracks the current not-yet-submitted input line so typing "exit" can auto-hide the panel
   // (see below) -- best-effort only, e.g. arrow-key history recall isn't accounted for, since
@@ -4504,13 +4467,10 @@ function connectTerminalWs() {
       }
       if (ch === '\x1b') { _termEscState = 1; continue; }
       if (ch === '\r' || ch === '\n') {
-        // With a persistent tmux session, "exit" now respawns a fresh shell instead of closing
-        // the connection (see terminalPersist's pane-died hook), so the onclose-driven collapse
-        // below never fires for it anymore -- this replaces that for the one case anyone
-        // actually triggers on purpose. Fires immediately client-side rather than waiting on any
-        // server round-trip, which also makes it strictly earlier than onclose in the non-
-        // persistent case, where that still exists as a backstop for other ways a shell exits
-        // (Ctrl+D, etc.) that this simple text check doesn't try to catch.
+        // Auto-hides the panel the moment "exit" is submitted, rather than waiting on the
+        // server round-trip and the onclose handler that follows it -- that onclose path still
+        // exists as a backstop for other ways a shell exits (Ctrl+D, etc.) that this simple text
+        // check doesn't try to catch.
         if (_termLineBuffer.trim() === 'exit') {
           const panel = document.getElementById('terminal-panel');
           if (!panel.classList.contains('collapsed')) toggleTerminal();
@@ -4756,7 +4716,6 @@ function showButtonMenu(event, idxs) {
 // ── API auth ──────────────────────────────────────────────────────────────────
 const API_BASE = '/api/v1';
 const TERMINAL_ENABLED  = %%EZCONF_TERMINAL%%;
-const TERMINAL_PERSIST  = %%EZCONF_TERMINAL_PERSIST%%;
 const MKOPTIONS_ENABLED = %%EZCONF_MKOPTIONS%%;
 const BACKUP_ENABLED    = %%EZCONF_BACKUP%%;
 const EZCONF_MODE       = %%EZCONF_MODE%%; // null or "install" — services.ezconf.mode / mode in ezconf.toml, deploy-time only, no in-GUI toggle
@@ -5361,8 +5320,8 @@ function runButton(idx) {
     if (!_termWs || _termWs.readyState === WebSocket.CLOSED) connectTerminalWs();
     // Waits for the server's explicit "ready" signal (see connectTerminalWs()'s onmessage)
     // rather than the WebSocket's own open state or the first byte of output -- either of those
-    // can arrive before the shell/tmux attach on the other end is actually ready to receive
-    // input, which silently swallows it instead of running the command.
+    // can arrive before the shell on the other end is actually ready to receive input, which
+    // silently swallows it instead of running the command.
     _waitTermReady().then(() => {
       if (_termWs) _termWs.send('\x15'); // clear whatever's half-typed at the prompt, always
       if (btn.clear_first) {
