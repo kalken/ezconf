@@ -4274,6 +4274,12 @@ async function initTerminal() {
       ...(_cursorBlink !== '' && { cursorBlink: _cursorBlink === '1' || _cursorBlink === 'true' }),
       convertEol: true,
       scrollback: 5000,
+      // xterm.js's own bypass for forcing native (browser) selection instead of reporting the
+      // drag as a mouse event to the program -- Shift+drag on Windows/Linux, but on macOS it's
+      // Option+drag *and* only if this is explicitly turned on (matching the same Option-click
+      // convention Terminal.app/iTerm use). Without it, there was no way at all to get a native
+      // selection out of a mouse drag on a Mac once tmux's own mouse mode was on.
+      macOptionClickForcesSelection: true,
       ...(Object.keys(_termTheme).length && { theme: _termTheme }),
     });
     _termFit = new FitAddon.FitAddon();
@@ -4296,22 +4302,33 @@ async function initTerminal() {
       if (_termWs && _termWs.readyState === WebSocket.OPEN)
         _termWs.send(JSON.stringify({ type: 'resize', cols, rows }));
     });
-    if (TERMINAL_PERSIST) {
-      // xterm.js handles Shift+PageUp/PageDown itself by default, scrolling its own (client-side)
-      // scrollback -- fine for a plain forked shell, but with a persistent tmux session that
-      // buffer is just a raw recording of every screen redraw tmux issues, not tmux's own
-      // line-based history. Intercepting here and sending the actual xterm sequence instead
-      // routes it into tmux's copy-mode scrolling (see --start-session's S-PPage/S-NPage
-      // bindings), returning false so xterm.js doesn't also scroll its own buffer for it.
-      _term.attachCustomKeyEventHandler((e) => {
-        if (e.type !== 'keydown' || !e.shiftKey) return true;
-        if (e.key !== 'PageUp' && e.key !== 'PageDown') return true;
+    _term.attachCustomKeyEventHandler((e) => {
+      if (e.type !== 'keydown') return true;
+      // Ctrl+C copies the current selection instead of sending SIGINT, matching the convention
+      // most web terminals (VS Code's integrated terminal included) use -- xterm.js doesn't do
+      // this itself, it always sends the literal control byte otherwise, which would make a
+      // just-made selection impossible to actually copy via the key everyone reaches for. Not
+      // Cmd+C: that's the browser's own native copy shortcut and isn't intercepted by xterm.js
+      // in the first place, so it already works with no help needed here.
+      if (e.ctrlKey && !e.metaKey && (e.key === 'c' || e.key === 'C') && _term.hasSelection()) {
+        e.preventDefault();
+        navigator.clipboard?.writeText(_term.getSelection()).catch(() => {});
+        return false;
+      }
+      if (TERMINAL_PERSIST && e.shiftKey && (e.key === 'PageUp' || e.key === 'PageDown')) {
+        // xterm.js handles Shift+PageUp/PageDown itself by default, scrolling its own
+        // (client-side) scrollback -- fine for a plain forked shell, but with a persistent tmux
+        // session that buffer is just a raw recording of every screen redraw tmux issues, not
+        // tmux's own line-based history. Sending the actual xterm sequence instead routes it
+        // into tmux's copy-mode scrolling (see --configure-session's S-PPage/S-NPage bindings),
+        // returning false so xterm.js doesn't also scroll its own buffer for it.
         e.preventDefault();
         if (_termWs && _termWs.readyState === WebSocket.OPEN)
           _termWs.send(e.key === 'PageUp' ? '\x1b[5;2~' : '\x1b[6;2~');
         return false;
-      });
-    }
+      }
+      return true;
+    });
     connectTerminalWs();
   } catch (e) {
     console.error('Terminal init failed:', e);
