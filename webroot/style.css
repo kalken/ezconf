@@ -576,6 +576,11 @@ textarea { resize: vertical; min-height: unset; line-height: 1.5; }
 .status-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--green2); display: inline-block; margin-right: 4px; transition: background .2s; }
 .status-dot.dirty { background: var(--dirty-color); }
 .statusbar-right { display: flex; align-items: center; gap: 10px; margin-left: auto; }
+/* .btn's own border and vertical padding pushed this taller than the statusbar's other content
+   (plain text and swatches, no padding/border of their own) -- appearing/disappearing (see
+   onRestartDetected()) otherwise grew and shrank .statusbar-right (and so the whole statusbar
+   row) around it. Both removed so its total height matches the row's natural height instead. */
+#reload-btn { border: none; padding: 0 8px; }
 .status-version { color: var(--text3); white-space: nowrap; cursor: default; }
 .theme-switcher { display: flex; gap: 5px; align-items: center; }
 .theme-swatch { width: 12px; height: 12px; border-radius: 50%; cursor: pointer; border: 2px solid transparent; padding: 0; flex-shrink: 0; transition: outline .15s; }
