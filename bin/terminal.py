@@ -23,6 +23,7 @@ import struct
 import subprocess
 import sys
 import threading
+import time
 from urllib.parse import urlparse
 
 try:
@@ -130,6 +131,32 @@ def _tmux_capture_scrollback():
         return b''
 
 
+def _settle_tmux_attach(master_fd, wfile, quiet=0.15, timeout=0.5):
+    """Read and forward tmux's own attach-handshake output (its redraw of the current screen)
+    for a short window right after a new client attaches, before the caller tells the browser
+    it's safe to send input.
+
+    Without this, input sent immediately after attach (e.g. a terminal-bar button firing the
+    instant its WebSocket looked ready) could reach tmux/the shell while it's still in the
+    middle of its own startup handling and get silently swallowed instead of landing at an
+    interactive prompt -- confirmed intermittent in testing, not a hard guarantee either way.
+    Stops once master_fd goes quiet for `quiet` seconds (tmux's handshake is near-instant), or
+    after `timeout` regardless, so a stuck attach can't block a connection indefinitely."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        r, _, _ = select.select([master_fd], [], [], quiet)
+        if not r:
+            return
+        try:
+            data = os.read(master_fd, 4096)
+        except OSError:
+            return
+        try:
+            _ws_send(wfile, data, opcode=0x02)
+        except Exception:
+            return
+
+
 def _terminal_ws(handler):
     if not _PTY:
         handler.send_error(501, 'PTY not available on this platform')
@@ -224,6 +251,19 @@ def _terminal_ws(handler):
             _ws_send(wfile, replay, opcode=0x02)
         except Exception:
             pass
+
+    if TMUX_SESSION and TMUX_BIN:
+        _settle_tmux_attach(state['master_fd'], wfile)
+
+    # A text frame is always a control message from here on (real terminal output is always
+    # sent binary, see pty_to_ws/replay above) -- 'ready' tells the client it's now safe to send
+    # input, rather than the client guessing readiness from the WebSocket's own open state or
+    # the first byte of output, either of which can race ahead of the shell/tmux attach actually
+    # being ready to receive it (see _settle_tmux_attach).
+    try:
+        _ws_send(wfile, json.dumps({'type': 'ready'}).encode(), opcode=0x01)
+    except Exception:
+        pass
 
     def pty_to_ws():
         try:

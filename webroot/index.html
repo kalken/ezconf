@@ -4230,6 +4230,20 @@ let _termOnData = null;
 let _termReconnectTimer = null;
 let _termReconnectAttempts = 0;
 let _termEverConnected = false;
+// Set once the server's {"type":"ready"} control message arrives for the current connection
+// (see connectTerminalWs()'s onmessage) -- waiting for this instead of guessing readiness from
+// the WebSocket's own open state or the first byte received avoids sending input before the
+// shell/tmux attach on the other end is actually ready to receive it, which could otherwise
+// silently go nowhere. _termReadyWaiters holds callbacks queued by _waitTermReady() while not
+// yet ready; both reset at the top of every connectTerminalWs() call (a fresh connection is
+// never ready yet, and stale waiters from an abandoned connection would never fire otherwise).
+let _termReady = false;
+let _termReadyWaiters = [];
+
+function _waitTermReady() {
+  if (_termReady) return Promise.resolve();
+  return new Promise(resolve => _termReadyWaiters.push(resolve));
+}
 
 const _TERM_WS_BASE = (() => {
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -4337,6 +4351,8 @@ function _setTermStatusBanner(text, spinning = false) {
 
 function connectTerminalWs() {
   if (_termWs) { _termWs.close(); _termWs = null; }
+  _termReady = false;
+  _termReadyWaiters = [];
   _termWs = new WebSocket(_TERM_WS_BASE);
   _termWs.binaryType = 'arraybuffer';
   _termWs.onopen = () => {
@@ -4356,9 +4372,18 @@ function connectTerminalWs() {
     }
   };
   _termWs.onmessage = (e) => {
-    if (!_term) return;
-    if (e.data instanceof ArrayBuffer) _term.write(new Uint8Array(e.data));
-    else _term.write(e.data);
+    if (e.data instanceof ArrayBuffer) { if (_term) _term.write(new Uint8Array(e.data)); return; }
+    // A text frame is always a control message from the server -- real terminal output is
+    // always sent binary (see above) -- never raw content to print.
+    try {
+      const msg = JSON.parse(e.data);
+      if (msg.type === 'ready') {
+        _termReady = true;
+        const waiters = _termReadyWaiters;
+        _termReadyWaiters = [];
+        waiters.forEach(fn => fn());
+      }
+    } catch {}
   };
   _termWs.onerror = () => {
     // onclose always follows a WebSocket error, and handles the user-facing status banner --
@@ -5222,32 +5247,19 @@ function runButton(idx) {
   if (panel.classList.contains('collapsed')) toggleTerminal();
   initTerminal().then(() => {
     if (!_term) return;
-    const send = () => {
+    if (!_termWs || _termWs.readyState === WebSocket.CLOSED) connectTerminalWs();
+    // Waits for the server's explicit "ready" signal (see connectTerminalWs()'s onmessage)
+    // rather than the WebSocket's own open state or the first byte of output -- either of those
+    // can arrive before the shell/tmux attach on the other end is actually ready to receive
+    // input, which silently swallows it instead of running the command.
+    _waitTermReady().then(() => {
       if (_termWs) _termWs.send('\x15'); // clear whatever's half-typed at the prompt, always
       if (btn.clear_first) {
         if (_term) _term.clear();
         if (_termWs) _termWs.send('clear\r');
       }
       if (_termWs) _termWs.send(btn.command + '\r');
-    };
-    const sendOnReady = () => {
-      const origMsg = _termWs.onmessage;
-      _termWs.onmessage = (e) => {
-        _termWs.onmessage = origMsg;
-        if (origMsg) origMsg.call(_termWs, e);
-        send();
-      };
-    };
-    if (_termWs && _termWs.readyState === WebSocket.OPEN) {
-      send();
-    } else if (_termWs && _termWs.readyState === WebSocket.CONNECTING) {
-      const prev = _termWs.onopen;
-      _termWs.onopen = (e) => { if (prev) prev.call(_termWs, e); sendOnReady(); };
-    } else {
-      connectTerminalWs();
-      const prev = _termWs.onopen;
-      _termWs.onopen = (e) => { if (prev) prev.call(_termWs, e); sendOnReady(); };
-    }
+    });
   });
 }
 
