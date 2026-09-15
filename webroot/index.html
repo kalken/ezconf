@@ -78,6 +78,7 @@ const _DEFAULT_THEME = '%%EZCONF_THEME%%';
       <div class="tree" id="tree-root"></div>
     </div>
     <div class="markdown-panels" id="markdown-panels"></div>
+    <div class="reload-notification hidden" id="reload-notification" onclick="location.reload()" data-tooltip="ezconf was updated or restarted -- click to reload">↻ New version available — click to reload</div>
   </div>
 </div>
 
@@ -107,7 +108,6 @@ const _DEFAULT_THEME = '%%EZCONF_THEME%%';
   <span id="status-path" data-tooltip="Click to copy" onclick="navigator.clipboard.writeText(this.textContent).then(()=>setStatus('Copied',1200))">root</span>
   <span id="status-info"></span>
   <div class="statusbar-right">
-    <button id="reload-btn" class="btn btn-sm hidden" onclick="location.reload()" data-tooltip="ezconf was updated or restarted -- click to reload">↻ New version</button>
     <span id="status-version" data-tooltip="ezconf version"></span>
     <span class="theme-switcher">
       <button class="theme-swatch theme-swatch-nixos" onclick="setTheme('nixos')" data-tooltip="NixOS theme"></button>
@@ -3566,9 +3566,9 @@ function initRestartWatcher() {
   }
   function onRestartDetected() {
     _restartDetected = true;
-    // Never reloads on its own -- just surfaces the button so the user picks the moment,
+    // Never reloads on its own -- just surfaces the notification so the user picks the moment,
     // instead of the page pulling itself out from under them (mid-edit or not).
-    document.getElementById('reload-btn').classList.remove('hidden');
+    document.getElementById('reload-notification').classList.remove('hidden');
   }
   const es = new EventSource(API_BASE + '/ping-stream');
   es.onmessage = e => {
