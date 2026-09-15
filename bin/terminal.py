@@ -21,6 +21,7 @@ import struct
 import subprocess
 import sys
 import threading
+import time
 from urllib.parse import urlparse
 
 try:
@@ -96,6 +97,8 @@ PORT         = 9091
 WEBROOT      = '.'
 BIND_ADDR    = '127.0.0.1'
 
+READY_DELAY  = 0.3  # see the 'ready' comment in _terminal_ws() below
+
 
 def _terminal_ws(handler):
     if not _PTY:
@@ -170,16 +173,6 @@ def _terminal_ws(handler):
     if not launch_shell():
         return
 
-    # A text frame is always a control message from here on (real terminal output is always
-    # sent binary, see pty_to_ws below) -- 'ready' tells the client it's now safe to send
-    # input, rather than the client guessing readiness from the WebSocket's own open state or
-    # the first byte of output, either of which can race ahead of the shell actually being ready
-    # to receive it.
-    try:
-        _ws_send(wfile, json.dumps({'type': 'ready'}).encode(), opcode=0x01)
-    except Exception:
-        pass
-
     def pty_to_ws():
         try:
             while not state['done']:
@@ -203,6 +196,28 @@ def _terminal_ws(handler):
                 pass
 
     threading.Thread(target=pty_to_ws, daemon=True).start()
+
+    # A text frame is always a control message from here on (real terminal output is always
+    # sent binary, see pty_to_ws above) -- 'ready' tells the client it's now safe to send input,
+    # rather than the client guessing readiness from the WebSocket's own open state or the first
+    # byte of output, either of which can race ahead of the shell actually being ready to receive
+    # it. Delayed rather than sent the instant the process is forked: a fresh PTY starts in
+    # canonical/echo mode by default, so input sent before the shell has actually finished its
+    # own startup (sourcing profile/rc files) and taken over the terminal gets echoed back raw by
+    # the kernel immediately, then redrawn a second time once the shell's own line editor takes
+    # over and finds it already queued -- visible as a duplicated line (seen in practice on the
+    # first button press right after a reboot, when cold disk/page caches make profile scripts
+    # slow enough to actually hit this). This narrows the window rather than closing it -- a
+    # shell still mid-startup after READY_DELAY would still hit it -- deliberately not guessed
+    # from output patterns instead (unreliable: a shell that's silently slow, e.g. profile
+    # scripts with nothing to print while cold, looks identical to one that's already idle and
+    # settled). pty_to_ws is already running above so any real startup output the shell does
+    # produce during this wait still streams live instead of arriving all at once afterward.
+    time.sleep(READY_DELAY)
+    try:
+        _ws_send(wfile, json.dumps({'type': 'ready'}).encode(), opcode=0x01)
+    except Exception:
+        pass
 
     try:
         while True:
