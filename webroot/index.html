@@ -4224,7 +4224,6 @@ let _termFit = null;
 let _termOnData = null;
 let _termReconnectTimer = null;
 let _termReconnectAttempts = 0;
-let _termEverConnected = false;
 // Set once the server's {"type":"ready"} control message arrives for the current connection
 // (see connectTerminalWs()'s onmessage) -- waiting for this instead of guessing readiness from
 // the WebSocket's own open state or the first byte received avoids sending input before the
@@ -4389,8 +4388,9 @@ function connectTerminalWs() {
         // reconnect (e.g. right after a "Reconnecting..." banner was showing) -- reading _term.cols/rows after
         // fit() is the same authoritative value a genuine resize event would produce. Sent
         // unconditionally (not just when fit() itself changes _term's size and fires onResize)
-        // since the *server* side may be a brand new session that's never been told any size yet,
-        // e.g. after ezconf-terminal-session.service restarted independently of this connection.
+        // since the *server* side is always a brand new shell that's never been told any size at
+        // all -- every connection forks a fresh one, there's no persistent session to already
+        // know a size from.
         _termFit.fit();
         _termWs.send(JSON.stringify({ type: 'resize', cols: _term.cols, rows: _term.rows }));
       }
@@ -4424,7 +4424,6 @@ function connectTerminalWs() {
       if (_term) { _term.dispose(); _term = null; }
       _termFit = null;
       _termOnData = null;
-      _termEverConnected = false;
       const panel = document.getElementById('terminal-panel');
       if (!panel.classList.contains('collapsed')) toggleTerminal();
     } else {
@@ -4439,11 +4438,11 @@ function connectTerminalWs() {
     }
   };
   if (_termOnData) { _termOnData.dispose(); _termOnData = null; }
-  // Only on the very first connection, not every reconnect -- a reconnect genuinely does get a
-  // fresh shell, but appending its output below whatever was already on screen isn't confusing
-  // enough to be worth resetting for. (A shell exiting outright is handled separately, by
-  // destroying the whole terminal instance in onclose above -- see its own comment.)
-  if (!_termEverConnected) { _term.reset(); _termEverConnected = true; }
+  // No reset-on-connect needed here: a genuinely fresh _term (new Terminal(), first load or
+  // just recreated after a clean exit -- see onclose above) already starts empty, and a
+  // reconnect that reuses an existing _term (e.g. after a dropped connection) should keep
+  // showing its old content, with the new shell's output just appended below -- not confusing
+  // enough to be worth clearing for.
   _termOnData = _term.onData((data) => {
     if (_termWs && _termWs.readyState === WebSocket.OPEN) _termWs.send(data);
   });
