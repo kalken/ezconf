@@ -11,6 +11,12 @@ let
   str       = s: ''"${esc s}"'';
   toml-list = xs: "[${lib.concatMapStringsSep ", " str xs}]";
 
+  # cfg.shell accepts either a plain path string (unchanged, existing behavior) or a shell
+  # package (e.g. pkgs.zsh) matching how users.users.<name>.shell already works elsewhere in
+  # NixOS -- resolved to the actual executable path via the package's own shellPath, same
+  # convention nixpkgs already defines for common shells.
+  shellPath = s: if builtins.isString s then s else "${s}${s.shellPath}";
+
   # Fixed rather than user-configurable: there's only ever one terminal session per deployment,
   # so a name just needs to not collide with anything else on the same tmux server.
   tmuxSession = "ezconf";
@@ -44,7 +50,7 @@ let
       (if cfg.generateCert then "key = ${str "/var/lib/ezconf/localhost-key.pem"}"
        else lib.optionalString (cfg.key != null) "key = ${str cfg.key}"))
     (lib.optional cfg.generateCert "ca_file = ${str "/var/lib/ezconf/ca.pem"}")
-    (lib.optional (cfg.shell             != null) "shell = ${str cfg.shell}")
+    (lib.optional (cfg.shell             != null) "shell = ${str (shellPath cfg.shell)}")
     (lib.optional (cfg.listen           != null) "listen = ${str cfg.listen}")
     (let allTrusted = cfg.trustedHosts ++ cfg.certNames;
      in lib.optional (allTrusted != []) "trusted_hosts = ${toml-list allTrusted}")
@@ -230,9 +236,9 @@ in
     };
 
     shell = lib.mkOption {
-      type        = lib.types.nullOr lib.types.str;
+      type        = lib.types.nullOr (lib.types.either lib.types.str lib.types.shellPackage);
       default     = null;
-      description = "Shell for the terminal panel. Defaults to the login shell of the service user.";
+      description = "Shell for the terminal panel, either a path (e.g. \"/run/current-system/sw/bin/zsh\") or a shell package (e.g. pkgs.zsh, matching users.users.<name>.shell). Defaults to the login shell of the service user.";
     };
 
     terminalPersist = lib.mkOption {
@@ -376,7 +382,7 @@ in
           Group           = cfg.group;
           Environment     = "TERM=xterm-256color";
           ExecStart       = "-${pkgs.tmux}/bin/tmux new-session -d -s ${tmuxSession}"
-            + lib.optionalString (cfg.shell != null) " ${cfg.shell} -l";
+            + lib.optionalString (cfg.shell != null) " ${shellPath cfg.shell} -l";
         };
       };
 
