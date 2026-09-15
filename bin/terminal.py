@@ -151,8 +151,6 @@ def _terminal_ws(handler):
     rfile = handler.rfile
     wfile = sock.makefile('wb', buffering=0)
 
-    replay = _tmux_capture_scrollback() if TMUX_SESSION and TMUX_BIN else b''
-
     state = {'proc': None, 'master_fd': None, 'rows': 24, 'cols': 80, 'done': False}
 
     def set_winsize(fd, rows, cols):
@@ -211,6 +209,15 @@ def _terminal_ws(handler):
 
     if not launch_shell():
         return
+
+    # Captured only now, right after the actual attach-session client is already spawned, not
+    # before -- has-session/capture-pane are their own subprocess calls with real overhead, and
+    # running them first delayed the attach itself for no benefit (a snapshot taken a few ms
+    # later here is no different). That delay mattered: the client's WebSocket is already
+    # considered OPEN as soon as our handshake response is sent, well before this point, so a
+    # command sent immediately on open could reach a server that hadn't even started attaching
+    # to tmux yet.
+    replay = _tmux_capture_scrollback() if TMUX_SESSION and TMUX_BIN else b''
 
     if replay:
         try:
