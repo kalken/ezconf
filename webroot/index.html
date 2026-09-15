@@ -457,15 +457,21 @@ function _positionMenuAboveAnchor(menu, anchorRect) {
   const rect = menu.getBoundingClientRect();
   let x = anchorRect.left;
   if (x + rect.width > window.innerWidth) x = Math.max(0, window.innerWidth - rect.width - 4);
-  // Aligns the *last* item's row with the anchor's own top, rather than leaving a fixed gap
-  // below the whole menu box -- since the menu stacks upward, the last item is the one visually
-  // closest to the button, and lining its row up exactly (same idea as _positionSubmenu aligning
-  // a sideways cascade's *first* item with its trigger) reads as one continuous menu rather than
-  // two disconnected boxes. Measured from the actual last .context-menu-item rather than computed
-  // from padding/item-count math, so it's correct regardless of separators or uneven row heights.
+  // Aligns the *last* item's bottom edge with the anchor's own top, rather than leaving a fixed
+  // gap below the whole menu box -- since the menu stacks upward, the last item is the one
+  // visually closest to the button, and abutting it exactly (touching, not overlapping) reads as
+  // one continuous menu rather than two disconnected boxes. This is the edge-to-edge equivalent
+  // of _positionSubmenu aligning a sideways cascade's *first* item with its trigger -- row-to-row
+  // alignment works there because side-by-side items don't share vertical space, but stacked
+  // items do, so aligning row-to-row here would make the last item sit exactly on top of (and
+  // hide) the button itself. Measured from the actual last .context-menu-item rather than
+  // computed from padding/item-count math, so it's correct regardless of separators or uneven
+  // row heights.
   const rows = menu.querySelectorAll(':scope > .context-menu-item');
   const lastRow = rows[rows.length - 1];
-  const offset = lastRow ? lastRow.getBoundingClientRect().top - rect.top : rect.height;
+  const offset = lastRow
+    ? (lastRow.getBoundingClientRect().top - rect.top) + lastRow.getBoundingClientRect().height
+    : rect.height;
   let y = anchorRect.top - offset;
   if (y < 0) y = anchorRect.bottom + 4; // not enough room above — fall back to below, same gap
   menu.style.left = x + 'px';
