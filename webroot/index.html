@@ -480,11 +480,12 @@ function _positionMenuAboveAnchor(menu, anchorRect) {
 }
 
 // A submenu opens beside the item that triggered it (its right edge), flipping to the left when
-// it would overflow horizontally.
+// it would overflow horizontally. A 1px gap either way, rather than touching exactly -- matching
+// _positionMenuAboveAnchor's own small gap from the bar it opens above.
 function _positionSubmenu(menu, anchorRect) {
   const rect = menu.getBoundingClientRect();
-  let x = anchorRect.right;
-  if (x + rect.width > window.innerWidth) x = Math.max(0, anchorRect.left - rect.width);
+  let x = anchorRect.right + 1;
+  if (x + rect.width > window.innerWidth) x = Math.max(0, anchorRect.left - rect.width - 1);
   // Always aligns the *last* item's row with the trigger's own row (same Y) -- consistent
   // regardless of where the trigger sits on screen, rather than aligning the first item and only
   // flipping to the last on overflow. Safe as row-to-row (not edge-to-edge) specifically because
@@ -537,7 +538,14 @@ function _buildMenuLevel(items, depth) {
         _ctxMenuStack = _ctxMenuStack.slice(0, depth + 1);
         const sub = _buildMenuLevel(item.items, depth + 1);
         document.body.appendChild(sub);
-        _positionSubmenu(sub, btn.getBoundingClientRect());
+        // left/right come from the *level* (menu, this whole .context-menu) rather than the
+        // triggering item's own rect -- every item in one level shares the same left/right anyway
+        // (the container's own padding is what actually determines it), but anchoring to the
+        // item would offset the submenu by that padding instead of the container's real edge.
+        // top still comes from the item itself, for row-to-row vertical alignment.
+        const menuRect = menu.getBoundingClientRect();
+        const btnRect = btn.getBoundingClientRect();
+        _positionSubmenu(sub, { top: btnRect.top, left: menuRect.left, right: menuRect.right });
         _ctxMenuStack.push(sub);
       };
       btn.onclick = e => { e.stopPropagation(); openSubmenu(); };
