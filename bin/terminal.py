@@ -23,6 +23,7 @@ import struct
 import subprocess
 import sys
 import threading
+import time
 from urllib.parse import urlparse
 
 try:
@@ -130,6 +131,28 @@ def _tmux_capture_scrollback():
         return b''
 
 
+def _drain_tmux_attach_burst(master_fd, quiet=0.15, timeout=0.5):
+    """Read and discard tmux's own attach-handshake output (its redraw of the current screen,
+    which includes an erase-scrollback sequence intended to clear a fresh terminal's native
+    scrollback before repainting) for a short window right after a new client connects.
+
+    Without this, that handshake lands on the wire right after our own scrollback replay
+    (_tmux_capture_scrollback()) and wipes it out a moment after it's sent -- xterm.js respects
+    the same erase-scrollback sequence tmux uses, so the replay would visibly disappear right
+    as the live stream starts. Stops once master_fd goes quiet for `quiet` seconds (tmux's
+    handshake is near-instant), or after `timeout` regardless, so a stuck attach can't block a
+    connection indefinitely."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        r, _, _ = select.select([master_fd], [], [], quiet)
+        if not r:
+            return
+        try:
+            os.read(master_fd, 4096)
+        except OSError:
+            return
+
+
 def _terminal_ws(handler):
     if not _PTY:
         handler.send_error(501, 'PTY not available on this platform')
@@ -211,6 +234,9 @@ def _terminal_ws(handler):
 
     if not launch_shell():
         return
+
+    if TMUX_SESSION and TMUX_BIN:
+        _drain_tmux_attach_burst(state['master_fd'])
 
     if replay:
         try:
