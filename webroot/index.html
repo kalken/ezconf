@@ -495,9 +495,13 @@ function _positionSubmenu(menu, anchorRect) {
   if (y < 0) {
     // Taller than the space available above the trigger's row -- cap it and let .context-menu's
     // own overflow-y: auto scroll the rest, rather than losing the alignment by clamping to some
-    // arbitrary position.
+    // arbitrary position. Capped to the trigger's own bottom, not the full viewport height: this
+    // is a sideways cascade, so it doesn't need to stay above anything the way a dropup does --
+    // but the previous version's window.innerHeight cap let it run straight past the trigger's
+    // own row and into whatever sits below it (e.g. the terminal button bar, when the trigger
+    // itself is a dropup item sitting close above it).
     y = 0;
-    menu.style.maxHeight = Math.max(60, window.innerHeight - 4) + 'px';
+    menu.style.maxHeight = Math.max(60, anchorRect.bottom - 4) + 'px';
   }
   menu.style.left = x + 'px';
   menu.style.top = y + 'px';
