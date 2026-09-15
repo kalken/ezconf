@@ -161,7 +161,7 @@ body {
 
 /* ── Markdown panels ── */
 /* Wrapper floats over .editor-area same as .sidebar above (position: absolute, .main as
-   positioning context). Fixed width matching one panel — children are position: absolute now
+   positioning context). Width matching one panel — children are position: absolute now
    (cascaded, see .markdown-panel below), so they no longer contribute to the wrapper's own
    intrinsic size the way flex children did. */
 .markdown-panels {
@@ -169,7 +169,7 @@ body {
   top: 0;
   right: 0;
   bottom: 0;
-  width: 520px;
+  width: 50vw;
   z-index: 15;
 }
 /* Every panel shares this same base position (right: 0) — openMarkdownFile()/
@@ -182,7 +182,7 @@ body {
   top: 0;
   bottom: 0;
   right: 0;
-  width: 520px;
+  width: 50vw;
   background: var(--bg);
   border-left: 1px solid var(--border);
   box-shadow: -8px 0 24px var(--shadow);
