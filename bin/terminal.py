@@ -372,10 +372,15 @@ if __name__ == '__main__':
         subprocess.run([TMUX_BIN, 'new-session', '-d', '-s', TMUX_SESSION, SHELL, '-l'])
         # status off: no tmux chrome in a panel that's meant to look like a plain shell.
         # history-limit: matched to TMUX_HISTORY_LINES above, so a scrollback replay can
-        # actually reach back that far.
+        # actually reach back that far. mouse on: without it, xterm.js has no native scrollback
+        # to wheel-scroll into while attached (tmux owns the screen), so it falls back to
+        # sending Up/Down keypresses -- which the shell reads as readline history navigation
+        # instead of scrolling. With mouse mode, tmux itself captures the wheel and handles
+        # entering/exiting copy-mode to scroll its own scrollback, no prefix-key needed.
         subprocess.run([TMUX_BIN, 'set-option', '-t', TMUX_SESSION, 'status', 'off'])
         subprocess.run([TMUX_BIN, 'set-option', '-t', TMUX_SESSION, 'history-limit',
                          str(TMUX_HISTORY_LINES)])
+        subprocess.run([TMUX_BIN, 'set-option', '-t', TMUX_SESSION, 'mouse', 'on'])
         sys.exit(0)
 
     WEBROOT   = cfg.get('webroot') or WEBROOT
