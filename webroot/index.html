@@ -4416,6 +4416,15 @@ function connectTerminalWs() {
   };
   _termWs.onclose = (e) => {
     if (e.wasClean) {
+      // A clean close means the shell process itself actually exited (any way -- "exit",
+      // Ctrl+D, etc.), not just a dropped connection. Destroying the whole terminal instance
+      // rather than trying to reset/reuse it means the next open (initTerminal(), whose
+      // `if (_term) return` guard now sees null) builds a genuinely fresh one from scratch --
+      // no stale buffer content possible, since nothing survives to leave one.
+      if (_term) { _term.dispose(); _term = null; }
+      _termFit = null;
+      _termOnData = null;
+      _termEverConnected = false;
       const panel = document.getElementById('terminal-panel');
       if (!panel.classList.contains('collapsed')) toggleTerminal();
     } else {
@@ -4432,58 +4441,11 @@ function connectTerminalWs() {
   if (_termOnData) { _termOnData.dispose(); _termOnData = null; }
   // Only on the very first connection, not every reconnect -- a reconnect genuinely does get a
   // fresh shell, but appending its output below whatever was already on screen isn't confusing
-  // enough to be worth resetting for.
+  // enough to be worth resetting for. (A shell exiting outright is handled separately, by
+  // destroying the whole terminal instance in onclose above -- see its own comment.)
   if (!_termEverConnected) { _term.reset(); _termEverConnected = true; }
-  // Tracks the current not-yet-submitted input line so typing "exit" can auto-hide the panel
-  // (see below) -- best-effort only, e.g. arrow-key history recall isn't accounted for, since
-  // this is just watching raw keystrokes, not the shell's own line editor. _termEscState skips
-  // over CSI/OSC sequences rather than treating them as typed characters -- onData also carries
-  // xterm.js's own automatic responses to the host's terminal-capability queries (device
-  // attributes, OSC color queries, sent right after every (re)connect), not just real keystrokes,
-  // and those would otherwise get appended into the buffer ahead of whatever's actually typed
-  // next, so it would never exactly equal "exit" (confirmed via logging: the buffer contained the
-  // query-response escape sequences immediately followed by "exit").
-  let _termLineBuffer = '';
-  let _termEscState = 0; // 0 normal, 1 just saw ESC, 2 in CSI, 3 in OSC, 4 OSC + saw ESC (maybe ST)
   _termOnData = _term.onData((data) => {
     if (_termWs && _termWs.readyState === WebSocket.OPEN) _termWs.send(data);
-    for (const ch of data) {
-      if (_termEscState === 2) { // CSI ends at a byte in the 0x40-0x7E range
-        if (ch >= '@' && ch <= '~') _termEscState = 0;
-        continue;
-      }
-      if (_termEscState === 3) { // OSC ends at BEL, or ESC \ (checked via state 4 below)
-        if (ch === '\x07') _termEscState = 0;
-        else if (ch === '\x1b') _termEscState = 4;
-        continue;
-      }
-      if (_termEscState === 4) {
-        _termEscState = ch === '\\' ? 0 : 3;
-        continue;
-      }
-      if (_termEscState === 1) {
-        _termEscState = ch === '[' ? 2 : ch === ']' ? 3 : 0;
-        continue;
-      }
-      if (ch === '\x1b') { _termEscState = 1; continue; }
-      if (ch === '\r' || ch === '\n') {
-        // Auto-hides the panel the moment "exit" is submitted, rather than waiting on the
-        // server round-trip and the onclose handler that follows it -- that onclose path still
-        // exists as a backstop for other ways a shell exits (Ctrl+D, etc.) that this simple text
-        // check doesn't try to catch.
-        if (_termLineBuffer.trim() === 'exit') {
-          const panel = document.getElementById('terminal-panel');
-          if (!panel.classList.contains('collapsed')) toggleTerminal();
-        }
-        _termLineBuffer = '';
-      } else if (ch === '\x7f' || ch === '\b') {
-        _termLineBuffer = _termLineBuffer.slice(0, -1);
-      } else if (ch === '\x15' || ch === '\x03') {
-        _termLineBuffer = '';
-      } else if (ch >= ' ') {
-        _termLineBuffer += ch;
-      }
-    }
   });
 }
 
