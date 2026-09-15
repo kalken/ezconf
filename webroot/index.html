@@ -466,17 +466,13 @@ function _positionMenuAboveAnchor(menu, anchorRect) {
   const rect = menu.getBoundingClientRect();
   let x = anchorRect.left;
   if (x + rect.width > window.innerWidth) x = Math.max(0, window.innerWidth - rect.width - 4);
-  // Aligns the *last* item's bottom edge with the anchor's own top, rather than leaving a fixed
-  // gap below the whole menu box -- since the menu stacks upward, the last item is the one
-  // visually closest to the button, and abutting it exactly (touching, not overlapping) reads as
-  // one continuous menu rather than two disconnected boxes. Edge-to-edge rather than row-to-row
-  // (_positionSubmenu's approach): a sideways cascade doesn't share vertical space with its
-  // trigger, but a stacked dropup does, so row-to-row alignment here would put the last item
-  // exactly on top of (and hide) the button itself.
-  const lastRow = _lastMenuRow(menu);
-  const lastRowRect = lastRow ? lastRow.getBoundingClientRect() : null;
-  const offset = lastRowRect ? (lastRowRect.top - rect.top) + lastRowRect.height : rect.height;
-  let y = anchorRect.top - offset;
+  // Touches the whole menu box's bottom edge to the anchor's own top, rather than leaving a
+  // fixed gap -- since the menu stacks upward, this is what reads as one continuous menu instead
+  // of two disconnected boxes. Whole-box rather than aligning just the last item's own row: the
+  // container has its own bottom padding *after* that row, so anchoring the row itself still let
+  // the container's edge (background and all) extend past the anchor's top, into the button's
+  // own space -- exactly the "menu covers the button" bug this replaces.
+  let y = anchorRect.top - rect.height;
   if (y < 0) y = anchorRect.bottom + 4; // not enough room above — fall back to below, same gap
   menu.style.left = x + 'px';
   menu.style.top = y + 'px';
