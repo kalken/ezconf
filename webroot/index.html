@@ -485,14 +485,24 @@ function _positionSubmenu(menu, anchorRect) {
   const topPad = parseFloat(getComputedStyle(menu).paddingTop) || 0;
   let y = Math.max(0, anchorRect.top - topPad);
   if (x + rect.width > window.innerWidth) x = Math.max(0, anchorRect.left - rect.width);
-  // Always top-aligned with the trigger, never repositioned when it overflows -- bottom-aligning
-  // (or any other vertical shift) would put the *last* item level with the trigger instead of
-  // the first, which is wrong for the common case here: the terminal command bar sits right at
-  // the bottom of the page, so a multi-item menu practically never fully fits below it. Capped
-  // to the space actually remaining below the trigger instead, relying on .context-menu's own
-  // overflow-y: auto to scroll the rest -- only reachable for a menu tall enough that a human
-  // would ever need to scroll it, which a short one practically never is.
-  if (y + rect.height > window.innerHeight) menu.style.maxHeight = Math.max(60, window.innerHeight - y - 4) + 'px';
+  // Top-aligning the first item with the trigger (above) is right when there's room below the
+  // trigger for the whole menu -- but a trigger that's itself near the bottom of the screen
+  // (e.g. the last item of a dropup, which _positionMenuAboveAnchor now aligns flush with its
+  // own button) doesn't have that room, and top-aligning anyway would push the menu down past
+  // the bottom of the screen for no reason when there's plenty of space above instead. Flip to
+  // aligning the *last* item with the trigger in that case -- same idea, opposite edge, measured
+  // from the actual last .context-menu-item rather than padding/item-count math so it's correct
+  // regardless of separators or uneven row heights.
+  if (y + rect.height > window.innerHeight) {
+    const rows = menu.querySelectorAll(':scope > .context-menu-item');
+    const lastRow = rows[rows.length - 1];
+    const offset = lastRow ? lastRow.getBoundingClientRect().top - rect.top : rect.height;
+    const flippedY = anchorRect.top - offset;
+    if (flippedY >= 0) y = flippedY;
+    // Still doesn't fit either way (menu taller than the viewport itself) -- cap to whatever
+    // space remains and let .context-menu's own overflow-y: auto scroll the rest.
+    else menu.style.maxHeight = Math.max(60, window.innerHeight - y - 4) + 'px';
+  }
   menu.style.left = x + 'px';
   menu.style.top = y + 'px';
 }
