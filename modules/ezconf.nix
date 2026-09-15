@@ -19,7 +19,17 @@ let
   # being a NixOS-managed account at all (e.g. one created some other way). shellPath resolves it
   # to the actual executable path via the package's own shellPath, same convention nixpkgs
   # already defines for common shells.
-  shell     = (config.users.users.${cfg.user} or {}).shell or null;
+  #
+  # pkgs.shadow is nixpkgs' own placeholder for "no real shell configured" -- users.defaultUserShell
+  # (and so users.users.<name>.shell, root included) defaults to it on any system that hasn't set
+  # a real one. It's a legitimate "can't log in interactively" shell in general, but running it as
+  # the tmux session's command is actively broken: it prints its message and exits immediately, so
+  # remain-on-exit/pane-died just respawns it, which also exits immediately, forever -- the
+  # session survives (that part works exactly as designed), but nothing usable ever runs in it.
+  # Treated the same as unset, falling back to not passing an explicit shell command at all and
+  # letting tmux use its own default resolution instead.
+  shell = let s = (config.users.users.${cfg.user} or {}).shell or null;
+          in if s == null || s == pkgs.shadow then null else s;
   shellPath = s: "${s}${s.shellPath}";
 
   # Fixed rather than user-configurable: there's only ever one terminal session per deployment,
