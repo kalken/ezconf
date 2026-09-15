@@ -341,7 +341,6 @@ services.ezconf = {
 | `theme` | str | `"nixos"` | `nixos`, `dark`, or `light` |
 | `mode` | null or `"install"` | `null` | Set to `"install"` to show `mode = "install"` buttons in their own row and grey out ordinary ones, from page load — deploy-time only, no in-GUI toggle |
 | `terminal` | bool | `true` | Enable terminal panel and `ezconf-terminal.service` |
-| `shell` | str, package, or null | `null` | Shell for the terminal, either a path or a shell package (e.g. `pkgs.zsh`, same convention as `users.users.<name>.shell`); defaults to the login shell of `user` |
 | `terminalPersist` | bool | `false` | Run the terminal's shell in a persistent `tmux` session, so a running command survives the terminal service restarting or a browser reconnect, and a (re)connecting client gets the session's recent scrollback replayed (requires `tmux`; see below) |
 | `buttons` | list | `[]` | Shortcut buttons shown in the terminal panel |
 | `https` | bool | `true` | Enable HTTPS |

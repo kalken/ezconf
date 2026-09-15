@@ -11,21 +11,16 @@ let
   str       = s: ''"${esc s}"'';
   toml-list = xs: "[${lib.concatMapStringsSep ", " str xs}]";
 
-  # cfg.shell accepts either a plain path string (unchanged, existing behavior) or a shell
-  # package (e.g. pkgs.zsh) matching how users.users.<name>.shell already works elsewhere in
-  # NixOS -- resolved to the actual executable path via the package's own shellPath, same
-  # convention nixpkgs already defines for common shells.
-  shellPath = s: if builtins.isString s then s else "${s}${s.shellPath}";
-
-  # When cfg.shell isn't set, fall back through NixOS's own defaulting chain for the service
-  # user instead of leaving it to whatever the underlying tool (tmux, or previously terminal.py's
-  # own separate passwd lookup) happens to pick on its own -- users.users.<name>.shell already
-  # defaults to users.defaultUserShell for any user that hasn't set their own override, so this
-  # one lookup transparently respects either a per-user shell or a system-wide default shell
-  # change, with no need for ezconf to duplicate that logic itself. `or {}`/`or null` guard
-  # cfg.user not being a NixOS-managed account at all (e.g. one created some other way).
-  defaultShell  = (config.users.users.${cfg.user} or {}).shell or null;
-  resolvedShell = if cfg.shell != null then cfg.shell else defaultShell;
+  # The service user's own configured shell, not an ezconf-specific option -- users.users.<name>
+  # .shell already defaults to users.defaultUserShell for any user without its own override, so
+  # this transparently respects either a per-user shell or a system-wide default shell change
+  # with no need for ezconf to duplicate that resolution logic (or offer a separate, easily-
+  # forgotten override that would silently diverge from it). `or {}`/`or null` guard cfg.user not
+  # being a NixOS-managed account at all (e.g. one created some other way). shellPath resolves it
+  # to the actual executable path via the package's own shellPath, same convention nixpkgs
+  # already defines for common shells.
+  shell     = (config.users.users.${cfg.user} or {}).shell or null;
+  shellPath = s: "${s}${s.shellPath}";
 
   # Fixed rather than user-configurable: there's only ever one terminal session per deployment,
   # so a name just needs to not collide with anything else on the same tmux server.
@@ -60,7 +55,7 @@ let
       (if cfg.generateCert then "key = ${str "/var/lib/ezconf/localhost-key.pem"}"
        else lib.optionalString (cfg.key != null) "key = ${str cfg.key}"))
     (lib.optional cfg.generateCert "ca_file = ${str "/var/lib/ezconf/ca.pem"}")
-    (lib.optional (resolvedShell         != null) "shell = ${str (shellPath resolvedShell)}")
+    (lib.optional (shell                 != null) "shell = ${str (shellPath shell)}")
     (lib.optional (cfg.listen           != null) "listen = ${str cfg.listen}")
     (let allTrusted = cfg.trustedHosts ++ cfg.certNames;
      in lib.optional (allTrusted != []) "trusted_hosts = ${toml-list allTrusted}")
@@ -245,12 +240,6 @@ in
       description = "Hostnames trusted for CSRF check. Required when ezconf is behind a reverse proxy — add your nginx server_name here. Set to [ \"*\" ] to disable the check entirely (accept any Host header) when the reachable address can't be known ahead of time, e.g. an installer ISO getting a DHCP lease.";
     };
 
-    shell = lib.mkOption {
-      type        = lib.types.nullOr (lib.types.either lib.types.str lib.types.shellPackage);
-      default     = null;
-      description = "Shell for the terminal panel, either a path (e.g. \"/run/current-system/sw/bin/zsh\") or a shell package (e.g. pkgs.zsh, matching users.users.<name>.shell). Defaults to the login shell of the service user.";
-    };
-
     terminalPersist = lib.mkOption {
       type        = lib.types.bool;
       default     = false;
@@ -392,7 +381,7 @@ in
           Group           = cfg.group;
           Environment     = "TERM=xterm-256color";
           ExecStart       = "-${pkgs.tmux}/bin/tmux new-session -d -s ${tmuxSession}"
-            + lib.optionalString (resolvedShell != null) " ${shellPath resolvedShell} -l";
+            + lib.optionalString (shell != null) " ${shellPath shell} -l";
         };
       };
 
