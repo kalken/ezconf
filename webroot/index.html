@@ -107,6 +107,7 @@ const _DEFAULT_THEME = '%%EZCONF_THEME%%';
   <span id="status-path" data-tooltip="Click to copy" onclick="navigator.clipboard.writeText(this.textContent).then(()=>setStatus('Copied',1200))">root</span>
   <span id="status-info"></span>
   <div class="statusbar-right">
+    <button id="reload-btn" class="btn btn-sm hidden" onclick="location.reload()" data-tooltip="ezconf was updated or restarted -- click to reload">↻ New version</button>
     <span id="status-version" data-tooltip="ezconf version"></span>
     <span class="theme-switcher">
       <button class="theme-swatch theme-swatch-nixos" onclick="setTheme('nixos')" data-tooltip="NixOS theme"></button>
@@ -3518,11 +3519,9 @@ function initRestartWatcher() {
   }
   function onRestartDetected() {
     _restartDetected = true;
-    if (isAnyDirty()) {
-      setStatus('Server restarted — will reload once your changes are saved', 0, 'err');
-    } else {
-      location.reload();
-    }
+    // Never reloads on its own -- just surfaces the button so the user picks the moment,
+    // instead of the page pulling itself out from under them (mid-edit or not).
+    document.getElementById('reload-btn').classList.remove('hidden');
   }
   const es = new EventSource(API_BASE + '/ping-stream');
   es.onmessage = e => {
@@ -3543,10 +3542,6 @@ function _updateDirty() {
   document.querySelectorAll('.term-run-btn[data-save-first]').forEach(b => { b.disabled = dirty; });
   const saveBtn = document.getElementById('save-btn');
   if (saveBtn) saveBtn.disabled = !dirty;
-  // A restart was seen while something was unsaved (see initRestartWatcher()) — every edit,
-  // undo, or Save runs through here, so this is the one place that needs to check "is it safe
-  // to reload now" instead of trying to hook every single call site that can clear dirty state.
-  if (_restartDetected && !dirty) location.reload();
 }
 
 function undo() {
