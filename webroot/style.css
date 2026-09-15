@@ -194,6 +194,9 @@ body {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  /* --from-front (set by _layoutMarkdownPanels()) is just this panel's distance from the top of
+     the stack -- the actual px-per-step offset is decided here, not in JS. */
+  transform: translateX(calc(var(--from-front, 0) * -40px));
   transition: transform .15s;
 }
 .markdown-panel-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }

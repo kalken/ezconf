@@ -2055,22 +2055,21 @@ let _markdownFiles = [];
 // order, and deleting + re-setting an existing key moves it to the end, which is exactly what
 // _bringMarkdownPanelToFront() below needs to "raise" a panel.
 const _openMarkdownPanels = new Map();
-const MARKDOWN_PANEL_OVERLAP = 40; // px each panel behind the front one peeks out by
-
 function _persistOpenMarkdownDocs() {
   localStorage.setItem('ezconf-markdown-open', JSON.stringify([..._openMarkdownPanels.keys()]));
 }
 
-// Cascades open panels so each one behind the front peeks out by MARKDOWN_PANEL_OVERLAP px
-// instead of sitting fully hidden underneath — that sliver is always clickable
-// (_bringMarkdownPanelToFront) so any open file stays reachable regardless of how many are open.
+// Cascades open panels so each one behind the front peeks out instead of sitting fully hidden
+// underneath — that sliver is always clickable (_bringMarkdownPanelToFront) so any open file
+// stays reachable regardless of how many are open. Only the raw per-panel index is computed
+// here; the actual px-per-step arithmetic lives in .markdown-panel's own transform (style.css),
+// driven by this --from-front custom property.
 function _layoutMarkdownPanels() {
   const entries = [..._openMarkdownPanels.values()];
   const n = entries.length;
   entries.forEach((panel, i) => {
-    const fromFront = n - 1 - i;
     panel.style.zIndex = i + 1;
-    panel.style.transform = `translateX(${-fromFront * MARKDOWN_PANEL_OVERLAP}px)`;
+    panel.style.setProperty('--from-front', n - 1 - i);
   });
 }
 
@@ -4508,10 +4507,9 @@ function toggleTerminal() {
     });
   } else {
     panel._openHeight = panel.style.height || '25vh';
-    // The .terminal-panel.collapsed(.install-mode) CSS rules (!important) are what actually
-    // decide the visible height either way; this just keeps the inline value from looking
-    // misleadingly stale next to them.
-    panel.style.height = INSTALL_MODE ? '66px' : '33px';
+    // No need to also set panel.style.height here: the .terminal-panel.collapsed(.install-mode)
+    // CSS rules (!important) already decide the visible height on their own, regardless of
+    // whatever the inline style still says.
     panel.classList.add('collapsed');
     btn.textContent = '▲';
     btn.dataset.tooltip = 'Show';
