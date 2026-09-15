@@ -4689,7 +4689,16 @@ function _buildButtonMenuItems(entries, dirty) {
 // buttons.
 function showButtonMenu(event, idxs) {
   const btn = event.currentTarget;
-  const rect = btn.getBoundingClientRect();
+  const btnRect = btn.getBoundingClientRect();
+  // Anchored to the enclosing bar's own top, not the button's -- .terminal-header is a fixed
+  // 33px tall, but the button itself is only 26px and vertically centered inside it, so the bar
+  // has a few pixels of its own space above the button that the menu should sit flush against
+  // instead of stopping short at the button's own (lower) top edge. Horizontal position still
+  // comes from the button itself (left/right), just the vertical reference point changes.
+  const barRect = btn.closest('.terminal-header')?.getBoundingClientRect();
+  const rect = barRect
+    ? { left: btnRect.left, right: btnRect.right, top: barRect.top, bottom: barRect.bottom }
+    : btnRect;
   const anchor = {
     preventDefault: () => event.preventDefault(), stopPropagation: () => event.stopPropagation(),
   };
