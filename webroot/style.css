@@ -940,6 +940,10 @@ textarea { resize: vertical; min-height: unset; line-height: 1.5; }
   font-family: var(--font);
   font-size: 12px;
   z-index: 5;
+  background: var(--term-bg);
+  border: 1px solid var(--border2);
+  border-radius: var(--radius);
+  padding: 14px 20px;
 }
 .nixos-spinner { width: 28px; height: 28px; flex-shrink: 0; }
 .nixos-spinner.spin { animation: nixos-spin 1.4s linear infinite; }
