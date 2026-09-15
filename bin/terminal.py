@@ -6,7 +6,8 @@ Run:
   python3 terminal.py --config /run/ezconf/ezconf.toml
   python3 terminal.py --port 9092 --session-key-file /run/ezconf/session.key
 
-Config keys read from TOML: terminal_port, session_key_file, shell, cert, key, webroot
+Config keys read from TOML: terminal_port, session_key_file, shell, cert, key, webroot,
+tmux_session
 """
 import argparse
 import base64
@@ -16,6 +17,7 @@ import json
 import os
 import secrets
 import select
+import shutil
 import ssl
 import struct
 import subprocess
@@ -96,6 +98,37 @@ PORT         = 9091
 WEBROOT      = '.'
 BIND_ADDR    = '127.0.0.1'
 
+TMUX_SESSION = None  # set by tmux_session in TOML; when set, the shell attaches to a
+                      # persistent tmux session instead of being forked fresh per connection,
+                      # so a running command survives this service restarting (or a reconnect)
+                      # — attach here, --start-session creates it (see ezconf-terminal-session
+                      # .service in the NixOS module)
+TMUX_BIN     = None   # resolved via shutil.which() at startup; TMUX_SESSION is only honored if
+                      # this is found, so a deployment without tmux installed just falls back
+                      # to today's non-persistent behavior rather than failing
+TMUX_HISTORY_LINES = 2000  # how much tmux scrollback to replay into a (re)connecting client
+
+
+def _tmux_capture_scrollback():
+    """Return this session's tmux scrollback with \\n normalized to \\r\\n for a raw terminal
+    stream, or b'' if the session doesn't exist yet (nothing to replay) or tmux errors out.
+    Sent to a (re)connecting client before it starts receiving live output, so it sees what it
+    missed instead of a blank screen — tmux's own attach only redraws the current on-screen
+    contents, not the scrollback leading up to it."""
+    try:
+        has = subprocess.run([TMUX_BIN, 'has-session', '-t', TMUX_SESSION],
+                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        if has.returncode != 0:
+            return b''
+        cap = subprocess.run(
+            [TMUX_BIN, 'capture-pane', '-p', '-e', '-t', TMUX_SESSION,
+             '-S', f'-{TMUX_HISTORY_LINES}'],
+            capture_output=True, timeout=5,
+        )
+        return cap.stdout.replace(b'\n', b'\r\n')
+    except Exception:
+        return b''
+
 
 def _terminal_ws(handler):
     if not _PTY:
@@ -117,6 +150,8 @@ def _terminal_ws(handler):
     handler.close_connection = True
     rfile = handler.rfile
     wfile = sock.makefile('wb', buffering=0)
+
+    replay = _tmux_capture_scrollback() if TMUX_SESSION and TMUX_BIN else b''
 
     state = {'proc': None, 'master_fd': None, 'rows': 24, 'cols': 80, 'done': False}
 
@@ -146,9 +181,18 @@ def _terminal_ws(handler):
             except Exception:
                 pass
 
+        # attach-session: attach to the persistent session created by ezconf-terminal-session
+        # .service (see --start-session below) instead of forking a fresh shell — a running
+        # command survives this connection (or this whole process) ending, since the shell isn't
+        # a child of ours anymore. tmux resizes the session to the attaching client automatically,
+        # and redraws its current screen on attach — _tmux_capture_scrollback() above covers the
+        # scrollback leading up to that, which attach alone doesn't replay.
+        cmd = [TMUX_BIN, 'attach-session', '-t', TMUX_SESSION] if TMUX_SESSION and TMUX_BIN \
+            else [SHELL, '-l']
+
         try:
             proc = subprocess.Popen(
-                [SHELL, '-l'],
+                cmd,
                 stdin=slave_fd, stdout=slave_fd, stderr=slave_fd,
                 close_fds=True,
                 preexec_fn=_init_child,
@@ -167,6 +211,12 @@ def _terminal_ws(handler):
 
     if not launch_shell():
         return
+
+    if replay:
+        try:
+            _ws_send(wfile, replay, opcode=0x02)
+        except Exception:
+            pass
 
     def pty_to_ws():
         try:
@@ -268,6 +318,10 @@ if __name__ == '__main__':
                     help='file to load/store the session key (must match server.py)')
     ap.add_argument('--cert', metavar='FILE', default=None, help='TLS certificate (PEM)')
     ap.add_argument('--key',  metavar='FILE', default=None, help='TLS private key (PEM)')
+    ap.add_argument('--start-session', action='store_true',
+                    help='create (or configure) the persistent tmux session at tmux_session '
+                         'instead of starting the WebSocket server; this is '
+                         'ezconf-terminal-session.service, not something to run by hand')
     args = ap.parse_args()
 
     cfg = load_toml(args.config or 'ezconf.toml')
@@ -281,6 +335,31 @@ if __name__ == '__main__':
     except Exception:
         pass
     SHELL = cfg.get('shell') or _passwd_shell or os.environ.get('SHELL') or '/bin/sh'
+
+    TMUX_SESSION = cfg.get('tmux_session') or None
+    TMUX_BIN = shutil.which('tmux')
+
+    if args.start_session:
+        if not TMUX_SESSION:
+            print('error: tmux_session not set in config', file=sys.stderr)
+            sys.exit(1)
+        if not TMUX_BIN:
+            print('error: tmux not found on PATH', file=sys.stderr)
+            sys.exit(1)
+        os.environ['TERM'] = 'xterm-256color'
+        # -d: create/leave it detached, no client attached from here — this process's job is
+        # just to bring the session into existence (or no-op if it's already there, e.g. a
+        # redundant unit start) and configure it, then exit; the actual attaching happens per
+        # connection in launch_shell() above. Not check=True: a pre-existing session makes
+        # new-session fail, which is fine, we only care that one exists by the time we're done.
+        subprocess.run([TMUX_BIN, 'new-session', '-d', '-s', TMUX_SESSION, SHELL, '-l'])
+        # status off: no tmux chrome in a panel that's meant to look like a plain shell.
+        # history-limit: matched to TMUX_HISTORY_LINES above, so a scrollback replay can
+        # actually reach back that far.
+        subprocess.run([TMUX_BIN, 'set-option', '-t', TMUX_SESSION, 'status', 'off'])
+        subprocess.run([TMUX_BIN, 'set-option', '-t', TMUX_SESSION, 'history-limit',
+                         str(TMUX_HISTORY_LINES)])
+        sys.exit(0)
 
     WEBROOT   = cfg.get('webroot') or WEBROOT
     BIND_ADDR = cfg.get('listen') or BIND_ADDR

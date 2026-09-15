@@ -11,6 +11,10 @@ let
   str       = s: ''"${esc s}"'';
   toml-list = xs: "[${lib.concatMapStringsSep ", " str xs}]";
 
+  # Fixed rather than user-configurable: there's only ever one terminal session per deployment,
+  # so a name just needs to not collide with anything else on the same tmux server.
+  tmuxSession = "ezconf";
+
   preStartScript = p.mkPrestart { inherit cfg staticToml mkoptions package; };
 
   staticToml = pkgs.writeText "ezconf.toml" (lib.concatLines (lib.flatten [
@@ -24,6 +28,7 @@ let
     "system_export_exclude = ${toml-list cfg.systemExportExclude}"
     "auth = ${str cfg.auth.method}"
     "theme = ${str cfg.theme}"
+    (lib.optional cfg.terminalPersist "tmux_session = ${str tmuxSession}")
     (lib.optional (cfg.mode != null) "mode = ${str cfg.mode}")
     "session_key_file = ${str "/var/lib/ezconf/session.key"}"
     "backup_dir = ${str cfg.backupDir}"
@@ -230,6 +235,12 @@ in
       description = "Shell for the terminal panel. Defaults to the login shell of the service user.";
     };
 
+    terminalPersist = lib.mkOption {
+      type        = lib.types.bool;
+      default     = false;
+      description = "Run the terminal's shell inside a persistent tmux session (ezconf-terminal-session.service, its own systemd unit/cgroup) instead of forking a fresh shell per connection, so a running command survives ezconf-terminal.service restarting (e.g. after nixos-rebuild switch) or a browser reconnect; a (re)connecting client also gets the session's recent tmux scrollback replayed so it doesn't miss what happened while disconnected. Requires tmux; only takes effect when terminal = true. Changing this option itself must be applied via nixos-rebuild switch run from outside the ezconf terminal panel (e.g. SSH or console) -- switching it either direction tears down whichever architecture is currently hosting the connection that's running the switch, killing that command mid-flight if run from inside the panel.";
+    };
+
     ports = {
       web      = lib.mkOption { type = lib.types.port; default = 9090; };
       terminal = lib.mkOption { type = lib.types.port; default = 9091; };
@@ -315,14 +326,45 @@ in
       systemd.services.ezconf-terminal = lib.mkIf cfg.terminal {
         description       = "ezconf terminal WebSocket service";
         wantedBy          = [ "multi-user.target" ];
-        after             = [ "ezconf.service" ];
-        # Restarting this unit kills whatever's running inside it (the shell is forked directly
-        # into this unit's cgroup, per connection), so a rebuild must never do that automatically.
-        restartIfChanged  = false;
+        after             = [ "ezconf.service" ] ++ lib.optional cfg.terminalPersist "ezconf-terminal-session.service";
+        # Without terminalPersist, restarting this unit kills whatever's running inside it, so a
+        # rebuild must never do that automatically -- hence false. With it, the shell lives in
+        # ezconf-terminal-session.service instead (a separate cgroup), so restarting this one
+        # only drops the viewing WebSocket connection for a moment; reconnecting re-attaches to
+        # the same session with nothing lost. Safe to let rebuilds restart it in that case, so it
+        # actually picks up package/config changes instead of never restarting at all.
+        restartIfChanged  = cfg.terminalPersist;
         serviceConfig = {
           User      = cfg.user;
           Group     = cfg.group;
           ExecStart = "${termPkg}/bin/ezconf-terminal --config /run/ezconf/ezconf.toml";
+          Restart   = "on-failure";
+        };
+      };
+
+      # The actual tmux server lives here, not in ezconf-terminal.service -- a *separate*
+      # unit/cgroup is what lets it survive ezconf-terminal.service (or ezconf.service)
+      # restarting: systemd's default KillMode=control-group kills every process in a unit's
+      # cgroup on stop, including a daemon like tmux's server that's forked and reparented away
+      # from ezconf-terminal.service's own PID tree, since orphaning doesn't move a process to a
+      # different cgroup. Putting the session in its own unit sidesteps that entirely.
+      # Type=oneshot + RemainAfterExit=true: --start-session (see bin/terminal.py) just tells
+      # tmux to create/configure the session and exits immediately -- the tmux server it spawned
+      # keeps running independently in this unit's cgroup, so the unit itself has nothing to
+      # stay running as. restartIfChanged = false and Restart = on-failure only (not "always")
+      # since this should be about as close to never-restarted as a systemd unit gets -- every
+      # restart tears down the session along with the cgroup.
+      systemd.services.ezconf-terminal-session = lib.mkIf (cfg.terminal && cfg.terminalPersist) {
+        description       = "ezconf persistent terminal session (tmux)";
+        wantedBy          = [ "multi-user.target" ];
+        after             = [ "ezconf.service" ]; # needs /run/ezconf/ezconf.toml, written by its preStart
+        restartIfChanged  = false;
+        serviceConfig = {
+          Type      = "oneshot";
+          RemainAfterExit = true;
+          User      = cfg.user;
+          Group     = cfg.group;
+          ExecStart = "${termPkg}/bin/ezconf-terminal --config /run/ezconf/ezconf.toml --start-session";
           Restart   = "on-failure";
         };
       };

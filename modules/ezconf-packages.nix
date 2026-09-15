@@ -31,7 +31,8 @@ rec {
     installPhase     = ''
       install -Dm644 $src $out/share/ezconf-terminal/terminal.py
       makeWrapper ${pkgs.python3}/bin/python3 $out/bin/ezconf-terminal \
-        --add-flags "$out/share/ezconf-terminal/terminal.py"
+        --add-flags "$out/share/ezconf-terminal/terminal.py" \
+        --prefix PATH : ${pkgs.tmux}/bin
     '';
   };
 
