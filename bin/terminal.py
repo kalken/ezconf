@@ -381,6 +381,27 @@ if __name__ == '__main__':
         subprocess.run([TMUX_BIN, 'set-option', '-t', TMUX_SESSION, 'history-limit',
                          str(TMUX_HISTORY_LINES)])
         subprocess.run([TMUX_BIN, 'set-option', '-t', TMUX_SESSION, 'mouse', 'on'])
+        # tmux's own default wheel-scroll binding moves 5 lines per tick (select-pane is dropped
+        # here since there's never more than one pane to focus) -- noticeably jumpier than a
+        # native scrollbar. These bindings are server-wide, not session-scoped (tmux key tables
+        # aren't per-session), so they'd also apply to any other tmux a human runs under the same
+        # user on this same (default) socket.
+        for table in ('copy-mode', 'copy-mode-vi'):
+            subprocess.run([TMUX_BIN, 'bind-key', '-T', table, 'WheelUpPane',
+                             'send-keys', '-X', '-N', '3', 'scroll-up'])
+            subprocess.run([TMUX_BIN, 'bind-key', '-T', table, 'WheelDownPane',
+                             'send-keys', '-X', '-N', '3', 'scroll-down'])
+        # Root table: the wheel and PageUp only enter copy-mode by default (tmux's own guard --
+        # #{alternate_on}/#{pane_in_mode}/#{mouse_any_flag} -- still applies, so a full-screen
+        # program that wants the raw wheel/key itself, e.g. vim or htop, still gets it) -- neither
+        # scrolls anything on that very first press, which read as unresponsive. Entering *and*
+        # scrolling in the same action fixes that, and gives Page Up the same "just works" attach
+        # entry the wheel already had, without needing the tmux prefix key first.
+        guard = '#{||:#{alternate_on},#{pane_in_mode},#{mouse_any_flag}}'
+        subprocess.run([TMUX_BIN, 'bind-key', '-T', 'root', 'WheelUpPane', 'if-shell', '-F',
+                         guard, 'send-keys -M', 'copy-mode -e; send-keys -X -N 3 scroll-up'])
+        subprocess.run([TMUX_BIN, 'bind-key', '-T', 'root', 'PPage', 'if-shell', '-F',
+                         guard, 'send-keys PPage', 'copy-mode -e; send-keys -X page-up'])
         sys.exit(0)
 
     WEBROOT   = cfg.get('webroot') or WEBROOT
