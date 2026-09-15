@@ -2615,15 +2615,10 @@ function showAddOptionMenu(event, path) {
   const container = document.createElement('div');
   container.className = 'floating-add-container';
   const W = 520; // matches .floating-add-row's own width in style.css
-  // Anchored to the top-left of the object being added to (its own section element, or
-  // #editor-area for a root-level "Add option…") instead of wherever the mouse happened to be
-  // when the menu was opened -- keeps the panel in a predictable place regardless of how far
-  // down/across the section the triggering right-click landed. Only falls back to the click
-  // position itself if neither element can be found (shouldn't normally happen).
-  const target = (path.length ? findEditorEl(path.join('.')) : null) || document.getElementById('editor-area');
-  const anchorRect = target ? target.getBoundingClientRect() : null;
-  let x = anchorRect ? anchorRect.left : event.clientX;
-  let y = anchorRect ? anchorRect.top : event.clientY;
+  // Anchored to the click position itself, same for "Add option…" and "Add sub option…" --
+  // both open right where the user right-clicked instead of one jumping to the top of the editor.
+  let x = event.clientX;
+  let y = event.clientY;
   if (x + W > window.innerWidth) x = Math.max(4, window.innerWidth - W - 4);
   if (y + 40 > window.innerHeight) y = Math.max(4, window.innerHeight - 44);
   container.style.left = x + 'px';
