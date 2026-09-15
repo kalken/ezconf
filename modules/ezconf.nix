@@ -368,5 +368,22 @@ in
           Restart   = "on-failure";
         };
       };
+
+      # Periodically re-fires the oneshot service above (itself unchanged -- --start-session is
+      # idempotent: new-session no-ops if the session already exists, and every set-option/
+      # bind-key call is safe to redo) so the session gets recreated if the tmux *server itself*
+      # ever disappears -- e.g. someone runs `tmux kill-server` directly, or an OOM kill takes out
+      # the server process. That's distinct from a single pane's shell exiting, which remain-on-
+      # exit/pane-died (configured by --start-session) already recovers from immediately, no
+      # waiting on this timer. A once-a-minute check is deliberately not aggressive: this is a
+      # safety net for a rare, usually self-inflicted event, not a hot path.
+      systemd.timers.ezconf-terminal-session = lib.mkIf (cfg.terminal && cfg.terminalPersist) {
+        description = "Periodically ensure the persistent ezconf terminal session still exists";
+        wantedBy    = [ "timers.target" ];
+        timerConfig = {
+          OnUnitActiveSec = "60s";
+          Unit            = "ezconf-terminal-session.service";
+        };
+      };
   };
 }
