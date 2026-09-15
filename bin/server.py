@@ -90,7 +90,6 @@ import shutil
 import ssl
 import subprocess
 import sys
-import threading
 import time
 import zipfile
 from urllib.parse import urlparse, parse_qs
