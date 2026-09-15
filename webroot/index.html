@@ -491,7 +491,11 @@ function _buildMenuLevel(items, depth) {
       return;
     }
     const btn = document.createElement('button');
-    btn.className = 'context-menu-item' + (item.danger ? ' danger' : '') + (item.items ? ' has-submenu' : '');
+    // noArrow: still a submenu trigger functionally (see the `if (item.items)` block below),
+    // just styled identically to a plain leaf -- used by _buildButtonMenuItems() so a button
+    // group and the button inside it read as one unified list instead of the group looking like
+    // a distinct "opens something" control.
+    btn.className = 'context-menu-item' + (item.danger ? ' danger' : '') + (item.items && !item.noArrow ? ' has-submenu' : '');
     btn.textContent = item.label;
     if (item.disabled) btn.disabled = true;
     if (item.title) _wireHoverTooltip(btn, item.title);
@@ -4638,6 +4642,7 @@ function _buildButtonMenuItems(entries, dirty) {
       label: head,
       title: sub.map(e => e.btn.label || '(no label)').join(', '),
       items: _buildButtonMenuItems(sub, dirty),
+      noArrow: true,
     });
   });
   return items;
