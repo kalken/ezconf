@@ -229,6 +229,16 @@ def _terminal_ws(handler):
                 if r:
                     try:
                         data = os.read(master_fd, 4096)
+                        if TMUX_SESSION and TMUX_BIN:
+                            # tmux erases the client's native scrollback (ESC[3J) whenever it
+                            # redraws the pane -- on attach, on resize, or otherwise -- to avoid
+                            # stale duplicate content sitting above what it's about to repaint.
+                            # xterm.js honors that sequence and wipes its own scrollback when it
+                            # sees it, which would erase our capture-pane-sourced replay (or any
+                            # earlier live output) the moment any such redraw happens; ezconf
+                            # manages scrollback itself via capture-pane, so this should never
+                            # reach the client.
+                            data = data.replace(b'\x1b[3J', b'')
                         _ws_send(wfile, data, opcode=0x02)
                     except OSError:
                         pass
