@@ -450,6 +450,15 @@ function _positionMenuEl(menu, x, y) {
   menu.style.top = y + 'px';
 }
 
+// The actual last .context-menu-item in a menu -- used to align a specific *row* (not just the
+// container box) with a trigger. Measuring the real element keeps this correct regardless of
+// separators, though in practice it rarely needs to: .context-menu-item and .term-run-btn are
+// both a fixed 26px specifically so every row this aligns against is already the same size.
+function _lastMenuRow(menu) {
+  const rows = menu.querySelectorAll(':scope > .context-menu-item');
+  return rows[rows.length - 1] || null;
+}
+
 // Opens above anchorRect and left-aligned with it (a "dropup") — used by the terminal button
 // bar, which sits at the bottom of the page, so a normal downward dropdown would open off-screen
 // or at least visually detached from the button that opened it.
@@ -460,18 +469,13 @@ function _positionMenuAboveAnchor(menu, anchorRect) {
   // Aligns the *last* item's bottom edge with the anchor's own top, rather than leaving a fixed
   // gap below the whole menu box -- since the menu stacks upward, the last item is the one
   // visually closest to the button, and abutting it exactly (touching, not overlapping) reads as
-  // one continuous menu rather than two disconnected boxes. This is the edge-to-edge equivalent
-  // of _positionSubmenu aligning a sideways cascade's *first* item with its trigger -- row-to-row
-  // alignment works there because side-by-side items don't share vertical space, but stacked
-  // items do, so aligning row-to-row here would make the last item sit exactly on top of (and
-  // hide) the button itself. Measured from the actual last .context-menu-item rather than
-  // computed from padding/item-count math, so it's correct regardless of separators or uneven
-  // row heights.
-  const rows = menu.querySelectorAll(':scope > .context-menu-item');
-  const lastRow = rows[rows.length - 1];
-  const offset = lastRow
-    ? (lastRow.getBoundingClientRect().top - rect.top) + lastRow.getBoundingClientRect().height
-    : rect.height;
+  // one continuous menu rather than two disconnected boxes. Edge-to-edge rather than row-to-row
+  // (_positionSubmenu's approach): a sideways cascade doesn't share vertical space with its
+  // trigger, but a stacked dropup does, so row-to-row alignment here would put the last item
+  // exactly on top of (and hide) the button itself.
+  const lastRow = _lastMenuRow(menu);
+  const lastRowRect = lastRow ? lastRow.getBoundingClientRect() : null;
+  const offset = lastRowRect ? (lastRowRect.top - rect.top) + lastRowRect.height : rect.height;
   let y = anchorRect.top - offset;
   if (y < 0) y = anchorRect.bottom + 4; // not enough room above — fall back to below, same gap
   menu.style.left = x + 'px';
@@ -479,35 +483,25 @@ function _positionMenuAboveAnchor(menu, anchorRect) {
 }
 
 // A submenu opens beside the item that triggered it (its right edge), flipping to the left when
-// it would overflow — same idea as _positionMenuEl's clamping, just anchored to a rect instead of
-// a click point.
+// it would overflow horizontally.
 function _positionSubmenu(menu, anchorRect) {
   const rect = menu.getBoundingClientRect();
   let x = anchorRect.right;
-  // Offset by the container's own top padding so the first *item* inside (not just the
-  // container box) lines up exactly with the trigger's row -- without this, every submenu sat
-  // one padding-width lower than its trigger, invisible when only ever compared container-to-
-  // container but real once you actually check where the first line of text lands.
-  const topPad = parseFloat(getComputedStyle(menu).paddingTop) || 0;
-  let y = Math.max(0, anchorRect.top - topPad);
   if (x + rect.width > window.innerWidth) x = Math.max(0, anchorRect.left - rect.width);
-  // Top-aligning the first item with the trigger (above) is right when there's room below the
-  // trigger for the whole menu -- but a trigger that's itself near the bottom of the screen
-  // (e.g. the last item of a dropup, which _positionMenuAboveAnchor now aligns flush with its
-  // own button) doesn't have that room, and top-aligning anyway would push the menu down past
-  // the bottom of the screen for no reason when there's plenty of space above instead. Flip to
-  // aligning the *last* item with the trigger in that case -- same idea, opposite edge, measured
-  // from the actual last .context-menu-item rather than padding/item-count math so it's correct
-  // regardless of separators or uneven row heights.
-  if (y + rect.height > window.innerHeight) {
-    const rows = menu.querySelectorAll(':scope > .context-menu-item');
-    const lastRow = rows[rows.length - 1];
-    const offset = lastRow ? lastRow.getBoundingClientRect().top - rect.top : rect.height;
-    const flippedY = anchorRect.top - offset;
-    if (flippedY >= 0) y = flippedY;
-    // Still doesn't fit either way (menu taller than the viewport itself) -- cap to whatever
-    // space remains and let .context-menu's own overflow-y: auto scroll the rest.
-    else menu.style.maxHeight = Math.max(60, window.innerHeight - y - 4) + 'px';
+  // Always aligns the *last* item's row with the trigger's own row (same Y) -- consistent
+  // regardless of where the trigger sits on screen, rather than aligning the first item and only
+  // flipping to the last on overflow. Safe as row-to-row (not edge-to-edge) specifically because
+  // a sideways cascade sits at a different X than its trigger, so it never shares vertical space
+  // with it the way a stacked dropup would -- see _positionMenuAboveAnchor for that case.
+  const lastRow = _lastMenuRow(menu);
+  const offset = lastRow ? lastRow.getBoundingClientRect().top - rect.top : rect.height;
+  let y = anchorRect.top - offset;
+  if (y < 0) {
+    // Taller than the space available above the trigger's row -- cap it and let .context-menu's
+    // own overflow-y: auto scroll the rest, rather than losing the alignment by clamping to some
+    // arbitrary position.
+    y = 0;
+    menu.style.maxHeight = Math.max(60, window.innerHeight - 4) + 'px';
   }
   menu.style.left = x + 'px';
   menu.style.top = y + 'px';
