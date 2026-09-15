@@ -419,9 +419,17 @@ if __name__ == '__main__':
                          guard, 'send-keys S-PPage', 'copy-mode -e; send-keys -X page-up'])
         subprocess.run([TMUX_BIN, 'bind-key', '-T', 'root', 'C-S-Up', 'if-shell', '-F',
                          guard, 'send-keys C-S-Up', 'copy-mode -e; send-keys -X -N 3 scroll-up'])
-        # No root C-S-Down binding, same as the original wheel design -- there's nothing to enter
-        # copy-mode by scrolling *down* into when you're already at the live bottom; C-S-Down only
-        # needs to do anything once already in copy-mode, covered by the per-table bindings below.
+        # C-S-Down still needs a root binding even though there's nothing to scroll down into at
+        # the live bottom -- an *unbound* key falls through to the pane's application instead of
+        # being consumed, and this is a synthetic sequence no real keyboard sends, so it would
+        # land in the shell as literal garbage input (confirmed: scrolling down at the bottom
+        # printed raw escape-sequence fragments at the prompt) rather than being silently
+        # dropped. Forward it only if the pane's own app wants raw keys (alternate_on, e.g. vim);
+        # otherwise the binding's false-branch is simply omitted, which is a real no-op in tmux,
+        # discarding the key instead of forwarding it. Once already in copy-mode, keys dispatch
+        # through that table instead of root anyway, where C-S-Down does the real scroll-down.
+        subprocess.run([TMUX_BIN, 'bind-key', '-T', 'root', 'C-S-Down', 'if-shell', '-F',
+                         '#{alternate_on}', 'send-keys C-S-Down'])
         # Once already in copy-mode, keys dispatch through this table instead of root -- tmux's
         # own defaults only cover plain PPage/NPage there, not the combos above.
         for table in ('copy-mode', 'copy-mode-vi'):
