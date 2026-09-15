@@ -469,9 +469,22 @@ function _positionMenuAboveAnchor(menu, anchorRect) {
 // a click point.
 function _positionSubmenu(menu, anchorRect) {
   const rect = menu.getBoundingClientRect();
-  let x = anchorRect.right, y = anchorRect.top;
+  let x = anchorRect.right;
+  // Offset by the container's own top padding so the first *item* inside (not just the
+  // container box) lines up exactly with the trigger's row -- without this, every submenu sat
+  // one padding-width lower than its trigger, invisible when only ever compared container-to-
+  // container but real once you actually check where the first line of text lands.
+  const topPad = parseFloat(getComputedStyle(menu).paddingTop) || 0;
+  let y = Math.max(0, anchorRect.top - topPad);
   if (x + rect.width > window.innerWidth) x = Math.max(0, anchorRect.left - rect.width);
-  if (y + rect.height > window.innerHeight) y = Math.max(0, window.innerHeight - rect.height - 4);
+  // Always top-aligned with the trigger, never repositioned when it overflows -- bottom-aligning
+  // (or any other vertical shift) would put the *last* item level with the trigger instead of
+  // the first, which is wrong for the common case here: the terminal command bar sits right at
+  // the bottom of the page, so a multi-item menu practically never fully fits below it. Capped
+  // to the space actually remaining below the trigger instead, relying on .context-menu's own
+  // overflow-y: auto to scroll the rest -- only reachable for a menu tall enough that a human
+  // would ever need to scroll it, which a short one practically never is.
+  if (y + rect.height > window.innerHeight) menu.style.maxHeight = Math.max(60, window.innerHeight - y - 4) + 'px';
   menu.style.left = x + 'px';
   menu.style.top = y + 'px';
 }
@@ -540,7 +553,8 @@ function showContextMenu(event, items, opts = {}) {
   if (closingSameTrigger) return;
   const menu = _buildMenuLevel(items, 0);
   document.body.appendChild(menu);
-  if (opts.anchorRect) _positionMenuAboveAnchor(menu, opts.anchorRect);
+  if (opts.sideOfAnchor) _positionSubmenu(menu, opts.anchorRect);
+  else if (opts.anchorRect) _positionMenuAboveAnchor(menu, opts.anchorRect);
   else _positionMenuEl(menu, event.clientX, event.clientY);
   _ctxMenuStack = [menu];
   _openMenuTriggerEl = opts.triggerEl || null;
@@ -4669,9 +4683,12 @@ function showButtonMenu(event, idxs) {
     btn: buttons[idx], idx,
     path: buttons[idx].menu.split('/').slice(1),
   }));
-  // Opens above the button (the bar sits at the bottom of the page) — see _positionMenuAboveAnchor.
+  // Opens beside the button, top-aligned with it (see _positionSubmenu) rather than as a dropup
+  // above it -- so a nested "Disk/Advanced" flyout reads as one continuous rightward cascade
+  // starting level with the button itself, instead of the first level popping up above it and
+  // only the deeper ones cascading sideways.
   // triggerEl: btn is what makes a second click on the same button toggle it closed.
-  showContextMenu(anchor, _buildButtonMenuItems(entries, dirty), { anchorRect: rect, triggerEl: btn });
+  showContextMenu(anchor, _buildButtonMenuItems(entries, dirty), { anchorRect: rect, triggerEl: btn, sideOfAnchor: true });
 }
 
 // ── API auth ──────────────────────────────────────────────────────────────────

@@ -755,14 +755,20 @@ textarea { resize: vertical; min-height: unset; line-height: 1.5; }
   overflow-y: auto;
   overscroll-behavior: contain;
 }
+/* height + flex/align-items pins this to the same 26px as .term-run-btn (see its own comment) --
+   without it, this row's height came from padding plus the button's default line-height, which
+   isn't guaranteed to match .term-run-btn's own line-height pixel-for-pixel across browsers, so
+   a button-triggered dropdown could end up a few pixels off from the button it opened from. */
 .context-menu-item {
-  display: block;
+  display: flex;
+  align-items: center;
   width: 100%;
+  height: 26px;
   text-align: left;
   background: none;
   border: none;
   color: var(--select-option-color);
-  padding: 6px 10px;
+  padding: 0 10px;
   border-radius: var(--radius-sm);
   cursor: pointer;
   font-family: var(--font);
@@ -771,7 +777,7 @@ textarea { resize: vertical; min-height: unset; line-height: 1.5; }
 .context-menu-item:hover { background: var(--select-option-hover); }
 .context-menu-item:disabled { opacity: 0.4; cursor: default; pointer-events: none; }
 .context-menu-item.danger:hover { background: var(--red); color: #fff; }
-.context-menu-item.has-submenu { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.context-menu-item.has-submenu { justify-content: space-between; gap: 8px; }
 .context-menu-item.has-submenu::after { content: '▶'; font-size: 8px; opacity: 0.6; }
 .context-menu-sep { height: 1px; background: var(--border2); margin: 4px 2px; }
 
@@ -898,7 +904,12 @@ textarea { resize: vertical; min-height: unset; line-height: 1.5; }
   align-items: center;
   justify-content: flex-start;
 }
-.term-run-btn { white-space: nowrap; }
+/* Explicit height for the same reason .header .btn has one above: a text-only button's
+   intrinsic line-height at a fixed font-size isn't guaranteed to compute identically across
+   browsers, so relying on padding alone to match another element's height (here,
+   .context-menu-item, so a button's own dropdown lines up with the button that opened it) can
+   drift by a few pixels depending on the browser's font metrics. */
+.term-run-btn { white-space: nowrap; height: 26px; }
 .terminal-header-actions { display: flex; gap: 6px; margin-left: auto; }
 .btn-sm { padding: 3px 8px; font-size: 11px; }
 
