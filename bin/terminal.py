@@ -391,17 +391,24 @@ if __name__ == '__main__':
                              'send-keys', '-X', '-N', '3', 'scroll-up'])
             subprocess.run([TMUX_BIN, 'bind-key', '-T', table, 'WheelDownPane',
                              'send-keys', '-X', '-N', '3', 'scroll-down'])
-        # Root table: the wheel and PageUp only enter copy-mode by default (tmux's own guard --
+        # Root table: the wheel only enters copy-mode by default (tmux's own guard --
         # #{alternate_on}/#{pane_in_mode}/#{mouse_any_flag} -- still applies, so a full-screen
-        # program that wants the raw wheel/key itself, e.g. vim or htop, still gets it) -- neither
-        # scrolls anything on that very first press, which read as unresponsive. Entering *and*
-        # scrolling in the same action fixes that, and gives Page Up the same "just works" attach
-        # entry the wheel already had, without needing the tmux prefix key first.
+        # program that wants the raw wheel itself, e.g. vim or htop, still gets it) -- it doesn't
+        # scroll anything on that very first tick, which read as unresponsive. Entering *and*
+        # scrolling in the same action fixes that. Shift+PageUp gets the same entry point, since
+        # plain PageUp is left alone (unbound at the root, same as tmux's own default) -- most
+        # terminal emulators already use Shift+PageUp/PageDown for native scrollback, so it reads
+        # as the expected gesture rather than a new one.
         guard = '#{||:#{alternate_on},#{pane_in_mode},#{mouse_any_flag}}'
         subprocess.run([TMUX_BIN, 'bind-key', '-T', 'root', 'WheelUpPane', 'if-shell', '-F',
                          guard, 'send-keys -M', 'copy-mode -e; send-keys -X -N 3 scroll-up'])
-        subprocess.run([TMUX_BIN, 'bind-key', '-T', 'root', 'PPage', 'if-shell', '-F',
-                         guard, 'send-keys PPage', 'copy-mode -e; send-keys -X page-up'])
+        subprocess.run([TMUX_BIN, 'bind-key', '-T', 'root', 'S-PPage', 'if-shell', '-F',
+                         guard, 'send-keys S-PPage', 'copy-mode -e; send-keys -X page-up'])
+        # Once already in copy-mode, keys dispatch through this table instead of root -- tmux's
+        # own defaults only cover plain PPage/NPage there, not the shifted variants above.
+        for table in ('copy-mode', 'copy-mode-vi'):
+            subprocess.run([TMUX_BIN, 'bind-key', '-T', table, 'S-PPage', 'send-keys', '-X', 'page-up'])
+            subprocess.run([TMUX_BIN, 'bind-key', '-T', table, 'S-NPage', 'send-keys', '-X', 'page-down'])
         sys.exit(0)
 
     WEBROOT   = cfg.get('webroot') or WEBROOT

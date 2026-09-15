@@ -3516,6 +3516,7 @@ function initRestartWatcher() {
     const reloadNeeded = data.webroot_hash !== WEBROOT_HASH
       || data.theme !== THEME
       || !!data.terminal_enabled !== TERMINAL_ENABLED
+      || !!data.terminal_persist !== TERMINAL_PERSIST
       || !!data.mkoptions_enabled !== MKOPTIONS_ENABLED
       || !!data.backup_enabled !== BACKUP_ENABLED
       || data.nixos_target !== NIXOS_TARGET;
@@ -4295,6 +4296,22 @@ async function initTerminal() {
       if (_termWs && _termWs.readyState === WebSocket.OPEN)
         _termWs.send(JSON.stringify({ type: 'resize', cols, rows }));
     });
+    if (TERMINAL_PERSIST) {
+      // xterm.js handles Shift+PageUp/PageDown itself by default, scrolling its own (client-side)
+      // scrollback -- fine for a plain forked shell, but with a persistent tmux session that
+      // buffer is just a raw recording of every screen redraw tmux issues, not tmux's own
+      // line-based history. Intercepting here and sending the actual xterm sequence instead
+      // routes it into tmux's copy-mode scrolling (see --start-session's S-PPage/S-NPage
+      // bindings), returning false so xterm.js doesn't also scroll its own buffer for it.
+      _term.attachCustomKeyEventHandler((e) => {
+        if (e.type !== 'keydown' || !e.shiftKey) return true;
+        if (e.key !== 'PageUp' && e.key !== 'PageDown') return true;
+        e.preventDefault();
+        if (_termWs && _termWs.readyState === WebSocket.OPEN)
+          _termWs.send(e.key === 'PageUp' ? '\x1b[5;2~' : '\x1b[6;2~');
+        return false;
+      });
+    }
     connectTerminalWs();
   } catch (e) {
     console.error('Terminal init failed:', e);
@@ -4655,6 +4672,7 @@ function showButtonMenu(event, idxs) {
 // ── API auth ──────────────────────────────────────────────────────────────────
 const API_BASE = '/api/v1';
 const TERMINAL_ENABLED  = %%EZCONF_TERMINAL%%;
+const TERMINAL_PERSIST  = %%EZCONF_TERMINAL_PERSIST%%;
 const MKOPTIONS_ENABLED = %%EZCONF_MKOPTIONS%%;
 const BACKUP_ENABLED    = %%EZCONF_BACKUP%%;
 const EZCONF_MODE       = %%EZCONF_MODE%%; // null or "install" — services.ezconf.mode / mode in ezconf.toml, deploy-time only, no in-GUI toggle

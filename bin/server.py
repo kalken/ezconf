@@ -3,9 +3,10 @@
 ezconf server — single listener bound to 127.0.0.1:
   http(s)://localhost:9090  static files + API
     GET  /api/v1/ping             {"boot_id", "webroot_hash", "theme", "terminal_enabled",
-                                   "mkoptions_enabled", "backup_enabled", "nixos_target",
-                                   "buttons"} — a one-off check, only called by the frontend when
-                                   /api/v1/ping-stream errors out, to tell a dead session (401,
+                                   "terminal_persist", "mkoptions_enabled", "backup_enabled",
+                                   "nixos_target", "buttons"} — a one-off check, only called by
+                                   the frontend when /api/v1/ping-stream errors out, to tell a
+                                   dead session (401,
                                    won't get better on retry) apart from a connection blip
                                    EventSource will just reconnect on its own
     GET  /api/v1/ping-stream      same payload, pushed over a held-open text/event-stream instead
@@ -149,6 +150,10 @@ DEFAULT_FILE     = None          # basename to prefer as the initial tab; set wh
 AUTH_MODE        = 'none'        # set by --auth: 'none', 'custom', 'pam'
 TERMINAL_ENABLED = False         # True when terminal_port is set
 TERMINAL_PORT    = None          # port the terminal WebSocket service is running on
+TERMINAL_PERSIST = False         # True when tmux_session is set (terminal.py's own persistence
+                                  # config) -- read here too only so the frontend knows to route
+                                  # Shift+PageUp/PageDown to tmux's copy-mode scrolling instead of
+                                  # xterm.js's own native (client-side) scrollback
 THEME            = 'nixos'       # ui theme: nixos, dark, light
 EZCONF_MODE      = None          # None or 'install'; baked into index.html on load — shows
                                   # install-mode buttons in their own row and greys out ordinary
@@ -682,6 +687,7 @@ def _ping_payload():
         'webroot_hash': WEBROOT_HASH,
         'theme': THEME,
         'terminal_enabled': bool(TERMINAL_PORT),
+        'terminal_persist': TERMINAL_PERSIST,
         'mkoptions_enabled': bool(MKOPTIONS_CMD),
         'backup_enabled': BACKUP_COUNT > 0,
         'nixos_target': NIXOS_TARGET,
@@ -1246,6 +1252,7 @@ class StaticHandler(http.server.SimpleHTTPRequestHandler):
             content = (open(os.path.join(WEBROOT, 'index.html')).read()
                 .replace('%%EZCONF_TERMINAL_SCRIPTS%%', terminal_scripts)
                 .replace('%%EZCONF_TERMINAL%%', 'true' if TERMINAL_PORT else 'false')
+                .replace('%%EZCONF_TERMINAL_PERSIST%%', 'true' if TERMINAL_PERSIST else 'false')
                 .replace('%%EZCONF_TERMINAL_PORT%%', str(TERMINAL_PORT or WEB_PORT))
                 .replace('%%EZCONF_THEME%%', THEME)
                 .replace('%%EZCONF_MKOPTIONS%%', 'true' if MKOPTIONS_CMD else 'false')
@@ -1352,6 +1359,7 @@ if __name__ == '__main__':
     if _term_port:
         TERMINAL_PORT    = int(_term_port)
         TERMINAL_ENABLED = True
+    TERMINAL_PERSIST = bool(cfg.get('tmux_session'))
 
     _key_file = args.session_key_file or cfg.get('session_key_file')
     if _key_file:
