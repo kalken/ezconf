@@ -381,6 +381,16 @@ if __name__ == '__main__':
         subprocess.run([TMUX_BIN, 'set-option', '-t', TMUX_SESSION, 'history-limit',
                          str(TMUX_HISTORY_LINES)])
         subprocess.run([TMUX_BIN, 'set-option', '-t', TMUX_SESSION, 'mouse', 'on'])
+        # remain-on-exit + pane-died: without this, typing "exit" at the prompt kills the pane's
+        # shell, and since it's the session's only pane, tmux tears down the whole session with
+        # it -- the "persistent" session is gone for good until something recreates it by hand.
+        # remain-on-exit keeps the pane (and session) alive with a dead placeholder instead of
+        # closing it; the pane-died hook immediately respawns a fresh shell into it, so "exit"
+        # behaves like it would on a plain (non-persistent) connection -- you just get a new
+        # shell -- instead of destroying the session. Session-scoped (-t), not -g, so it doesn't
+        # affect any other tmux session a human might run under the same user on this socket.
+        subprocess.run([TMUX_BIN, 'set-option', '-t', TMUX_SESSION, 'remain-on-exit', 'on'])
+        subprocess.run([TMUX_BIN, 'set-hook', '-t', TMUX_SESSION, 'pane-died', 'respawn-pane -k'])
         # tmux's own default wheel-scroll binding moves 5 lines per tick (select-pane is dropped
         # here since there's never more than one pane to focus) -- noticeably jumpier than a
         # native scrollbar. These bindings are server-wide, not session-scoped (tmux key tables
