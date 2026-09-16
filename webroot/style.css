@@ -934,8 +934,11 @@ textarea { resize: vertical; min-height: unset; line-height: 1.5; }
    .context-menu-item, so a button's own dropdown lines up with the button that opened it) can
    drift by a few pixels depending on the browser's font metrics. */
 .term-run-btn { white-space: nowrap; height: 26px; }
+/* The size/hide icons (quarter/half/full/toggle) used to be a smaller .btn-sm variant, which
+   visibly mismatched .term-run-btn (the command buttons sharing the same .terminal-header bar)
+   in both height and padding/font-size. Switched to plain .btn instead of trying to keep a
+   second, smaller variant in sync with the first -- .btn-sm is now unused and removed. */
 .terminal-header-actions { display: flex; gap: 6px; margin-left: auto; }
-.btn-sm { padding: 3px 8px; font-size: 11px; }
 
 .terminal-body {
   flex: 1;
