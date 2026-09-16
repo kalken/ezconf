@@ -73,7 +73,7 @@ Auth:
 Config file (ezconf.toml):
   file, default_file, webroot, auth, terminal_port, session_key_file, cert, key, username,
   password, allowed_users, mkoptions, nixos_target, ports.web, backup_dir, backup_count,
-  buttons (list of [[buttons]] tables: _id, label, command, save_first, clear_first —
+  buttons (list of [[buttons]] tables: label, command, save_first, clear_first —
   shown in the terminal panel alongside any services.ezconf.buttons defined in a config file)
 """
 import argparse

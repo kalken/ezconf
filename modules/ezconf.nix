@@ -65,7 +65,7 @@ let
     ""
     "[ports]"
     "web = ${toString cfg.ports.web}"
-    (map (btn: "\n[[buttons]]\n${lib.optionalString (btn._id != null) "_id = ${str btn._id}\n"}label = ${str btn.label}\ncommand = ${str btn.command}${lib.optionalString btn.save_first "\nsave_first = true"}${lib.optionalString btn.clear_first "\nclear_first = true"}${lib.optionalString (btn.menu != "") "\nmenu = ${str btn.menu}"}${lib.optionalString (btn.mode != null) "\nmode = ${str btn.mode}"}") cfg.buttons)
+    (map (btn: "\n[[buttons]]\nlabel = ${str btn.label}\ncommand = ${str btn.command}${lib.optionalString btn.save_first "\nsave_first = true"}${lib.optionalString btn.clear_first "\nclear_first = true"}${lib.optionalString (btn.menu != "") "\nmenu = ${str btn.menu}"}${lib.optionalString (btn.mode != null) "\nmode = ${str btn.mode}"}") cfg.buttons)
   ]));
 
 in
@@ -251,7 +251,6 @@ in
     buttons = lib.mkOption {
       type = lib.types.listOf (lib.types.submodule {
         options = {
-          _id         = lib.mkOption { type = lib.types.nullOr lib.types.str; default = null; description = "Stable identity used to match this button against a live edit of the same button in the ezconf UI, independent of label/command — set automatically by the editor when a button is created there, and left untouched by every later edit including renames. Buttons written directly in Nix can leave this unset; they fall back to label+command matching, which only breaks on rename."; };
           label       = lib.mkOption { type = lib.types.str;  description = "Button label shown in the UI."; };
           command     = lib.mkOption { type = lib.types.str;  description = "Shell command to run in the terminal."; };
           save_first  = lib.mkOption { type = lib.types.bool; default = false; description = "Disable the button while there are unsaved changes."; };
