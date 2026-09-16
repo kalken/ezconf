@@ -4637,7 +4637,11 @@ function _renderButtonRow(container, entries, buttons, dirty, disabledTitle) {
       const b = document.createElement('button');
       b.className = 'btn term-run-btn';
       b.textContent = topMenu;
-      _wireHoverTooltip(b, disabledTitle || idxs.map(i => buttons[i].label || '(no label)').join(', '));
+      // No content-listing tooltip here (unlike a plain button's command, below) -- opening the
+      // dropdown already shows exactly what's inside, so a hover tooltip would just be a
+      // redundant extra step before seeing the same thing. Still explains *why* it's disabled
+      // in install mode, though, since the dropdown can't be opened at all to see that.
+      if (disabledTitle) _wireHoverTooltip(b, disabledTitle);
       b.onclick = e => showButtonMenu(e, idxs);
       container.appendChild(b);
       return;
