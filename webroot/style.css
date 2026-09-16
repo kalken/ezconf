@@ -768,7 +768,6 @@ textarea { resize: vertical; min-height: unset; line-height: 1.5; }
   background: var(--select-option-bg);
   border: 1px solid var(--border2);
   border-radius: var(--radius);
-  box-shadow: 0 4px 16px var(--shadow);
   padding: 4px;
   min-width: 170px;
   /* A long menu (e.g. many backups) previously had no cap and could grow taller than the
