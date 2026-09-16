@@ -466,26 +466,24 @@ function _positionMenuAboveAnchor(menu, anchorRect) {
   const rect = menu.getBoundingClientRect();
   let x = anchorRect.left;
   if (x + rect.width > window.innerWidth) x = Math.max(0, window.innerWidth - rect.width - 4);
-  // Touches the whole menu box's bottom edge to the anchor's own top (plus a small 1px gap),
-  // rather than leaving a larger fixed gap -- since the menu stacks upward, this is what reads as
-  // one continuous menu instead of two disconnected boxes. Whole-box rather than aligning just
-  // the last item's own row: the container has its own bottom padding *after* that row, so
-  // anchoring the row itself still let the container's edge (background and all) extend past the
-  // anchor's top, into the button's own space -- exactly the "menu covers the button" bug this
-  // replaces.
-  let y = anchorRect.top - rect.height - 1;
+  // Touches the whole menu box's bottom edge directly to the anchor's own top -- since the menu
+  // stacks upward, this is what reads as one continuous menu instead of two disconnected boxes.
+  // Whole-box rather than aligning just the last item's own row: the container has its own
+  // bottom padding *after* that row, so anchoring the row itself still let the container's edge
+  // (background and all) extend past the anchor's top, into the button's own space -- exactly
+  // the "menu covers the button" bug this replaces.
+  let y = anchorRect.top - rect.height;
   if (y < 0) y = anchorRect.bottom + 4; // not enough room above — fall back to below, same gap
   menu.style.left = x + 'px';
   menu.style.top = y + 'px';
 }
 
 // A submenu opens beside the item that triggered it (its right edge), flipping to the left when
-// it would overflow horizontally. A 1px gap either way, rather than touching exactly -- matching
-// _positionMenuAboveAnchor's own small gap from the bar it opens above.
+// it would overflow horizontally.
 function _positionSubmenu(menu, anchorRect) {
   const rect = menu.getBoundingClientRect();
-  let x = anchorRect.right + 1;
-  if (x + rect.width > window.innerWidth) x = Math.max(0, anchorRect.left - rect.width - 1);
+  let x = anchorRect.right;
+  if (x + rect.width > window.innerWidth) x = Math.max(0, anchorRect.left - rect.width);
   // Always aligns the *last* item's row with the trigger's own row (same Y) -- consistent
   // regardless of where the trigger sits on screen, rather than aligning the first item and only
   // flipping to the last on overflow. Safe as row-to-row (not edge-to-edge) specifically because
