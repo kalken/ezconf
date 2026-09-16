@@ -514,6 +514,14 @@ function _positionSubmenu(menu, anchorRect) {
 function _buildMenuLevel(items, depth) {
   const menu = document.createElement('div');
   menu.className = 'context-menu';
+  // Shared by every item at this level, not just submenu triggers -- hovering a plain leaf item
+  // needs to close a sibling's already-open submenu too, otherwise moving from an expanded
+  // submenu trigger to a plain sibling button left the submenu stuck open (nothing else ever
+  // told it to close, since a plain item's own mouseenter previously did nothing at all).
+  const closeDeeper = () => {
+    _ctxMenuStack.slice(depth + 1).forEach(m => m.remove());
+    _ctxMenuStack = _ctxMenuStack.slice(0, depth + 1);
+  };
   items.forEach(item => {
     if (item.separator) {
       const sep = document.createElement('div');
@@ -531,8 +539,7 @@ function _buildMenuLevel(items, depth) {
     if (item.title && !item.items) _wireHoverTooltip(btn, item.title);
     if (item.items) {
       const openSubmenu = () => {
-        _ctxMenuStack.slice(depth + 1).forEach(m => m.remove());
-        _ctxMenuStack = _ctxMenuStack.slice(0, depth + 1);
+        closeDeeper();
         const sub = _buildMenuLevel(item.items, depth + 1);
         document.body.appendChild(sub);
         // left/right come from the *level* (menu, this whole .context-menu) rather than the
@@ -552,6 +559,7 @@ function _buildMenuLevel(items, depth) {
       btn.addEventListener('mouseenter', openSubmenu);
     } else {
       btn.onclick = () => { _closeContextMenu(); item.onclick(); };
+      btn.addEventListener('mouseenter', closeDeeper);
     }
     menu.appendChild(btn);
   });
