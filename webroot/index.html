@@ -4535,37 +4535,39 @@ function setTerminalSize(size) {
   });
 }
 
-// STATIC_BUTTONS (from ezconf.toml's [[buttons]] — see server.py/modules/ezconf.nix) come first:
-// they're deploy-time, not tied to any config file, so they always show regardless of which tab
-// is active. After them, services.ezconf.buttons can also be set in any tab — every button shows
-// regardless of which tab is active. Every tab's config is kept in fileConfigs (loaded at
-// startup), so this doesn't need a fetch.
+// STATIC_BUTTONS (from ezconf.toml's [[buttons]] — see server.py/modules/ezconf.nix) is deploy-
+// time, not tied to any config file. services.ezconf.buttons can also be set in any *.json tab —
+// every such button shows regardless of which tab is active. Every tab's config is kept in
+// fileConfigs (loaded at startup), so this doesn't need a fetch.
 //
 // These two sources aren't as independent as they look: services.ezconf.buttons is one NixOS
 // option either way — setting it in a *.json file inside CONFIG_DIR isn't some ezconf-only
 // concept, that file gets merged by json2nix.nix into the very same option modules/ezconf.nix
 // reads to generate ezconf.toml's [[buttons]] in the first place. So the moment you save that
 // file and nixos-rebuild, its buttons start arriving as STATIC_BUTTONS too — the *same* button
-// definitions reaching getAllButtons() from both directions — which without deduping would just
-// show every such button twice.
+// definitions reaching getAllButtons() from both directions.
 //
-// _buttonIdentity() matches on label+command only, not full content — an earlier version matched
-// every field, which meant editing *any* other field (menu, mode, save_first, ...) on a button
-// that also exists in STATIC_BUTTONS made it stop matching, so both the stale deployed version
-// and the freshly-edited one showed at once until the next rebuild caught up. Matching on
-// label+command means the live edit is recognized as "the same button, modified" and suppresses
-// the stale one instead — the trade-off is that renaming a button's label or changing its command
-// still shows both until rebuild, since that's what the identity match itself relies on.
+// An earlier version tried to dedupe these by matching content (label+command, or every field, or
+// a generated id) so the stale deployed copy could be dropped in favor of the live one — every
+// variant of that either broke on a rename (whatever the match relied on is exactly what a rename
+// changes) or required writing extra state into the *.json files. `static` sidesteps the
+// whole problem instead of solving the matching: STATIC_BUTTONS is only shown when explicitly
+// marked static = true (meant for a button declared directly in Nix, never through the ezconf
+// UI, that should just always be there) — otherwise a *.json-declared button is the *only* place
+// that button is read from, full stop, so there's nothing to reconcile it against and nothing a
+// rename could possibly desync. The trade-off: a button meant to always show has to be flagged
+// that way explicitly; it can't rely on STATIC_BUTTONS being un-superseded by default the way it
+// used to.
 // Any button field can individually be right-click-disabled like any other option (it's a
 // regular object under an array item, not the array item itself, which is the only thing the
 // disable action is barred on) -- that wraps it as { _disabled: true, _value: <original> },
-// which every reader below (_buttonIdentity, _renderButtonRow, runButton) would otherwise treat
-// as a truthy, non-empty value (rendering literally as "[object Object]" for something like
-// `menu`, or trying to run it as a shell command for `command`). Unwrapping to `undefined` here —
-// not to the preserved _value — matches what actually happens once deployed: json2nix.nix
-// excludes a disabled field from the Nix merge entirely, so the option reverts to its real
-// default, same as never having been set. Only done for per-file buttons; STATIC_BUTTONS comes
-// from deploy-time TOML, which has no way to express this wrapper in the first place.
+// which every reader below (_renderButtonRow, runButton) would otherwise treat as a truthy,
+// non-empty value (rendering literally as "[object Object]" for something like `menu`, or trying
+// to run it as a shell command for `command`). Unwrapping to `undefined` here — not to the
+// preserved _value — matches what actually happens once deployed: json2nix.nix excludes a
+// disabled field from the Nix merge entirely, so the option reverts to its real default, same as
+// never having been set. Only done for per-file buttons; STATIC_BUTTONS comes from deploy-time
+// TOML, which has no way to express this wrapper in the first place.
 function _unwrapButtonField(v) {
   return isDisabled(v) ? undefined : v;
 }
@@ -4579,16 +4581,10 @@ function _normalizeButton(b) {
     mode: _unwrapButtonField(b.mode),
   };
 }
-function _buttonIdentity(b) {
-  return JSON.stringify([b.label, b.command]);
-}
 function getAllButtons() {
   const perFile = files.flatMap(f => fileConfigs[f]?.services?.ezconf?.buttons || [])
     .map(_normalizeButton);
-  const perFileIds = new Set(perFile.map(_buttonIdentity));
-  // A static button superseded by a live edit sharing its identity is dropped — the live version,
-  // reflecting the current unsaved state, takes its place instead of sitting alongside it.
-  const staticSurviving = STATIC_BUTTONS.filter(b => !perFileIds.has(_buttonIdentity(b)));
+  const staticSurviving = STATIC_BUTTONS.filter(b => b.static === true);
   return [...staticSurviving, ...perFile];
 }
 

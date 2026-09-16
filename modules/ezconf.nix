@@ -65,7 +65,7 @@ let
     ""
     "[ports]"
     "web = ${toString cfg.ports.web}"
-    (map (btn: "\n[[buttons]]\nlabel = ${str btn.label}\ncommand = ${str btn.command}${lib.optionalString btn.save_first "\nsave_first = true"}${lib.optionalString btn.clear_first "\nclear_first = true"}${lib.optionalString (btn.menu != "") "\nmenu = ${str btn.menu}"}${lib.optionalString (btn.mode != null) "\nmode = ${str btn.mode}"}") cfg.buttons)
+    (map (btn: "\n[[buttons]]\nlabel = ${str btn.label}\ncommand = ${str btn.command}${lib.optionalString btn.save_first "\nsave_first = true"}${lib.optionalString btn.clear_first "\nclear_first = true"}${lib.optionalString (btn.menu != "") "\nmenu = ${str btn.menu}"}${lib.optionalString (btn.mode != null) "\nmode = ${str btn.mode}"}${lib.optionalString btn.static "\nstatic = true"}") cfg.buttons)
   ]));
 
 in
@@ -257,6 +257,7 @@ in
           clear_first = lib.mkOption { type = lib.types.bool; default = false; description = "Clear the terminal before running this button's command."; };
           menu        = lib.mkOption { type = lib.types.str;  default = "";    description = "Group this button into a dropdown menu with this name, instead of giving it its own slot in the button bar. Every button sharing the same menu name appears as one item in that dropdown. Use \"/\" to nest further, e.g. \"Disk/Advanced\" adds an \"Advanced\" submenu inside the \"Disk\" dropdown."; };
           mode        = lib.mkOption { type = lib.types.nullOr (lib.types.enum [ "install" ]); default = null; description = "Set to \"install\" to move this button into its own row, shown only when services.ezconf.mode = \"install\"."; };
+          static      = lib.mkOption { type = lib.types.bool; default = false; description = "Show this deploy-time button unconditionally. Only meaningful for a button declared directly in Nix (not through an ezconf-managed *.json file): the terminal panel otherwise only shows deploy-time buttons that are also currently present in a loaded *.json file (so editing that file's buttons is a live preview with no stale duplicates), and shows every *.json-declared button regardless of this option."; };
         };
       });
       default     = [];
