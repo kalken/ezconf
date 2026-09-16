@@ -26,8 +26,8 @@ const _DEFAULT_THEME = '%%EZCONF_THEME%%';
     <button class="btn" onclick="reloadConfig()" data-tooltip="Reload saved file">↺</button>
   </div>
   <div class="header-actions">
-    <input type="file" id="import-file-input" accept=".json,.nix,.zip" style="display:none">
-    <input type="file" id="system-import-input" accept=".zip" style="display:none">
+    <input type="file" id="import-file-input" accept=".json,.nix,.zip">
+    <input type="file" id="system-import-input" accept=".zip">
     <button class="btn" onclick="showImportMenu(event)" data-tooltip="Import a Nix/JSON snippet, or a system export zip">⬇ Import</button>
     <button class="btn" onclick="showExportMenu(event)" data-tooltip="Export the current config, or the whole system">⬆ Export</button>
     <button class="btn" id="save-btn" onclick="saveToServer()" data-tooltip="Save all changes">⬇ Save</button>

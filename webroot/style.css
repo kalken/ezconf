@@ -640,6 +640,8 @@ textarea { resize: vertical; min-height: unset; line-height: 1.5; }
 .import-example-code:hover { border-color: var(--accent); background: var(--bg2); }
 
 .hidden { display: none !important; }
+/* Native file pickers, triggered programmatically via .click() -- never shown to the user. */
+#import-file-input, #system-import-input { display: none; }
 
 /* ── Drag handle ── */
 .drag-handle {
