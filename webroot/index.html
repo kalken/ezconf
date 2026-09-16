@@ -2221,6 +2221,7 @@ function makeFlatSubHeader(k, childPath, depth) {
 function renderFlatLeaves(container, obj, path, depth) {
   if (typeof obj !== 'object' || obj === null) return;
   for (const [k, v] of Object.entries(obj)) {
+    if (isInternalSegment(k)) continue;
     const childPath = [...path, k];
     const isSection = v !== null && typeof v === 'object' && !Array.isArray(v) && !isExprPkg(v);
     if (isSection) {
@@ -2296,6 +2297,7 @@ function makeFlatGroupHeader(k, childPath) {
 // Flat mode: show top-level sections as headers, leaves listed under each with full paths.
 function renderFlat(container, obj, path) {
   for (const [k, v] of Object.entries(obj)) {
+    if (isInternalSegment(k)) continue;
     const childPath = [...path, k];
     const isSection = v !== null && typeof v === 'object' && !Array.isArray(v) && !isExprPkg(v);
     if (isSection) {
@@ -2385,6 +2387,7 @@ function renderEditor() {
 
 function renderObj(container, obj, path) {
   for (const [k, v] of Object.entries(obj)) {
+    if (isInternalSegment(k)) continue;
     const childPath = [...path, k];
     if (isDisabled(v)) {
       renderDisabled(container, k, v, childPath);
@@ -2816,21 +2819,28 @@ function renderArrayField(container, key, arr, path) {
 
   function addItem() {
     const existing = arr[0];
+    let item;
     if (existing !== undefined && typeof existing !== 'object') {
       // Scalar array — just push an empty string
-      arr.push('');
+      item = '';
     } else {
       // Object array (or empty) — always use schema-derived blank with required fields
       const blank = blankObjectFromOptions(path);
       if (blank !== null) {
-        arr.push(blank);
+        item = blank;
       } else {
         const opt = findOption(path);
         const isObjArray = (existing !== undefined && existing !== null && typeof existing === 'object' && !isExprPkg(existing))
                         || (opt && isObjectArrayNixType(opt.type));
-        arr.push(isObjArray ? {} : '');
+        item = isObjArray ? {} : '';
       }
     }
+    // Buttons get a persistent identity assigned once, here, at creation — see _buttonIdentity()
+    // for why this has to happen now rather than lazily at render time or derived from content.
+    if (item !== null && typeof item === 'object' && path.join('.') === 'services.ezconf.buttons') {
+      item._id = _generateButtonId();
+    }
+    arr.push(item);
     renderAll();
   }
 
@@ -4549,13 +4559,16 @@ function setTerminalSize(size) {
 // definitions reaching getAllButtons() from both directions — which without deduping would just
 // show every such button twice.
 //
-// _buttonIdentity() matches on label+command only, not full content — an earlier version matched
-// every field, which meant editing *any* other field (menu, mode, save_first, ...) on a button
-// that also exists in STATIC_BUTTONS made it stop matching, so both the stale deployed version
-// and the freshly-edited one showed at once until the next rebuild caught up. Matching on
-// label+command means the live edit is recognized as "the same button, modified" and suppresses
-// the stale one instead — the trade-off is that renaming a button's label or changing its command
-// still shows both until rebuild, since that's what the identity match itself relies on.
+// _buttonIdentity() prefers _id when both sides have one — an internal field (hidden from the
+// editor like any _-prefixed key, see isInternalSegment) generated once by addItem() when a
+// button is created through the UI, and never touched again by any later edit to that button or
+// its siblings. Unlike matching on content, it survives a rename. Falls back to label+command
+// when either side lacks an _id — buttons written directly in Nix (never round-tripped through
+// addItem()), or ones saved before this field existed. An earlier version matched every field,
+// which meant editing *any* other field (menu, mode, save_first, ...) on a button that also
+// exists in STATIC_BUTTONS made it stop matching, so both the stale deployed version and the
+// freshly-edited one showed at once until the next rebuild caught up; matching on label+command
+// (now the fallback) fixed that but still broke specifically on rename, which is what _id fixes.
 // Any button field can individually be right-click-disabled like any other option (it's a
 // regular object under an array item, not the array item itself, which is the only thing the
 // disable action is barred on) -- that wraps it as { _disabled: true, _value: <original> },
@@ -4569,8 +4582,13 @@ function setTerminalSize(size) {
 function _unwrapButtonField(v) {
   return isDisabled(v) ? undefined : v;
 }
+function _generateButtonId() {
+  const bytes = crypto.getRandomValues(new Uint8Array(8));
+  return 'b_' + Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
+}
 function _normalizeButton(b) {
   return {
+    _id: _unwrapButtonField(b._id),
     label: _unwrapButtonField(b.label),
     command: _unwrapButtonField(b.command),
     save_first: _unwrapButtonField(b.save_first),
@@ -4580,7 +4598,7 @@ function _normalizeButton(b) {
   };
 }
 function _buttonIdentity(b) {
-  return JSON.stringify([b.label, b.command]);
+  return b._id ? `id:${b._id}` : JSON.stringify([b.label, b.command]);
 }
 function getAllButtons() {
   const perFile = files.flatMap(f => fileConfigs[f]?.services?.ezconf?.buttons || [])
