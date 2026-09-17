@@ -54,7 +54,6 @@ ezconf server — single listener bound to 127.0.0.1:
                                    never triggered automatically on its own (see backup_system());
                                    also called automatically by system-import/system-backup/restore
     GET  /api/v1/system-backups   lists existing system backups, newest first
-    GET  /api/v1/system-backup/content  downloads one system backup zip by ?name=<filename>
     POST /api/v1/system-backup/restore  applies a backup zip already in SYSTEM_BACKUP_DIR straight
                                    to NIXOS_TARGET, by ?name=<filename> — same write logic and
                                    auto-backup-first safety net as system-import, but additionally
@@ -1362,24 +1361,6 @@ class StaticHandler(http.server.SimpleHTTPRequestHandler):
                 data = json.dumps({'backups': list_system_backups()}).encode()
                 self.send_response(200)
                 self.send_header('Content-Type', 'application/json')
-                self.send_header('Content-Length', str(len(data)))
-                self.end_headers()
-                self.wfile.write(data)
-            except Exception as e:
-                self.send_error(500, str(e))
-            return
-        if parsed.path == '/api/v1/system-backup/content':
-            qs = parse_qs(parsed.query)
-            target = resolve_system_backup_path(qs.get('name', [''])[0])
-            if not target:
-                self.send_error(400); return
-            try:
-                with open(target, 'rb') as f:
-                    data = f.read()
-                self.send_response(200)
-                self.send_header('Content-Type', 'application/zip')
-                self.send_header('Content-Disposition',
-                                  f'attachment; filename="{os.path.basename(target)}"')
                 self.send_header('Content-Length', str(len(data)))
                 self.end_headers()
                 self.wfile.write(data)
