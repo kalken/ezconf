@@ -48,12 +48,10 @@ ezconf server — single listener bound to 127.0.0.1:
                                    backups are disabled) — every import is a destructive
                                    overwrite, so this is exactly the moment a "before" snapshot
                                    is worth having
-    POST /api/v1/system-backup    creates one timestamped zip snapshot of the whole NIXOS_TARGET
-                                   tree in SYSTEM_BACKUP_DIR (same file selection as
-                                   system-export), pruning to SYSTEM_BACKUP_COUNT newest — manual,
-                                   never triggered automatically on its own (see backup_system());
-                                   also called automatically by system-import/system-backup/restore
-    GET  /api/v1/system-backups   lists existing system backups, newest first
+    GET  /api/v1/system-backups   lists existing system backups (see backup_system()), newest
+                                   first — no endpoint creates one directly; every backup is made
+                                   automatically, by system-import/system-backup/restore, right
+                                   before either overwrites something
     POST /api/v1/system-backup/restore  applies a backup zip already in SYSTEM_BACKUP_DIR straight
                                    to NIXOS_TARGET, by ?name=<filename> — same write logic and
                                    auto-backup-first safety net as system-import, but additionally
@@ -1167,21 +1165,6 @@ class StaticHandler(http.server.SimpleHTTPRequestHandler):
             except _InvalidImportEntry as e:
                 resp = json.dumps({'error': 'invalid entry path: ' + str(e)}).encode()
                 self.send_response(400)
-                self.send_header('Content-Type', 'application/json')
-                self.send_header('Content-Length', str(len(resp)))
-                self.end_headers()
-                self.wfile.write(resp)
-            except Exception as e:
-                self.send_error(500, str(e))
-        elif parsed.path == '/api/v1/system-backup':
-            try:
-                name = backup_system()
-                if name is None:
-                    resp = b'{"error":"system backups are disabled (system_backup_count = 0)"}'
-                    self.send_response(400)
-                else:
-                    resp = json.dumps({'ok': True, 'name': name}).encode()
-                    self.send_response(200)
                 self.send_header('Content-Type', 'application/json')
                 self.send_header('Content-Length', str(len(resp)))
                 self.end_headers()

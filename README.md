@@ -318,11 +318,11 @@ Every time a config file is saved, the server copies its previous contents into 
 Click it for a dropdown split into **File** and **System**:
 
 - **File** — past saves of whichever tab is currently active, each labeled with its timestamp and size; picking one loads it straight into the editor as an unsaved edit, no confirmation prompt. Nothing is written to disk until you hit Save, and you can review or tweak it first (or Undo to go back).
-- **System** — **Backup system now** makes an on-demand snapshot of the *entire* NixOS config tree (`nixos_target`), not just what's open in the editor: flake.nix, flake.lock, and everything else alongside ezconf's own files, using the same file selection as system export/import (symlinks always excluded; dotfiles/dotdirs and `hardware-configuration.nix` excluded by default, see [Export / Import](#-export--import)). Unlike file backups, these are never made automatically on their own — only when you click it, or right before a system import/restore overwrites something (see below) — and old ones are pruned to `system_backup_count` (default 5), keeping the newest. Below that, every existing system backup is listed, newest first; clicking one **restores** it directly (there's no separate download action — a system backup is only ever meant to be restored, not exported for its own sake).
+- **System** — every existing backup of the *entire* NixOS config tree (`nixos_target`), not just what's open in the editor: flake.nix, flake.lock, and everything else alongside ezconf's own files, using the same file selection as system export/import (symlinks always excluded; dotfiles/dotdirs and `hardware-configuration.nix` excluded by default, see [Export / Import](#-export--import)). There's no manual "back up now" action — a system backup is only ever made automatically, right before a system import or another system restore overwrites something (see below), so this list is really a history of what the tree looked like just before each of those. Old ones are pruned to `system_backup_count` (default 5), keeping the newest. Clicking one **restores** it directly (there's no separate download action — a system backup is only ever meant to be restored, not exported for its own sake).
 
 Restoring writes the backup straight into `nixos_target` immediately, with a confirmation prompt first — the same class of irreversible action as **⬇ Import → System**, but stronger: restoring also *deletes* any file that isn't in the backup, so the tree ends up exactly as it was when the backup was taken, not just merged with whatever's there now. (A plain **⬇ Import → System** never deletes anything — that stays a pure merge, since an arbitrary uploaded zip isn't necessarily built with the same file selection a backup always has.)
 
-Every system import or restore backs up the current tree automatically, first, before writing anything — so even without a manual backup, there's always a way back to what was there a moment before the overwrite.
+Every system import or restore backs up the current tree automatically, first, before writing anything — so there's always a way back to what was there a moment before the overwrite, with nothing you need to have remembered to do beforehand.
 
 Standalone: set `backup_dir` / `backup_count` in `ezconf.toml`, or pass `--backup-dir` / `--backup-count`. Backups default to a shared `.ezconf-backups/` directory inside the config directory (one subset per file). The NixOS module stores them in `/var/lib/ezconf/backups` by default (`backupDir` / `backupCount` options).
 
@@ -370,7 +370,7 @@ services.ezconf = {
 | `systemExportExclude` | list of str | `["hardware-configuration.nix"]` | Basenames the system export zip always skips, anywhere in the tree |
 | `backupDir` | str | `"/var/lib/ezconf/backups"` | Directory to store config file backups (one subset per file) |
 | `backupCount` | int | `5` | Number of backups to keep, made on every save; `0` disables backups |
-| `systemBackupDir` | str | `"/var/lib/ezconf/system-backups"` | Directory to store whole-`nixosTarget` zip backups, made on demand via **⬆ Export → Backup system now** |
+| `systemBackupDir` | str | `"/var/lib/ezconf/system-backups"` | Directory to store whole-`nixosTarget` zip backups, made automatically right before a system import or restore overwrites anything |
 | `systemBackupCount` | int | `5` | Number of system backups to keep; `0` hides the feature entirely |
 | `ports.web` | port | `9090` | Web server port |
 | `ports.terminal` | port | `9091` | Terminal WebSocket port |
