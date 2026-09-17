@@ -139,13 +139,13 @@ in
     systemBackupDir = lib.mkOption {
       type        = lib.types.str;
       default     = "/var/lib/ezconf/system-backups";
-      description = "Directory to store whole-nixosTarget zip backups, made on demand via the editor's Export menu (not automatically, unlike backupDir).";
+      description = "Directory to store whole-nixosTarget zip backups. Unlike backupDir, there's no manual \"back up now\" action -- a backup is made automatically, right before a system import or a system-backup restore overwrites anything, so it always reflects the state just before the most recent such write.";
     };
 
     systemBackupCount = lib.mkOption {
       type        = lib.types.ints.unsigned;
       default     = 5;
-      description = "Number of system backups to keep. 0 disables the feature (hides the UI action for it).";
+      description = "Number of system backups to keep. 0 disables the feature (hides the Restore button's System submenu, and skips the automatic pre-import/restore backup).";
     };
 
     auth = {
