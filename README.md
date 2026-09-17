@@ -133,6 +133,8 @@ The header's **⬆ Export** button is a dropdown with two broader options:
 - **Files** — every file across every folder, as one `.zip`.
 - **System** — a `.zip` of the *entire* NixOS config tree (`nixos_target`, default `/etc/nixos`), not just what's open in the editor: flake.nix, flake.lock, and everything else alongside ezconf's own files. This one comes straight from disk on the server, so it always reflects what's actually saved there, not any unsaved edits. Symlinks (`nix build`'s `result`/`result-*`, which point into `/nix/store`) are always excluded. Dotfiles/dotdirs (`.git`, `.ssh`, age/sops keys, etc.) and `hardware-configuration.nix` (machine-specific — not something you want bundled into a config meant to be reused elsewhere) are excluded by default, configurable via `system_export_exclude_dotfiles`/`system_export_exclude` (or `systemExportExcludeDotfiles`/`systemExportExclude` in the NixOS module).
 
+The same dropdown also has **Backup system now** and **System backups** — a server-side counterpart to the System export above: same file selection, but the `.zip` is saved on the server (in `system_backup_dir`) instead of downloaded, so you can build up a history of snapshots without doing anything with each one yourself in the moment. Unlike the per-file backups below, these are never made automatically — only when you click **Backup system now** — and old ones are pruned to `system_backup_count` (default 5), keeping the newest. **System backups** lists what's there, newest first; picking one downloads it. To actually restore a system backup, download it and then use **⬇ Import → System** below — there's no separate one-click restore, on purpose, so there's only one path in the whole app that writes a zip's contents into `nixos_target`. Set `system_backup_count` to `0` (or `systemBackupCount = 0` in the NixOS module) to hide this entirely.
+
 To import, just drag `.json` file(s), a whole folder, or a `.zip` (your own export, or one built by another tool) onto the window and drop it. Each file is loaded straight into the editor as an unsaved, dirty tab — nothing touches disk until you hit **Save** — so importing is always safe to undo by just not saving. Dropping a file with the same name as an existing tab replaces that tab's in-editor content (again, only once saved).
 
 No drag-and-drop handy? The header's **⬇ Import** button is a dropdown too, mirroring **⬆ Export**:
@@ -315,6 +317,8 @@ Every time a config file is saved, the server copies its previous contents into 
 
 Standalone: set `backup_dir` / `backup_count` in `ezconf.toml`, or pass `--backup-dir` / `--backup-count`. Backups default to a shared `.ezconf-backups/` directory inside the config directory (one subset per file). The NixOS module stores them in `/var/lib/ezconf/backups` by default (`backupDir` / `backupCount` options).
 
+The whole-`nixos_target` backups described under [Export / Import](#-export--import) work the same way, just manual instead of on-save: `system_backup_dir` / `system_backup_count` in `ezconf.toml`, or `--system-backup-dir` / `--system-backup-count`, defaulting to a shared `.ezconf-system-backups/` directory inside the config directory (`systemBackupDir` / `systemBackupCount` in the NixOS module, default `/var/lib/ezconf/system-backups`).
+
 ## 🎨 Theme
 
 ```nix
@@ -357,6 +361,8 @@ services.ezconf = {
 | `systemExportExclude` | list of str | `["hardware-configuration.nix"]` | Basenames the system export zip always skips, anywhere in the tree |
 | `backupDir` | str | `"/var/lib/ezconf/backups"` | Directory to store config file backups (one subset per file) |
 | `backupCount` | int | `5` | Number of backups to keep, made on every save; `0` disables backups |
+| `systemBackupDir` | str | `"/var/lib/ezconf/system-backups"` | Directory to store whole-`nixosTarget` zip backups, made on demand via **⬆ Export → Backup system now** |
+| `systemBackupCount` | int | `5` | Number of system backups to keep; `0` hides the feature entirely |
 | `ports.web` | port | `9090` | Web server port |
 | `ports.terminal` | port | `9091` | Terminal WebSocket port |
 
