@@ -1,4 +1,5 @@
 
+/* Reset: no implicit box-model sizing or default spacing on anything. */
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
 body {
