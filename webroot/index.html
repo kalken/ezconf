@@ -4088,10 +4088,6 @@ async function backupSystemNow() {
   }
 }
 
-function downloadSystemBackup(name) {
-  location.href = API_BASE + '/system-backup/content?name=' + encodeURIComponent(name);
-}
-
 // Restores a backup already sitting in SYSTEM_BACKUP_DIR straight to NIXOS_TARGET, in one click --
 // POST /api/v1/system-backup/restore, which shares the same auto-backup-of-the-current-tree-first
 // safety net as system-import, but is stronger than a plain import: it also deletes anything not
@@ -5562,12 +5558,15 @@ function _formatBackupSize(n) {
 // is the pre-existing per-file behavior (pick a backup of the active tab and it loads straight
 // into the editor, see loadBackup(), no confirmation -- nothing is written to disk until Save, so
 // there's nothing to confirm), "System" is the on-demand whole-NIXOS_TARGET backup
-// (backupSystemNow()/restoreSystemBackup()/downloadSystemBackup(), see server.py's
-// backup_system()/_apply_system_zip()) — hidden entirely when SYSTEM_BACKUP_ENABLED is false, same
-// as it would be if this were its own button. Named "Restore" rather than "Backups" since loading
-// a file backup or restoring a system one -- not making a new backup -- is what a click here
-// actually does; "Backup system now" is the one action in this whole menu that isn't a restore,
-// tucked into the System submenu instead of getting equal billing at the top level.
+// (backupSystemNow()/restoreSystemBackup(), see server.py's backup_system()/_restore_system_zip())
+// — hidden entirely when SYSTEM_BACKUP_ENABLED is false, same as it would be if this were its own
+// button. Named "Restore" rather than "Backups" since loading a file backup or restoring a system
+// one -- not making a new backup -- is what a click here actually does; "Backup system now" is the
+// one action in this whole menu that isn't a restore, tucked into the System submenu instead of
+// getting equal billing at the top level. Clicking a system backup entry restores it directly
+// (via restoreSystemBackup()'s own confirm()) rather than opening a further submenu -- there's no
+// separate download action, since downloading a system backup for its own sake isn't something
+// this app needs to support.
 async function showBackupsMenu(event) {
   // showContextMenu positions itself at event.clientX/clientY — for a right-click that's exactly
   // the cursor, which is fine, but for this left-click button it'd be wherever inside the button
@@ -5612,10 +5611,8 @@ async function showBackupsMenu(event) {
         ...(systemBackups.length
           ? systemBackups.map(b => ({
               label: new Date(b.mtime * 1000).toLocaleString() + '  ·  ' + _formatBackupSize(b.size),
-              items: [
-                { label: 'Restore', danger: true, onclick: () => restoreSystemBackup(b.name) },
-                { label: 'Download', onclick: () => downloadSystemBackup(b.name) },
-              ],
+              danger: true,
+              onclick: () => restoreSystemBackup(b.name),
             }))
           : [{ label: 'No system backups yet.', disabled: true }]),
       ],
