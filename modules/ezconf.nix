@@ -47,6 +47,8 @@ let
     "session_key_file = ${str "/var/lib/ezconf/session.key"}"
     "backup_dir = ${str cfg.backupDir}"
     "backup_count = ${toString cfg.backupCount}"
+    "system_backup_dir = ${str cfg.systemBackupDir}"
+    "system_backup_count = ${toString cfg.systemBackupCount}"
     (lib.optional cfg.terminal "terminal_port = ${toString cfg.ports.terminal}")
     (lib.optional (cfg.auth.username     != null) "username = ${str cfg.auth.username}")
     (lib.optional (cfg.auth.password     != null) "password = ${str cfg.auth.password}")
@@ -132,6 +134,18 @@ in
       type        = lib.types.ints.unsigned;
       default     = 5;
       description = "Number of backups to keep, made on every save. 0 disables backups.";
+    };
+
+    systemBackupDir = lib.mkOption {
+      type        = lib.types.str;
+      default     = "/var/lib/ezconf/system-backups";
+      description = "Directory to store whole-nixosTarget zip backups, made on demand via the editor's Export menu (not automatically, unlike backupDir).";
+    };
+
+    systemBackupCount = lib.mkOption {
+      type        = lib.types.ints.unsigned;
+      default     = 5;
+      description = "Number of system backups to keep. 0 disables the feature (hides the UI action for it).";
     };
 
     auth = {

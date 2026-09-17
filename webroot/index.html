@@ -3563,6 +3563,7 @@ function initRestartWatcher() {
       || !!data.terminal_enabled !== TERMINAL_ENABLED
       || !!data.mkoptions_enabled !== MKOPTIONS_ENABLED
       || !!data.backup_enabled !== BACKUP_ENABLED
+      || !!data.system_backup_enabled !== SYSTEM_BACKUP_ENABLED
       || data.nixos_target !== NIXOS_TARGET;
     if (reloadNeeded) onRestartDetected();
   }
@@ -4047,20 +4048,66 @@ function exportSystem() {
   location.href = API_BASE + '/system-export';
 }
 
+// A manual, on-demand snapshot of the whole NIXOS_TARGET tree kept server-side (unlike
+// exportSystem(), which just downloads one) — POST /api/v1/system-backup, see backup_system() in
+// server.py. Never triggered automatically; there's no equivalent of backup_config()'s
+// on-every-save behavior here, since zipping the whole flake on every keystroke-driven save would
+// be far more I/O than the per-file JSON backups.
+async function backupSystemNow() {
+  try {
+    const res = await apiFetch('/system-backup', { method: 'POST' });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) { setStatus('System backup failed: ' + (data.error || res.status), 5000, 'err'); return; }
+    setStatus('System backed up (' + data.name + ')', 3500, 'ok');
+  } catch (e) {
+    setStatus('System backup failed: ' + e.message, 4000, 'err');
+  }
+}
+
+// Downloading a system backup is also how you'd restore one -- feed the downloaded zip into the
+// existing "Import → System" flow (importSystem()). No separate restore path, so there's only one
+// way this app ever writes a zip's contents into NIXOS_TARGET.
+function downloadSystemBackup(name) {
+  location.href = API_BASE + '/system-backup/content?name=' + encodeURIComponent(name);
+}
+
 // The header's "⬆ Export" button opens a dropdown rather than doing anything itself — same
 // left-click-reuses-showContextMenu trick as showBackupsMenu(), anchored to the button's own
-// bottom-left corner instead of the real click position.
-function showExportMenu(event) {
+// bottom-left corner instead of the real click position. Async (like showBackupsMenu()) to fetch
+// the system backup list before building the menu; btn/rect/anchor are captured before the await
+// for the same reason showBackupsMenu() does -- event.currentTarget stops being valid once the
+// event has finished dispatching.
+async function showExportMenu(event) {
   const btn = event.currentTarget;
   const rect = btn.getBoundingClientRect();
   const anchor = {
     clientX: rect.left, clientY: rect.bottom + 4,
     preventDefault: () => event.preventDefault(), stopPropagation: () => event.stopPropagation(),
   };
-  showContextMenu(anchor, [
+  const items = [
     { label: 'Files', onclick: () => exportAll() },
     { label: 'System', title: NIXOS_TARGET, onclick: () => exportSystem() },
-  ], { triggerEl: btn });
+  ];
+  if (SYSTEM_BACKUP_ENABLED) {
+    let backups = [];
+    try {
+      const res = await apiFetch('/system-backups');
+      if (res.ok) backups = (await res.json()).backups || [];
+    } catch (e) { /* falls through to the empty-state item below */ }
+    items.push({ separator: true });
+    items.push({ label: 'Backup system now', title: NIXOS_TARGET, onclick: () => backupSystemNow() });
+    items.push({
+      label: 'System backups',
+      items: backups.length
+        ? backups.map(b => ({
+            label: new Date(b.mtime * 1000).toLocaleString() + '  ·  ' + _formatBackupSize(b.size),
+            title: 'Download — restore via Import → System',
+            onclick: () => downloadSystemBackup(b.name),
+          }))
+        : [{ label: 'No system backups yet.', disabled: true }],
+    });
+  }
+  showContextMenu(anchor, items, { triggerEl: btn });
 }
 
 // The counterpart to exportSystem(): writes a zip straight into NIXOS_TARGET on disk,
@@ -4733,6 +4780,7 @@ const API_BASE = '/api/v1';
 const TERMINAL_ENABLED  = %%EZCONF_TERMINAL%%;
 const MKOPTIONS_ENABLED = %%EZCONF_MKOPTIONS%%;
 const BACKUP_ENABLED    = %%EZCONF_BACKUP%%;
+const SYSTEM_BACKUP_ENABLED = %%EZCONF_SYSTEM_BACKUP%%;
 const EZCONF_MODE       = %%EZCONF_MODE%%; // null or "install" — services.ezconf.mode / mode in ezconf.toml, deploy-time only, no in-GUI toggle
 const INSTALL_MODE      = EZCONF_MODE === 'install';
 const STATIC_BUTTONS    = %%EZCONF_BUTTONS%%; // from [[buttons]] in ezconf.toml — not tied to any tab

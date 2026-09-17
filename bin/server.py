@@ -44,6 +44,15 @@ ezconf server — single listener bound to 127.0.0.1:
                                    existing file of the same name; never deletes anything not in
                                    the zip; skips dotfile/dotdir entries and rejects path
                                    traversal (see _is_disallowed_import_entry())
+    POST /api/v1/system-backup    creates one timestamped zip snapshot of the whole NIXOS_TARGET
+                                   tree in SYSTEM_BACKUP_DIR (same file selection as
+                                   system-export), pruning to SYSTEM_BACKUP_COUNT newest — manual,
+                                   never triggered automatically (see backup_system())
+    GET  /api/v1/system-backups   lists existing system backups, newest first
+    GET  /api/v1/system-backup/content  downloads one system backup zip by ?name=<filename>; the
+                                   way to actually restore one is downloading it here and then
+                                   feeding it into /api/v1/system-import — there's no separate
+                                   restore path, to avoid a second way to write into NIXOS_TARGET
 
 Every *.json file in CONFIG_DIR (except custom-options.json) is a
 separately editable/saveable "tab" in the UI, merged together only at
@@ -73,6 +82,7 @@ Auth:
 Config file (ezconf.toml):
   file, default_file, webroot, auth, terminal_port, session_key_file, cert, key, username,
   password, allowed_users, mkoptions, nixos_target, ports.web, backup_dir, backup_count,
+  system_backup_dir, system_backup_count,
   buttons (list of [[buttons]] tables: label, command, save_first, clear_first, static —
   shown in the terminal panel alongside any services.ezconf.buttons defined in a config file)
 """
@@ -162,6 +172,10 @@ BIND_ADDR        = '127.0.0.1'   # IP address to listen on; set by listen in TOM
 CA_FILE          = None          # path to CA cert served at /download-ca; set by --generate-ca or ca_file in TOML
 BACKUP_DIR       = None          # directory for configuration.json backups; set by --backup-dir or backup_dir in TOML (default: <config dir>/.ezconf-backups)
 BACKUP_COUNT     = 5             # number of backups to keep; 0 disables backups; set by --backup-count or backup_count in TOML
+SYSTEM_BACKUP_DIR   = None       # directory for whole-NIXOS_TARGET zip backups; set by --system-backup-dir or
+                                  # system_backup_dir in TOML (default: <config dir>/.ezconf-system-backups)
+SYSTEM_BACKUP_COUNT = 5          # number of system backups to keep; 0 disables the feature; set by
+                                  # --system-backup-count or system_backup_count in TOML
 STATIC_BUTTONS   = []            # terminal panel buttons from [[buttons]] in TOML (deploy-time,
                                   # not tied to any config file/tab); see services.ezconf.buttons
                                   # in modules/ezconf.nix, which is what generates this TOML
@@ -445,6 +459,62 @@ def resolve_backup_path(name):
     return full
 
 
+_SYSTEM_BACKUP_PREFIX = 'system-'
+
+
+def backup_system():
+    """Zip the whole NIXOS_TARGET tree (same file selection as /api/v1/system-export, see
+    _iter_system_export_files()) into SYSTEM_BACKUP_DIR, pruning to SYSTEM_BACKUP_COUNT newest.
+    Unlike backup_config(), there's no per-stem grouping to prune within — every system backup
+    covers the same one tree, so pruning is just "keep the N newest files in this directory."
+    Returns the new backup's filename, or None if disabled (SYSTEM_BACKUP_COUNT <= 0)."""
+    if SYSTEM_BACKUP_COUNT <= 0:
+        return None
+    os.makedirs(SYSTEM_BACKUP_DIR, exist_ok=True)
+    ts = datetime.datetime.now().strftime('%Y%m%d-%H%M%S')
+    dest = os.path.join(SYSTEM_BACKUP_DIR, f'{_SYSTEM_BACKUP_PREFIX}{ts}.zip')
+    i = 1
+    while os.path.exists(dest):
+        dest = os.path.join(SYSTEM_BACKUP_DIR, f'{_SYSTEM_BACKUP_PREFIX}{ts}-{i}.zip')
+        i += 1
+    with zipfile.ZipFile(dest, 'w', zipfile.ZIP_DEFLATED) as zf:
+        for full, arcname in _iter_system_export_files(NIXOS_TARGET):
+            zf.write(full, arcname)
+    backups = [f for f in os.listdir(SYSTEM_BACKUP_DIR)
+               if f.startswith(_SYSTEM_BACKUP_PREFIX) and f.endswith('.zip')]
+    backups.sort(key=lambda f: os.path.getmtime(os.path.join(SYSTEM_BACKUP_DIR, f)), reverse=True)
+    for old in backups[SYSTEM_BACKUP_COUNT:]:
+        try:
+            os.remove(os.path.join(SYSTEM_BACKUP_DIR, old))
+        except OSError:
+            pass
+    return os.path.basename(dest)
+
+
+def list_system_backups():
+    items = []
+    if os.path.isdir(SYSTEM_BACKUP_DIR):
+        for name in os.listdir(SYSTEM_BACKUP_DIR):
+            if not (name.startswith(_SYSTEM_BACKUP_PREFIX) and name.endswith('.zip')):
+                continue
+            st = os.stat(os.path.join(SYSTEM_BACKUP_DIR, name))
+            items.append({'name': name, 'mtime': st.st_mtime, 'size': st.st_size})
+    items.sort(key=lambda x: x['mtime'], reverse=True)
+    return items
+
+
+def resolve_system_backup_path(name):
+    """Return the absolute path for a system backup zip name, or None if invalid/outside
+    SYSTEM_BACKUP_DIR. Same shape as resolve_backup_path()."""
+    if not name or '/' in name or '\\' in name or name in ('.', '..'):
+        return None
+    base = os.path.realpath(SYSTEM_BACKUP_DIR)
+    full = os.path.realpath(os.path.join(base, name))
+    if os.path.dirname(full) != base or not os.path.isfile(full):
+        return None
+    return full
+
+
 def list_markdown_files():
     """Recursively list every *.md file under NIXOS_TARGET as a relative POSIX path (e.g.
     "services/nginx/README.md"), sorted. Same dotfile/dotdir/symlink exclusions as
@@ -684,6 +754,7 @@ def _ping_payload():
         'terminal_enabled': bool(TERMINAL_PORT),
         'mkoptions_enabled': bool(MKOPTIONS_CMD),
         'backup_enabled': BACKUP_COUNT > 0,
+        'system_backup_enabled': SYSTEM_BACKUP_COUNT > 0,
         'nixos_target': NIXOS_TARGET,
         'buttons': STATIC_BUTTONS,
     }
@@ -1050,6 +1121,21 @@ class StaticHandler(http.server.SimpleHTTPRequestHandler):
                 self.wfile.write(resp)
             except Exception as e:
                 self.send_error(500, str(e))
+        elif parsed.path == '/api/v1/system-backup':
+            try:
+                name = backup_system()
+                if name is None:
+                    resp = b'{"error":"system backups are disabled (system_backup_count = 0)"}'
+                    self.send_response(400)
+                else:
+                    resp = json.dumps({'ok': True, 'name': name}).encode()
+                    self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.send_header('Content-Length', str(len(resp)))
+                self.end_headers()
+                self.wfile.write(resp)
+            except Exception as e:
+                self.send_error(500, str(e))
         else:
             self.send_error(404)
 
@@ -1180,6 +1266,35 @@ class StaticHandler(http.server.SimpleHTTPRequestHandler):
             except Exception as e:
                 self.send_error(500, str(e))
             return
+        if parsed.path == '/api/v1/system-backups':
+            try:
+                data = json.dumps({'backups': list_system_backups()}).encode()
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.send_header('Content-Length', str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+            except Exception as e:
+                self.send_error(500, str(e))
+            return
+        if parsed.path == '/api/v1/system-backup/content':
+            qs = parse_qs(parsed.query)
+            target = resolve_system_backup_path(qs.get('name', [''])[0])
+            if not target:
+                self.send_error(400); return
+            try:
+                with open(target, 'rb') as f:
+                    data = f.read()
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/zip')
+                self.send_header('Content-Disposition',
+                                  f'attachment; filename="{os.path.basename(target)}"')
+                self.send_header('Content-Length', str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+            except Exception as e:
+                self.send_error(500, str(e))
+            return
         if parsed.path == '/api/v1/backups':
             try:
                 qs = parse_qs(parsed.query)
@@ -1250,6 +1365,7 @@ class StaticHandler(http.server.SimpleHTTPRequestHandler):
                 .replace('%%EZCONF_THEME%%', THEME)
                 .replace('%%EZCONF_MKOPTIONS%%', 'true' if MKOPTIONS_CMD else 'false')
                 .replace('%%EZCONF_BACKUP%%', 'true' if BACKUP_COUNT > 0 else 'false')
+                .replace('%%EZCONF_SYSTEM_BACKUP%%', 'true' if SYSTEM_BACKUP_COUNT > 0 else 'false')
                 .replace('%%EZCONF_MODE%%', json.dumps(EZCONF_MODE))
                 .replace('%%EZCONF_NIXOS_TARGET%%', NIXOS_TARGET.replace('\\', '\\\\').replace("'", "\\'"))
                 .replace('%%EZCONF_BOOT_ID%%', BOOT_ID)
@@ -1303,6 +1419,10 @@ if __name__ == '__main__':
                     help='directory to store configuration.json backups (default: <config dir>/.ezconf-backups)')
     ap.add_argument('--backup-count', metavar='N', type=int, default=None,
                     help='number of backups to keep on each save; 0 disables backups (default: 5)')
+    ap.add_argument('--system-backup-dir', metavar='DIR', default=None,
+                    help='directory to store whole-NIXOS_TARGET zip backups (default: <config dir>/.ezconf-system-backups)')
+    ap.add_argument('--system-backup-count', metavar='N', type=int, default=None,
+                    help='number of system backups to keep; 0 disables the feature (default: 5)')
     ap.add_argument('--auth', choices=['auto', 'custom', 'pam'], default=None,
                     help='authentication mode: auto, custom, or pam')
     ap.add_argument('--theme', choices=['nixos', 'dark', 'light'], default=None,
@@ -1462,6 +1582,11 @@ if __name__ == '__main__':
     BACKUP_DIR = os.path.abspath(_bd) if _bd else os.path.join(CONFIG_DIR, '.ezconf-backups')
     BACKUP_COUNT = args.backup_count if args.backup_count is not None else int(cfg.get('backup_count', 5))
 
+    _sbd = _resolve(args.system_backup_dir, cfg.get('system_backup_dir'), None, None)
+    SYSTEM_BACKUP_DIR = os.path.abspath(_sbd) if _sbd else os.path.join(CONFIG_DIR, '.ezconf-system-backups')
+    SYSTEM_BACKUP_COUNT = (args.system_backup_count if args.system_backup_count is not None
+                            else int(cfg.get('system_backup_count', 5)))
+
     WEBROOT_HASH = _compute_webroot_hash()
 
     use_tls = os.path.exists(CERT_FILE) and os.path.exists(KEY_FILE)
@@ -1485,6 +1610,8 @@ if __name__ == '__main__':
     print(f'files → {CONFIG_DIR} ({_n} file{"s" if _n != 1 else ""})')
     if BACKUP_COUNT > 0:
         print(f'backup → {BACKUP_DIR} (keeping {BACKUP_COUNT})')
+    if SYSTEM_BACKUP_COUNT > 0:
+        print(f'system backup → {SYSTEM_BACKUP_DIR} (keeping {SYSTEM_BACKUP_COUNT})')
     if AUTH_MODE == 'custom':
         print(f'auth → custom   (username: {LOGIN_USER})')
     elif AUTH_MODE == 'pam':
