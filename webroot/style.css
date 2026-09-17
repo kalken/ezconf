@@ -272,7 +272,10 @@ body {
   position: absolute;
   top: 12px;
   right: 12px;
-  z-index: 30;
+  /* Deliberately higher than every other z-index in the app (context menus, modals, tooltips,
+     the drag ghost, ...) -- a restart/update is more important than whatever's on screen, so this
+     should never end up hidden behind something else that happens to be open at the time. */
+  z-index: 99999;
   background: var(--bg2);
   border: 1px solid var(--accent2);
   border-radius: var(--radius);
