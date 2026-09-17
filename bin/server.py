@@ -43,16 +43,25 @@ ezconf server — single listener bound to 127.0.0.1:
     POST /api/v1/system-import    writes a zip's files (body) into NIXOS_TARGET, overwriting any
                                    existing file of the same name; never deletes anything not in
                                    the zip; skips dotfile/dotdir entries and rejects path
-                                   traversal (see _is_disallowed_import_entry())
+                                   traversal (see _is_disallowed_import_entry()). Backs up the
+                                   current tree first via backup_system() (a no-op when system
+                                   backups are disabled) — every import is a destructive
+                                   overwrite, so this is exactly the moment a "before" snapshot
+                                   is worth having
     POST /api/v1/system-backup    creates one timestamped zip snapshot of the whole NIXOS_TARGET
                                    tree in SYSTEM_BACKUP_DIR (same file selection as
                                    system-export), pruning to SYSTEM_BACKUP_COUNT newest — manual,
-                                   never triggered automatically (see backup_system())
+                                   never triggered automatically on its own (see backup_system());
+                                   also called automatically by system-import/system-backup/restore
     GET  /api/v1/system-backups   lists existing system backups, newest first
-    GET  /api/v1/system-backup/content  downloads one system backup zip by ?name=<filename>; the
-                                   way to actually restore one is downloading it here and then
-                                   feeding it into /api/v1/system-import — there's no separate
-                                   restore path, to avoid a second way to write into NIXOS_TARGET
+    GET  /api/v1/system-backup/content  downloads one system backup zip by ?name=<filename>
+    POST /api/v1/system-backup/restore  applies a backup zip already in SYSTEM_BACKUP_DIR straight
+                                   to NIXOS_TARGET, by ?name=<filename> — same write logic and
+                                   auto-backup-first safety net as system-import, but additionally
+                                   deletes any in-scope file the backup doesn't mention, so the
+                                   tree actually reverts to the backup's exact state (see
+                                   _restore_system_zip()) rather than just merging into it like
+                                   system-import intentionally does
 
 Every *.json file in CONFIG_DIR (except custom-options.json) is a
 separately editable/saveable "tab" in the UI, merged together only at
@@ -703,6 +712,66 @@ def resolve_system_import_path(rel):
     return full
 
 
+class _InvalidImportEntry(Exception):
+    """Raised by _apply_system_zip() for an entry resolve_system_import_path() rejects -- see its
+    docstring; not expected to actually happen given _is_disallowed_import_entry() already ran."""
+
+
+def _apply_system_zip(zf):
+    """Write every real (non-dotfile, non-traversal) entry of an open zipfile.ZipFile into
+    NIXOS_TARGET, overwriting same-named files, deleting nothing. Shared by /api/v1/system-import
+    (a freshly uploaded zip) and /api/v1/system-backup/restore (a zip already sitting in
+    SYSTEM_BACKUP_DIR) -- both are "apply this zip's contents to NIXOS_TARGET," differing only in
+    where the zip bytes come from. Returns (written, skipped) relative-path lists."""
+    plan = []
+    skipped = []
+    for info in zf.infolist():
+        if info.is_dir():
+            continue
+        rel = info.filename.replace('\\', '/')
+        if _is_disallowed_import_entry(rel.split('/')):
+            skipped.append(info.filename)
+            continue
+        target = resolve_system_import_path(rel)
+        if not target:
+            # _is_disallowed_import_entry() already rejects every realistic traversal attempt
+            # above, so reaching this is not expected -- abort the whole import before writing
+            # anything, rather than silently skip something this unanticipated.
+            raise _InvalidImportEntry(info.filename)
+        plan.append((target, info))
+    written = []
+    base = os.path.realpath(NIXOS_TARGET)
+    for target, info in plan:
+        os.makedirs(os.path.dirname(target), exist_ok=True)
+        with zf.open(info) as src, open(target, 'wb') as dst:
+            shutil.copyfileobj(src, dst)
+        written.append(os.path.relpath(target, base).replace(os.sep, '/'))
+    return written, skipped
+
+
+def _restore_system_zip(zf):
+    """Like _apply_system_zip(), but also deletes every in-scope file (per
+    _iter_system_export_files()'s own selection — symlinks, dotfiles/dotdirs, and
+    system_export_exclude basenames are never in scope to begin with, so this can't touch those
+    either way) that the backup doesn't mention, so the tree actually reverts to the backup's
+    state instead of just merging into it -- restoring is a stronger guarantee than importing.
+    Only used by /api/v1/system-backup/restore: system-import (an arbitrary uploaded zip, not
+    necessarily built with the same file selection a backup always has) intentionally stays a
+    non-destructive merge, per its own docstring above. Returns (written, skipped, removed)."""
+    written, skipped = _apply_system_zip(zf)
+    written_set = set(written)
+    removed = []
+    for full, arcname in _iter_system_export_files(NIXOS_TARGET):
+        if arcname in written_set:
+            continue
+        try:
+            os.remove(full)
+            removed.append(arcname)
+        except OSError:
+            pass
+    return written, skipped, removed
+
+
 def resolve_folder_path(name):
     """Like resolve_config_path, but for a directory rather than a *.json file — no extension
     requirement, and the directory need not already exist."""
@@ -1075,37 +1144,14 @@ class StaticHandler(http.server.SimpleHTTPRequestHandler):
             try:
                 length = int(self.headers.get('Content-Length', 0))
                 body = self.rfile.read(length)
+                # Auto-backup the current tree before overwriting anything with it -- an import is
+                # exactly the moment something is about to be destructively replaced, so this is
+                # the one place a "before" snapshot is actually useful. No-ops (returns None) when
+                # system backups are disabled (SYSTEM_BACKUP_COUNT = 0), same as backup_config()
+                # silently no-ops when BACKUP_COUNT = 0.
+                backup_system()
                 with zipfile.ZipFile(io.BytesIO(body)) as zf:
-                    plan = []
-                    skipped = []
-                    for info in zf.infolist():
-                        if info.is_dir():
-                            continue
-                        rel = info.filename.replace('\\', '/')
-                        if _is_disallowed_import_entry(rel.split('/')):
-                            skipped.append(info.filename)
-                            continue
-                        target = resolve_system_import_path(rel)
-                        if not target:
-                            # _is_disallowed_import_entry() already rejects every realistic
-                            # traversal attempt above, so reaching this is not expected — treat
-                            # it as a hard error and abort the whole import before writing
-                            # anything, rather than silently skip something this unanticipated.
-                            resp = json.dumps({'error': 'invalid entry path: ' + info.filename}).encode()
-                            self.send_response(400)
-                            self.send_header('Content-Type', 'application/json')
-                            self.send_header('Content-Length', str(len(resp)))
-                            self.end_headers()
-                            self.wfile.write(resp)
-                            return
-                        plan.append((target, info))
-                    written = []
-                    base = os.path.realpath(NIXOS_TARGET)
-                    for target, info in plan:
-                        os.makedirs(os.path.dirname(target), exist_ok=True)
-                        with zf.open(info) as src, open(target, 'wb') as dst:
-                            shutil.copyfileobj(src, dst)
-                        written.append(os.path.relpath(target, base).replace(os.sep, '/'))
+                    written, skipped = _apply_system_zip(zf)
                 resp = json.dumps({'ok': True, 'written': written, 'skipped': skipped}).encode()
                 self.send_response(200)
                 self.send_header('Content-Type', 'application/json')
@@ -1114,6 +1160,13 @@ class StaticHandler(http.server.SimpleHTTPRequestHandler):
                 self.wfile.write(resp)
             except zipfile.BadZipFile:
                 resp = b'{"error":"not a valid zip file"}'
+                self.send_response(400)
+                self.send_header('Content-Type', 'application/json')
+                self.send_header('Content-Length', str(len(resp)))
+                self.end_headers()
+                self.wfile.write(resp)
+            except _InvalidImportEntry as e:
+                resp = json.dumps({'error': 'invalid entry path: ' + str(e)}).encode()
                 self.send_response(400)
                 self.send_header('Content-Type', 'application/json')
                 self.send_header('Content-Length', str(len(resp)))
@@ -1130,6 +1183,44 @@ class StaticHandler(http.server.SimpleHTTPRequestHandler):
                 else:
                     resp = json.dumps({'ok': True, 'name': name}).encode()
                     self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.send_header('Content-Length', str(len(resp)))
+                self.end_headers()
+                self.wfile.write(resp)
+            except Exception as e:
+                self.send_error(500, str(e))
+        elif parsed.path == '/api/v1/system-backup/restore':
+            try:
+                qs = parse_qs(parsed.query)
+                target = resolve_system_backup_path(qs.get('name', [''])[0])
+                if not target:
+                    self.send_error(400); return
+                # Same auto-backup-before-overwrite as system-import above -- restoring a backup
+                # is itself an import (of a zip that happens to already be sitting on disk rather
+                # than freshly uploaded), so it gets the same "snapshot what's about to be
+                # replaced" treatment. Uses _restore_system_zip() rather than _apply_system_zip(),
+                # though -- unlike a plain import, a restore also deletes anything not in the
+                # backup, so the tree actually matches the backup afterward instead of just having
+                # the backup's files merged into whatever was already there.
+                backup_system()
+                with zipfile.ZipFile(target) as zf:
+                    written, skipped, removed = _restore_system_zip(zf)
+                resp = json.dumps({'ok': True, 'written': written, 'skipped': skipped, 'removed': removed}).encode()
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.send_header('Content-Length', str(len(resp)))
+                self.end_headers()
+                self.wfile.write(resp)
+            except zipfile.BadZipFile:
+                resp = b'{"error":"backup is not a valid zip file"}'
+                self.send_response(500)
+                self.send_header('Content-Type', 'application/json')
+                self.send_header('Content-Length', str(len(resp)))
+                self.end_headers()
+                self.wfile.write(resp)
+            except _InvalidImportEntry as e:
+                resp = json.dumps({'error': 'invalid entry path: ' + str(e)}).encode()
+                self.send_response(500)
                 self.send_header('Content-Type', 'application/json')
                 self.send_header('Content-Length', str(len(resp)))
                 self.end_headers()

@@ -4052,7 +4052,8 @@ function exportSystem() {
 // exportSystem(), which just downloads one) — POST /api/v1/system-backup, see backup_system() in
 // server.py. Never triggered automatically; there's no equivalent of backup_config()'s
 // on-every-save behavior here, since zipping the whole flake on every keystroke-driven save would
-// be far more I/O than the per-file JSON backups.
+// be far more I/O than the per-file JSON backups. Surfaced from showBackupsMenu(), not here --
+// it's a backup, not an export, even though it shares system-export's file selection.
 async function backupSystemNow() {
   try {
     const res = await apiFetch('/system-backup', { method: 'POST' });
@@ -4064,50 +4065,58 @@ async function backupSystemNow() {
   }
 }
 
-// Downloading a system backup is also how you'd restore one -- feed the downloaded zip into the
-// existing "Import → System" flow (importSystem()). No separate restore path, so there's only one
-// way this app ever writes a zip's contents into NIXOS_TARGET.
 function downloadSystemBackup(name) {
   location.href = API_BASE + '/system-backup/content?name=' + encodeURIComponent(name);
 }
 
+// Restores a backup already sitting in SYSTEM_BACKUP_DIR straight to NIXOS_TARGET, in one click --
+// POST /api/v1/system-backup/restore, which shares the same auto-backup-of-the-current-tree-first
+// safety net as system-import, but is stronger than a plain import: it also deletes anything not
+// in the backup (see _restore_system_zip() in server.py), so the tree actually ends up matching
+// the backup exactly rather than just having the backup's files merged into whatever was already
+// there. Confirmed the same way importSystem() is (via initSystemImportButton()) since it's an
+// equally irreversible direct-disk write -- arguably more so, given the deletions -- and reloads
+// on success under the same "don't clobber unsaved edits" rule everything else that changes
+// NIXOS_TARGET on disk follows.
+async function restoreSystemBackup(name) {
+  if (!confirm(
+    `Restore ${name} into ${NIXOS_TARGET}?\n\n` +
+    `This writes directly to disk immediately — there is no Save step and no undo (the current ` +
+    `state is itself backed up first, so this is recoverable from there, but not from within ezconf). ` +
+    `Unlike importing a zip, restoring also DELETES anything not in the backup, so the tree matches ` +
+    `exactly what was backed up.`
+  )) return;
+  try {
+    const res = await apiFetch('/system-backup/restore?name=' + encodeURIComponent(name), { method: 'POST' });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) { setStatus('Restore failed: ' + (data.error || res.status), 5000, 'err'); return; }
+    const parts = [`Restored ${data.written.length} file(s) into ${NIXOS_TARGET}`];
+    if (data.removed && data.removed.length) parts.push(`removed ${data.removed.length}`);
+    if (data.skipped && data.skipped.length) parts.push(`skipped ${data.skipped.length}`);
+    if (isAnyDirty()) {
+      setStatus(parts.join(', ') + ' — reload once you save/undo to see the changes', 6000, 'ok');
+    } else {
+      location.reload();
+    }
+  } catch (e) {
+    setStatus('Restore failed: ' + e.message, 4000, 'err');
+  }
+}
+
 // The header's "⬆ Export" button opens a dropdown rather than doing anything itself — same
-// left-click-reuses-showContextMenu trick as showBackupsMenu(), anchored to the button's own
-// bottom-left corner instead of the real click position. Async (like showBackupsMenu()) to fetch
-// the system backup list before building the menu; btn/rect/anchor are captured before the await
-// for the same reason showBackupsMenu() does -- event.currentTarget stops being valid once the
-// event has finished dispatching.
-async function showExportMenu(event) {
+// left-click-reuses-showContextMenu trick as showBackupsMenu() — anchored to the button's own
+// bottom-left corner instead of the real click position.
+function showExportMenu(event) {
   const btn = event.currentTarget;
   const rect = btn.getBoundingClientRect();
   const anchor = {
     clientX: rect.left, clientY: rect.bottom + 4,
     preventDefault: () => event.preventDefault(), stopPropagation: () => event.stopPropagation(),
   };
-  const items = [
+  showContextMenu(anchor, [
     { label: 'Files', onclick: () => exportAll() },
     { label: 'System', title: NIXOS_TARGET, onclick: () => exportSystem() },
-  ];
-  if (SYSTEM_BACKUP_ENABLED) {
-    let backups = [];
-    try {
-      const res = await apiFetch('/system-backups');
-      if (res.ok) backups = (await res.json()).backups || [];
-    } catch (e) { /* falls through to the empty-state item below */ }
-    items.push({ separator: true });
-    items.push({ label: 'Backup system now', title: NIXOS_TARGET, onclick: () => backupSystemNow() });
-    items.push({
-      label: 'System backups',
-      items: backups.length
-        ? backups.map(b => ({
-            label: new Date(b.mtime * 1000).toLocaleString() + '  ·  ' + _formatBackupSize(b.size),
-            title: 'Download — restore via Import → System',
-            onclick: () => downloadSystemBackup(b.name),
-          }))
-        : [{ label: 'No system backups yet.', disabled: true }],
-    });
-  }
-  showContextMenu(anchor, items, { triggerEl: btn });
+  ], { triggerEl: btn });
 }
 
 // The counterpart to exportSystem(): writes a zip straight into NIXOS_TARGET on disk,
@@ -5524,9 +5533,18 @@ function _formatBackupSize(n) {
   return (n / 1024 / 1024).toFixed(1) + ' MB';
 }
 
-// The Backups button opens a dropdown, not a modal: pick a backup and it loads straight into the
-// editor (see loadBackup), no confirmation — showContextMenu doesn't care whether it's triggered
-// by a right-click or a plain click, so it's reused here as a left-click dropdown menu.
+// The Restore button opens a dropdown, not a modal — showContextMenu doesn't care whether it's
+// triggered by a right-click or a plain click, so it's reused here as a left-click dropdown menu.
+// Split into "File"/"System" submenus, same shape as the "⬆ Export"/"⬇ Import" dropdowns: "File"
+// is the pre-existing per-file behavior (pick a backup of the active tab and it loads straight
+// into the editor, see loadBackup(), no confirmation -- nothing is written to disk until Save, so
+// there's nothing to confirm), "System" is the on-demand whole-NIXOS_TARGET backup
+// (backupSystemNow()/restoreSystemBackup()/downloadSystemBackup(), see server.py's
+// backup_system()/_apply_system_zip()) — hidden entirely when SYSTEM_BACKUP_ENABLED is false, same
+// as it would be if this were its own button. Named "Restore" rather than "Backups" since loading
+// a file backup or restoring a system one -- not making a new backup -- is what a click here
+// actually does; "Backup system now" is the one action in this whole menu that isn't a restore,
+// tucked into the System submenu instead of getting equal billing at the top level.
 async function showBackupsMenu(event) {
   // showContextMenu positions itself at event.clientX/clientY — for a right-click that's exactly
   // the cursor, which is fine, but for this left-click button it'd be wherever inside the button
@@ -5541,19 +5559,46 @@ async function showBackupsMenu(event) {
     clientX: rect.left, clientY: rect.bottom + 4,
     preventDefault: () => event.preventDefault(), stopPropagation: () => event.stopPropagation(),
   };
-  let backups = [];
-  try {
-    const res = await apiFetch('/backups' + _fileQuery());
-    if (res.ok) backups = (await res.json()).backups || [];
-  } catch (e) { /* falls through to the empty-state item below */ }
-  if (!backups.length) {
-    showContextMenu(anchor, [{ label: 'No backups yet — one is made on every save.', disabled: true }], { triggerEl: btn });
-    return;
+  let fileBackups = [];
+  if (BACKUP_ENABLED) {
+    try {
+      const res = await apiFetch('/backups' + _fileQuery());
+      if (res.ok) fileBackups = (await res.json()).backups || [];
+    } catch (e) { /* falls through to the empty-state item below */ }
   }
-  showContextMenu(anchor, backups.map(b => ({
-    label: new Date(b.mtime * 1000).toLocaleString() + '  ·  ' + _formatBackupSize(b.size),
-    onclick: () => loadBackup(b.name),
-  })), { triggerEl: btn });
+  const items = [{
+    label: 'File',
+    items: fileBackups.length
+      ? fileBackups.map(b => ({
+          label: new Date(b.mtime * 1000).toLocaleString() + '  ·  ' + _formatBackupSize(b.size),
+          onclick: () => loadBackup(b.name),
+        }))
+      : [{ label: 'No backups yet — one is made on every save.', disabled: true }],
+  }];
+  if (SYSTEM_BACKUP_ENABLED) {
+    let systemBackups = [];
+    try {
+      const res = await apiFetch('/system-backups');
+      if (res.ok) systemBackups = (await res.json()).backups || [];
+    } catch (e) { /* falls through to the empty-state item below */ }
+    items.push({
+      label: 'System',
+      items: [
+        { label: 'Backup system now', title: NIXOS_TARGET, onclick: () => backupSystemNow() },
+        { separator: true },
+        ...(systemBackups.length
+          ? systemBackups.map(b => ({
+              label: new Date(b.mtime * 1000).toLocaleString() + '  ·  ' + _formatBackupSize(b.size),
+              items: [
+                { label: 'Restore', danger: true, onclick: () => restoreSystemBackup(b.name) },
+                { label: 'Download', onclick: () => downloadSystemBackup(b.name) },
+              ],
+            }))
+          : [{ label: 'No system backups yet.', disabled: true }]),
+      ],
+    });
+  }
+  showContextMenu(anchor, items, { triggerEl: btn });
 }
 
 // Loads a backup's content into the editor as an unsaved edit — never touches the file on disk,
@@ -5641,11 +5686,11 @@ async function loadSiblingFiles() {
     ordinaryRow.classList.add('install-mode-disabled');
     _wireHoverTooltip(ordinaryRow, 'Disabled in install mode');
   }
-  if (BACKUP_ENABLED) {
+  if (BACKUP_ENABLED || SYSTEM_BACKUP_ENABLED) {
     const btn = document.createElement('button');
-    btn.className = 'btn'; btn.id = 'backups-btn';
-    _wireHoverTooltip(btn, 'Load a backup of the active file');
-    btn.textContent = '🕐 Backups';
+    btn.className = 'btn'; btn.id = 'restore-btn';
+    _wireHoverTooltip(btn, 'Load a file backup, or restore/back up the whole system');
+    btn.textContent = '🕐 Restore';
     btn.onclick = showBackupsMenu;
     const actions = document.querySelector('.header-actions');
     actions.insertBefore(btn, actions.firstChild);
