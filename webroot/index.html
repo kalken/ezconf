@@ -3541,12 +3541,26 @@ let _restartDetected = false;
 // back to a clean state.
 //
 // The connection dying *is* the restart signal — it happens the instant the old process exits,
-// and the browser's own EventSource auto-reconnect (no code needed here for that part) is what
-// gets this tab talking to the new process, whose first event carries the fresh values above for
-// comparison. onerror exists only to catch what auto-reconnect can never fix on its own: a dead
-// session (_SESSION_KEY changed too, no --session-key-file to persist it across the restart) —
-// EventSource has no way to expose a 401 response status itself, so that's checked via a one-off
-// plain GET /api/v1/ping instead.
+// and the goal is getting this tab talking to the new process, whose first event carries the
+// fresh values above for comparison. This does NOT lean on EventSource's own built-in auto-
+// reconnect to do that, despite the spec seeming to promise exactly that for free: verified
+// empirically (kill-and-restart a real server process under an open tab, repeatedly, including
+// with a persisted session so auth genuinely isn't the issue) that Chromium's EventSource
+// reliably ends up in readyState CLOSED after the connection breaks — for reasons that don't
+// have to be pinned down exactly (the WHATWG spec draws a real distinction between a plain
+// network error, which is meant to auto-retry, and "failing the connection", which permanently
+// stops — and the connection genuinely dying mid-response, with no clean HTTP status ever
+// received, sits ambiguously between those on the browser's side) — and once CLOSED, it never
+// retries again on its own, ever, regardless of how long is given for the new process to come
+// back up. Relying on that path left a tab that happened to hit this once — which, empirically,
+// was *every single restart* tried, not a rare edge case — permanently unable to notice any
+// future restart for the rest of that page's lifetime, with no error, no retry, and no signal to
+// the user that watching had silently stopped. connect() below is manually re-invoked instead,
+// covering both the ordinary reload case and the same dead-session case onerror originally
+// existed for (EventSource can't expose a 401 status itself, hence the one-off plain
+// GET /api/v1/ping check) — anything else, including that very check itself throwing (the
+// far-from-rare case of landing in the brief window where the old process is already gone and
+// the new one hasn't started listening yet), just means "try again shortly," not "give up."
 let _lastSeenBootId = null; // set to BOOT_ID once it's actually declared — see initRestartWatcher()
 function initRestartWatcher() {
   _lastSeenBootId = BOOT_ID;
@@ -3573,16 +3587,25 @@ function initRestartWatcher() {
     // instead of the page pulling itself out from under them (mid-edit or not).
     document.getElementById('reload-notification').classList.remove('hidden');
   }
-  const es = new EventSource(API_BASE + '/ping-stream');
-  es.onmessage = e => {
-    try { handlePayload(JSON.parse(e.data)); } catch (err) { /* malformed event — ignore */ }
-  };
-  es.onerror = async () => {
-    if (_restartDetected) return; // already decided; EventSource's own retries need no help
-    let res;
-    try { res = await apiFetch('/ping'); } catch (err) { return; } // still down — auto-reconnect will keep trying
-    if (res.status === 401) onRestartDetected();
-  };
+  function connect() {
+    const es = new EventSource(API_BASE + '/ping-stream');
+    es.onmessage = e => {
+      try { handlePayload(JSON.parse(e.data)); } catch (err) { /* malformed event — ignore */ }
+    };
+    es.onerror = async () => {
+      if (_restartDetected) return; // already decided; nothing left to watch for
+      if (es.readyState !== EventSource.CLOSED) return; // a transient retry the browser is already doing itself
+      let res;
+      try { res = await apiFetch('/ping'); } catch (err) { res = null; }
+      if (res && res.status === 401) { onRestartDetected(); return; }
+      // Anything else (a clean non-401 response, or the check itself failing) means the dead
+      // session case doesn't apply -- keep watching by reconnecting ourselves, since this `es` is
+      // permanently done and the browser will not do it for us. A few seconds' backoff rather
+      // than an immediate retry, so a genuinely still-down server doesn't get hammered.
+      setTimeout(connect, 3000);
+    };
+  }
+  connect();
 }
 
 function _updateDirty() {
