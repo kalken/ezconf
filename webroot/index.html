@@ -3587,7 +3587,17 @@ function initRestartWatcher() {
     // instead of the page pulling itself out from under them (mid-edit or not).
     document.getElementById('reload-notification').classList.remove('hidden');
   }
+  // Holds the pending setTimeout id while waiting to retry, so the visibilitychange listener
+  // below can jump the queue and reconnect immediately instead of waiting out a delay that may
+  // be running far longer than 3000ms -- Chrome throttles a hidden/backgrounded page's timers to
+  // as little as one wake-up per *minute* once it's been hidden for 5+ continuous minutes
+  // ("intensive timer throttling"), which could turn this into a multi-minute wait for something
+  // that's otherwise a few-second reconnect, entirely invisible to the user (who can't see a
+  // notification on a minimized/backgrounded window anyway, but would expect to see it promptly
+  // once they bring the window back).
+  let _reconnectTimer = null;
   function connect() {
+    if (_reconnectTimer) { clearTimeout(_reconnectTimer); _reconnectTimer = null; }
     const es = new EventSource(API_BASE + '/ping-stream');
     es.onmessage = e => {
       try { handlePayload(JSON.parse(e.data)); } catch (err) { /* malformed event — ignore */ }
@@ -3602,9 +3612,12 @@ function initRestartWatcher() {
       // session case doesn't apply -- keep watching by reconnecting ourselves, since this `es` is
       // permanently done and the browser will not do it for us. A few seconds' backoff rather
       // than an immediate retry, so a genuinely still-down server doesn't get hammered.
-      setTimeout(connect, 3000);
+      _reconnectTimer = setTimeout(connect, 3000);
     };
   }
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && _reconnectTimer) connect();
+  });
   connect();
 }
 
