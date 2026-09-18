@@ -4351,22 +4351,6 @@ const _TERM_WS_BASE = (() => {
   return `${proto}//${location.hostname}:%%EZCONF_TERMINAL_PORT%%/terminal`;
 })();
 
-// Persists across a reload AND a logout/login cycle (logout only clears the auth cookie, never
-// localStorage) so this browser reconnects to the SAME persistent shell (see bin/terminal.py's
-// SESSIONS) instead of getting a fresh one every time. A different browser -- or this one with
-// site data cleared -- generates its own id on first use and so gets its own, independent shell.
-function _getTerminalSessionId() {
-  const KEY = 'ezconf-terminal-session';
-  let id;
-  try { id = localStorage.getItem(KEY); } catch (e) {}
-  if (!id) {
-    id = crypto.randomUUID ? crypto.randomUUID()
-      : Array.from(crypto.getRandomValues(new Uint8Array(16)), b => b.toString(16).padStart(2, '0')).join('');
-    try { localStorage.setItem(KEY, id); } catch (e) {}
-  }
-  return id;
-}
-
 async function initTerminal() {
   if (_term) return;
   const container = document.getElementById('term-output');
@@ -4492,7 +4476,7 @@ function connectTerminalWs() {
   _termReady = false;
   _termReadyWaiters = [];
   _termExited = false;
-  _termWs = new WebSocket(_TERM_WS_BASE + '?session=' + encodeURIComponent(_getTerminalSessionId()));
+  _termWs = new WebSocket(_TERM_WS_BASE);
   _termWs.binaryType = 'arraybuffer';
   _termWs.onopen = () => {
     _termReconnectAttempts = 0;
@@ -4524,7 +4508,7 @@ function connectTerminalWs() {
         // a persistent session actually redraw correctly on reattach, where it otherwise stays
         // visually stale/incomplete (it only has whatever was replayed from the session's output
         // buffer to go on, which for a full-screen app is a stream of partial updates with no
-        // full paint underneath -- see SESSIONS in terminal.py). A single resize straight to the
+        // full paint underneath -- see _SESSION in terminal.py). A single resize straight to the
         // target size is a no-op at the kernel level (no SIGWINCH delivered at all) whenever it
         // happens to already match the size the session was at, e.g. reattaching in the same
         // browser window -- which is routinely true right after a plain page reload. The pause
@@ -4576,7 +4560,7 @@ function connectTerminalWs() {
       if (!panel.classList.contains('collapsed')) toggleTerminal();
     } else {
       // Just a dropped/closed connection -- the shell itself is still running server-side (see
-      // bin/terminal.py's SESSIONS), so reconnecting reattaches to it and replays what was missed
+      // bin/terminal.py's _SESSION), so reconnecting reattaches to it and replays what was missed
       // rather than starting over. Keep the existing _term (and whatever's already on screen) and
       // just retry.
       if (_termReconnectAttempts < 10) {
@@ -4600,9 +4584,10 @@ function connectTerminalWs() {
   });
 }
 
-// Persisted across reloads (not tied to any one browser the way the terminal session itself is,
-// see _getTerminalSessionId() -- this is purely "was the panel showing, and how big" UI state,
-// same convention as ezconf-tree-visible). Restored once at init, below.
+// Persisted across reloads, independent of the terminal session itself (which is shared, server-
+// side, not tied to any one browser at all -- see bin/terminal.py's _SESSION) -- this is purely
+// "was the panel showing, and how big" per-browser UI state, same convention as
+// ezconf-tree-visible. Restored once at init, below.
 function _persistTerminalOpen(open) {
   try { localStorage.setItem('ezconf-terminal-open', open ? 'true' : 'false'); } catch (e) {}
 }

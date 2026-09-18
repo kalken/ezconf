@@ -201,7 +201,7 @@ in
     terminalPersist = lib.mkOption {
       type        = lib.types.bool;
       default     = false;
-      description = "Keep a terminal shell running server-side across a dropped/closed WebSocket connection (browser closed, network drop, logout), rather than killing it the instant that one connection ends. Reconnecting from the same browser (a client-generated id kept in localStorage, surviving reload and logout/login) reattaches to the still-running shell, replaying its recent output, instead of forking a fresh one. Off by default: a shell left running unattended -- and everything running inside it, e.g. a long-lived foreground process -- keeps going until it exits on its own or the whole ezconf-terminal.service process does (a reboot, a manual restart); if that's not what you want for every session, leave this off. Requires terminal = true.";
+      description = "Keep the one shared terminal shell running server-side across a dropped/closed WebSocket connection (browser closed, network drop, logout), rather than killing it the instant that one connection ends. Reconnecting reattaches to the still-running shell, replaying its recent output, instead of forking a fresh one. There is only ever one such shell, shared by every connection regardless of who or what browser it comes from -- consistent with the rest of ezconf, which has no per-user identity anywhere else either. Off by default: a shell left running unattended -- and everything running inside it, e.g. a long-lived foreground process -- keeps going until it exits on its own or the whole ezconf-terminal.service process does (a reboot, a manual restart); if that's not what you want, leave this off. Requires terminal = true.";
     };
 
     https = lib.mkOption {
