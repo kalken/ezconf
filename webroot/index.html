@@ -4340,23 +4340,6 @@ let _termReadyWaiters = [];
 // *shell* did -- those are different events entirely under session persistence. Reset at the top
 // of every connectTerminalWs() call.
 let _termExited = false;
-// Set by the server's {"type":"replay"} control message, which always immediately precedes the
-// one binary frame carrying a reattaching session's buffered output (bin/terminal.py's
-// _terminal_ws()) -- tells onmessage below that the very next binary frame needs the write() done
-// with onData suppressed, not the normal path. See _suppressTermOnData's own comment for why.
-let _nextBinaryIsReplay = false;
-// Suppresses _termOnData's own forwarding (below) while a replay frame is being parsed. Replayed
-// bytes can contain a terminal-capability query (OSC 10/11 color, DA1, DECRQM, ...) that the
-// *original* xterm.js instance already answered once, live, when it first appeared -- replayed
-// into this instance, it's indistinguishable from a brand new live query, so without this it gets
-// answered a second time, and that second answer is what a shell still sitting at that exact
-// prompt echoes right back as visible garbage (the same failure mode replaying at all was
-// otherwise fixed for -- see _SESSION's own comment in terminal.py -- just via the query itself
-// this time rather than its answer). Cleared via _term.write()'s own completion callback, not a
-// guessed timeout: xterm.js parses a chunk (and synchronously fires any onData a query answer
-// triggers as part of that parse) before that callback runs, so this window is exactly as long as
-// parsing the replay actually takes, never shorter or longer.
-let _suppressTermOnData = false;
 
 function _waitTermReady() {
   if (_termReady) return Promise.resolve();
@@ -4529,17 +4512,7 @@ function connectTerminalWs() {
     }, 200);
   };
   _termWs.onmessage = (e) => {
-    if (e.data instanceof ArrayBuffer) {
-      if (!_term) return;
-      if (_nextBinaryIsReplay) {
-        _nextBinaryIsReplay = false;
-        _suppressTermOnData = true;
-        _term.write(new Uint8Array(e.data), () => { _suppressTermOnData = false; });
-      } else {
-        _term.write(new Uint8Array(e.data));
-      }
-      return;
-    }
+    if (e.data instanceof ArrayBuffer) { if (_term) _term.write(new Uint8Array(e.data)); return; }
     // A text frame is always a control message from the server -- real terminal output is
     // always sent binary (see above) -- never raw content to print.
     try {
@@ -4551,8 +4524,6 @@ function connectTerminalWs() {
         waiters.forEach(fn => fn());
       } else if (msg.type === 'exited') {
         _termExited = true;
-      } else if (msg.type === 'replay') {
-        _nextBinaryIsReplay = true;
       }
     } catch {}
   };
@@ -4596,7 +4567,6 @@ function connectTerminalWs() {
   // showing its old content, with the new shell's output just appended below -- not confusing
   // enough to be worth clearing for.
   _termOnData = _term.onData((data) => {
-    if (_suppressTermOnData) return; // see _suppressTermOnData's own comment above
     if (_termWs && _termWs.readyState === WebSocket.OPEN) _termWs.send(data);
   });
 }
