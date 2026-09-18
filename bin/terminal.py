@@ -340,13 +340,32 @@ def _terminal_ws(handler):
     if not is_new:
         # Reattaching to a shell that's been running unattended. Clear this client's screen
         # outright rather than replaying any historical output into it -- see _SESSION's own
-        # comment above for why that's actively harmful, not just insufficient. A plain shell
-        # prompt just reappears empty until the next Enter; a full-screen app redraws itself once
-        # its own resize wiggle lands (see the resize handling below), onto a guaranteed-clean canvas.
+        # comment above for why that's actively harmful, not just insufficient. A full-screen app
+        # redraws itself once its own resize wiggle lands (see the resize handling below), onto a
+        # guaranteed-clean canvas.
         try:
             _ws_send(wfile, b'\x1b[2J\x1b[H', opcode=0x02)
         except Exception:
             pass
+        with session['lock']:
+            alt_screen = session['alt_screen']
+        if not alt_screen:
+            # A plain shell prompt has no resize wiggle coming (see the resize handling below for
+            # why forcing one is actively harmful here) -- with nothing at all redrawing it, the
+            # screen we just cleared would stay genuinely blank (no prompt, not even a cursor
+            # position) until the user happens to type something or press Enter, which looked
+            # exactly like a broken/dead terminal on reattach. Ctrl-L (0x0c) is readline's own
+            # "redraw the current line" binding -- bash and zsh both bind it by default -- so this
+            # asks the shell to redraw its own prompt (and whatever's currently in its input
+            # buffer) the same way pressing it yourself would, without touching window size/SIGWINCH
+            # at all. That input buffer can still contain the same leftover terminal-query-response
+            # bytes described above, so this can still show that content once on reattach -- but
+            # once, not the twice-per-reattach the old resize-based approach caused, and "occasionally
+            # a stale query response" is a far smaller cost than "the terminal looks dead."
+            try:
+                os.write(session['master_fd'], b'\x0c')
+            except OSError:
+                pass
 
     # A text frame is always a control message from here on (real terminal output is always sent
     # binary, see _session_reader() above) -- 'ready' tells the client it's now safe to send
