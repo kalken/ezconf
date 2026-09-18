@@ -50,6 +50,7 @@ let
     "system_backup_dir = ${str cfg.systemBackupDir}"
     "system_backup_count = ${toString cfg.systemBackupCount}"
     (lib.optional cfg.terminal "terminal_port = ${toString cfg.ports.terminal}")
+    (lib.optional (cfg.terminal && cfg.terminalPersist) "terminal_persist = true")
     (lib.optional (cfg.auth.username     != null) "username = ${str cfg.auth.username}")
     (lib.optional (cfg.auth.password     != null) "password = ${str cfg.auth.password}")
     (lib.optional (cfg.auth.allowedUsers != [])   "allowed_users = ${toml-list cfg.auth.allowedUsers}")
@@ -195,6 +196,12 @@ in
     terminal = lib.mkOption {
       type    = lib.types.bool;
       default = true;
+    };
+
+    terminalPersist = lib.mkOption {
+      type        = lib.types.bool;
+      default     = false;
+      description = "Keep a terminal shell running server-side across a dropped/closed WebSocket connection (browser closed, network drop, logout), rather than killing it the instant that one connection ends. Reconnecting from the same browser (a client-generated id kept in localStorage, surviving reload and logout/login) reattaches to the still-running shell, replaying its recent output, instead of forking a fresh one. Off by default: a shell left running unattended -- and everything running inside it, e.g. a long-lived foreground process -- keeps going until it exits on its own or the whole ezconf-terminal.service process does (a reboot, a manual restart); if that's not what you want for every session, leave this off. Requires terminal = true.";
     };
 
     https = lib.mkOption {

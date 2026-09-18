@@ -198,7 +198,9 @@ services.ezconf = {
 };
 ```
 
-`save_first = true` disables the button while there are unsaved changes. `clear_first = true` clears the terminal screen right before the command runs (default `false` — it runs in whatever's already there). The terminal service has `restartIfChanged = false` so active sessions survive `nixos-rebuild switch`.
+`save_first = true` disables the button while there are unsaved changes. `clear_first = true` clears the terminal screen right before the command runs (default `false` — it runs in whatever's already there). The terminal service has `restartIfChanged = false`, so a rebuild that only changes the `ezconf-terminal` package itself doesn't restart the running process — whatever's running in the terminal at the time keeps going straight through that.
+
+By default, closing the browser tab (or losing the connection, or logging out) kills whatever shell was running in the terminal — reopening it starts a completely fresh one. Set `terminalPersist = true` to keep the shell running server-side instead, so reopening the terminal from the *same browser* reattaches to it (replaying its recent output) rather than starting over — handy for something long-running you'd rather not lose by accidentally closing a tab, e.g. an interactive session you want to step away from and come back to later. It survives a page reload and a logout/login cycle in that same browser (a different browser, or this one with site data cleared, always gets its own independent shell), but not a reboot or a manual restart of `ezconf-terminal.service` itself — nothing can make a shell survive the process that owns it actually dying.
 
 Buttons set here (in your NixOS configuration, deploy-time) always show, regardless of which tab is open in the editor — they aren't tied to any one config file.
 
@@ -354,6 +356,7 @@ services.ezconf = {
 | `theme` | str | `"nixos"` | `nixos`, `dark`, or `light` |
 | `mode` | null or `"install"` | `null` | Set to `"install"` to show `mode = "install"` buttons in their own row and grey out ordinary ones, from page load — deploy-time only, no in-GUI toggle |
 | `terminal` | bool | `true` | Enable terminal panel and `ezconf-terminal.service` |
+| `terminalPersist` | bool | `false` | Keep a terminal shell running server-side across a dropped/closed connection (browser closed, network drop, logout), so reconnecting from the same browser reattaches instead of starting fresh |
 | `buttons` | list | `[]` | Shortcut buttons shown in the terminal panel |
 | `https` | bool | `true` | Enable HTTPS |
 | `generateCert` | bool | auto | Generate a local CA + cert in `/var/lib/ezconf/` (set automatically when `https = true` and no cert/key provided) |

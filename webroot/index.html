@@ -3523,44 +3523,41 @@ function isAnyDirty() {
 // immediately, or has to wait for the user to finish saving/undoing back to a clean state first.
 let _restartDetected = false;
 
-// Holds GET /api/v1/ping-stream open as an SSE connection so an already-open tab notices
-// ezconf.service restarting (e.g. from nixos-rebuild switch) the instant it happens, rather than
-// on the next poll. Most restarts don't actually change anything the page cares about — a
-// rebuild that never touched services.ezconf.* just restarts the process for unrelated reasons —
-// so a changed boot_id alone is *not* treated as "reload now": the stream's payload also echoes
-// every value that's otherwise only baked into index.html at load time, and each is compared
-// against what this page actually has. STATIC_BUTTONS is small enough to just patch in place and
-// re-render — no visible reload for what's easily the most common thing to actually change.
-// Everything else — theme, terminal/mkoptions/backup availability, nixos_target, and
-// webroot_hash (a content hash of index.html/style.css/the theme files, so an actual ezconf
-// package upgrade — new HTML/CSS/JS, not just a settings change — is caught too, since that
-// can't be detected any other way) — genuinely can't be applied without reloading, so only
-// *those* changing still triggers one — and even then, never out from under unsaved edits: if
-// something's dirty when that's first seen, it just says so and waits — _updateDirty() (run
-// after every edit, undo, and Save) is what actually fires the reload, the moment the user gets
-// back to a clean state.
+// Polls GET /api/v1/ping periodically so an already-open tab notices ezconf.service restarting
+// (e.g. from nixos-rebuild switch), rather than watching for the connection itself to die. Most
+// restarts don't actually change anything the page cares about — a rebuild that never touched
+// services.ezconf.* just restarts the process for unrelated reasons — so a changed boot_id alone
+// is *not* treated as "reload now": the response also echoes every value that's otherwise only
+// baked into index.html at load time, and each is compared against what this page actually has.
+// STATIC_BUTTONS is small enough to just patch in place and re-render — no visible reload for
+// what's easily the most common thing to actually change. Everything else — theme,
+// terminal/mkoptions/backup availability, nixos_target, and webroot_hash (a content hash of
+// index.html/style.css/the theme files, so an actual ezconf package upgrade — new HTML/CSS/JS,
+// not just a settings change — is caught too, since that can't be detected any other way) —
+// genuinely can't be applied without reloading, so only *those* changing still triggers one — and
+// even then, never out from under unsaved edits: if something's dirty when that's first seen, it
+// just says so and waits — _updateDirty() (run after every edit, undo, and Save) is what actually
+// fires the reload, the moment the user gets back to a clean state.
 //
-// The connection dying *is* the restart signal — it happens the instant the old process exits,
-// and the goal is getting this tab talking to the new process, whose first event carries the
-// fresh values above for comparison. This does NOT lean on EventSource's own built-in auto-
-// reconnect to do that, despite the spec seeming to promise exactly that for free: verified
-// empirically (kill-and-restart a real server process under an open tab, repeatedly, including
-// with a persisted session so auth genuinely isn't the issue) that Chromium's EventSource
-// reliably ends up in readyState CLOSED after the connection breaks — for reasons that don't
-// have to be pinned down exactly (the WHATWG spec draws a real distinction between a plain
-// network error, which is meant to auto-retry, and "failing the connection", which permanently
-// stops — and the connection genuinely dying mid-response, with no clean HTTP status ever
-// received, sits ambiguously between those on the browser's side) — and once CLOSED, it never
-// retries again on its own, ever, regardless of how long is given for the new process to come
-// back up. Relying on that path left a tab that happened to hit this once — which, empirically,
-// was *every single restart* tried, not a rare edge case — permanently unable to notice any
-// future restart for the rest of that page's lifetime, with no error, no retry, and no signal to
-// the user that watching had silently stopped. connect() below is manually re-invoked instead,
-// covering both the ordinary reload case and the same dead-session case onerror originally
-// existed for (EventSource can't expose a 401 status itself, hence the one-off plain
-// GET /api/v1/ping check) — anything else, including that very check itself throwing (the
-// far-from-rare case of landing in the brief window where the old process is already gone and
-// the new one hasn't started listening yet), just means "try again shortly," not "give up."
+// This used to be a held-open GET /api/v1/ping-stream SSE connection instead — near-instant
+// detection (the connection dying the moment the old process exits) rather than up to one poll
+// interval's latency. Reverted after confirming, repeatedly and empirically (kill-and-restart a
+// real server process under an open tab, in both headless and real windowed Chrome, with a
+// persisted session so auth genuinely wasn't the issue, and again with EventSource explicitly
+// stubbed out as a control), that an EventSource reconnecting after the process it's connected to
+// restarts reliably wipes this browser's *entire cookie jar for the origin* as a side effect —
+// not just this connection's own state, every subsequent request lost its session, including on
+// a completely unrelated port (confirmed by reproducing the same loss from a plain server.py
+// restart alone, terminal.py never involved). A real, reproducible Chromium behavior, not
+// something wrong in this code, but one only a persistent/reconnecting connection type triggers —
+// the control test (stubbing out EventSource entirely, polling only) went through the identical
+// restart with the cookie completely intact throughout. That failure mode — a silently,
+// permanently broken session with no way to recover except a fresh login — is categorically worse
+// than "the notification arrives a few seconds later than it could have", so this stays polling
+// rather than chasing SSE's exact trigger further. A dead session (this process restarted with a
+// fresh session key and no session_key_file to persist it across that) shows up as a plain 401 on
+// the next poll tick, same as any other endpoint would give an unauthenticated request — no
+// separate signal needed the way EventSource's inability to expose a status code once required.
 let _lastSeenBootId = null; // set to BOOT_ID once it's actually declared — see initRestartWatcher()
 function initRestartWatcher() {
   _lastSeenBootId = BOOT_ID;
@@ -3587,38 +3584,25 @@ function initRestartWatcher() {
     // instead of the page pulling itself out from under them (mid-edit or not).
     document.getElementById('reload-notification').classList.remove('hidden');
   }
-  // Holds the pending setTimeout id while waiting to retry, so the visibilitychange listener
-  // below can jump the queue and reconnect immediately instead of waiting out a delay that may
-  // be running far longer than 3000ms -- Chrome throttles a hidden/backgrounded page's timers to
-  // as little as one wake-up per *minute* once it's been hidden for 5+ continuous minutes
-  // ("intensive timer throttling"), which could turn this into a multi-minute wait for something
-  // that's otherwise a few-second reconnect, entirely invisible to the user (who can't see a
-  // notification on a minimized/backgrounded window anyway, but would expect to see it promptly
-  // once they bring the window back).
-  let _reconnectTimer = null;
-  function connect() {
-    if (_reconnectTimer) { clearTimeout(_reconnectTimer); _reconnectTimer = null; }
-    const es = new EventSource(API_BASE + '/ping-stream');
-    es.onmessage = e => {
-      try { handlePayload(JSON.parse(e.data)); } catch (err) { /* malformed event — ignore */ }
-    };
-    es.onerror = async () => {
-      if (_restartDetected) return; // already decided; nothing left to watch for
-      if (es.readyState !== EventSource.CLOSED) return; // a transient retry the browser is already doing itself
-      let res;
-      try { res = await apiFetch('/ping'); } catch (err) { res = null; }
-      if (res && res.status === 401) { onRestartDetected(); return; }
-      // Anything else (a clean non-401 response, or the check itself failing) means the dead
-      // session case doesn't apply -- keep watching by reconnecting ourselves, since this `es` is
-      // permanently done and the browser will not do it for us. A few seconds' backoff rather
-      // than an immediate retry, so a genuinely still-down server doesn't get hammered.
-      _reconnectTimer = setTimeout(connect, 3000);
-    };
+  const POLL_INTERVAL_MS = 5000;
+  async function poll() {
+    if (_restartDetected) return; // already decided; nothing left to watch for
+    let res;
+    try { res = await apiFetch('/ping'); } catch (err) { return; } // still down -- next tick retries
+    if (res.status === 401) { onRestartDetected(); return; }
+    if (res.ok) {
+      try { handlePayload(await res.json()); } catch (err) { /* malformed body — ignore, next tick retries */ }
+    }
   }
+  setInterval(poll, POLL_INTERVAL_MS);
+  // A background/hidden tab has setInterval throttled down to as little as one wake-up per
+  // *minute* once hidden 5+ continuous minutes ("intensive timer throttling") -- an immediate
+  // extra poll the moment the tab becomes visible again means bringing a long-backgrounded tab
+  // back doesn't leave it looking stale for up to a throttled interval's worth of time.
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible' && _reconnectTimer) connect();
+    if (document.visibilityState === 'visible') poll();
   });
-  connect();
+  poll();
 }
 
 function _updateDirty() {
@@ -4348,6 +4332,14 @@ let _termReconnectAttempts = 0;
 // never ready yet, and stale waiters from an abandoned connection would never fire otherwise).
 let _termReady = false;
 let _termReadyWaiters = [];
+// Set only by the server's {"type":"exited"} control message (see bin/terminal.py's
+// _session_reader()) -- the one signal that actually means the shell process itself is gone, as
+// opposed to just a dropped/closed connection (network blip, browser closed, logout) while the
+// shell keeps running server-side. onclose below branches on this, not on the WebSocket's own
+// wasClean, since wasClean reflects whether the *connection* closed cleanly, not whether the
+// *shell* did -- those are different events entirely under session persistence. Reset at the top
+// of every connectTerminalWs() call.
+let _termExited = false;
 
 function _waitTermReady() {
   if (_termReady) return Promise.resolve();
@@ -4358,6 +4350,22 @@ const _TERM_WS_BASE = (() => {
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
   return `${proto}//${location.hostname}:%%EZCONF_TERMINAL_PORT%%/terminal`;
 })();
+
+// Persists across a reload AND a logout/login cycle (logout only clears the auth cookie, never
+// localStorage) so this browser reconnects to the SAME persistent shell (see bin/terminal.py's
+// SESSIONS) instead of getting a fresh one every time. A different browser -- or this one with
+// site data cleared -- generates its own id on first use and so gets its own, independent shell.
+function _getTerminalSessionId() {
+  const KEY = 'ezconf-terminal-session';
+  let id;
+  try { id = localStorage.getItem(KEY); } catch (e) {}
+  if (!id) {
+    id = crypto.randomUUID ? crypto.randomUUID()
+      : Array.from(crypto.getRandomValues(new Uint8Array(16)), b => b.toString(16).padStart(2, '0')).join('');
+    try { localStorage.setItem(KEY, id); } catch (e) {}
+  }
+  return id;
+}
 
 async function initTerminal() {
   if (_term) return;
@@ -4483,7 +4491,8 @@ function connectTerminalWs() {
   if (_termWs) { _termWs.close(); _termWs = null; }
   _termReady = false;
   _termReadyWaiters = [];
-  _termWs = new WebSocket(_TERM_WS_BASE);
+  _termExited = false;
+  _termWs = new WebSocket(_TERM_WS_BASE + '?session=' + encodeURIComponent(_getTerminalSessionId()));
   _termWs.binaryType = 'arraybuffer';
   _termWs.onopen = () => {
     _termReconnectAttempts = 0;
@@ -4503,9 +4512,9 @@ function connectTerminalWs() {
         // reconnect (e.g. right after a "Reconnecting..." banner was showing) -- reading _term.cols/rows after
         // fit() is the same authoritative value a genuine resize event would produce. Sent
         // unconditionally (not just when fit() itself changes _term's size and fires onResize)
-        // since the *server* side is always a brand new shell that's never been told any size at
-        // all -- every connection forks a fresh one, there's no persistent session to already
-        // know a size from.
+        // since THIS browser's actual current size should always apply regardless of whatever a
+        // persistent session was last told -- a brand new shell has no size at all yet, and a
+        // reused one may have last been resized by a different tab/window entirely.
         _termFit.fit();
         _termWs.send(JSON.stringify({ type: 'resize', cols: _term.cols, rows: _term.rows }));
       }
@@ -4522,6 +4531,8 @@ function connectTerminalWs() {
         const waiters = _termReadyWaiters;
         _termReadyWaiters = [];
         waiters.forEach(fn => fn());
+      } else if (msg.type === 'exited') {
+        _termExited = true;
       }
     } catch {}
   };
@@ -4530,18 +4541,24 @@ function connectTerminalWs() {
     // nothing extra needed here.
   };
   _termWs.onclose = (e) => {
-    if (e.wasClean) {
-      // A clean close means the shell process itself actually exited (any way -- "exit",
-      // Ctrl+D, etc.), not just a dropped connection. Destroying the whole terminal instance
-      // rather than trying to reset/reuse it means the next open (initTerminal(), whose
-      // `if (_term) return` guard now sees null) builds a genuinely fresh one from scratch --
-      // no stale buffer content possible, since nothing survives to leave one.
+    if (_termExited) {
+      // The shell process itself actually exited (any way -- "exit", Ctrl+D, etc.), not just a
+      // dropped connection -- signaled explicitly by the server (see _termExited's own comment
+      // above), since under session persistence a plain closed/dropped connection no longer
+      // implies that on its own. Destroying the whole terminal instance rather than trying to
+      // reset/reuse it means the next open (initTerminal(), whose `if (_term) return` guard now
+      // sees null) builds a genuinely fresh one from scratch -- no stale buffer content possible,
+      // since nothing survives to leave one.
       if (_term) { _term.dispose(); _term = null; }
       _termFit = null;
       _termOnData = null;
       const panel = document.getElementById('terminal-panel');
       if (!panel.classList.contains('collapsed')) toggleTerminal();
     } else {
+      // Just a dropped/closed connection -- the shell itself is still running server-side (see
+      // bin/terminal.py's SESSIONS), so reconnecting reattaches to it and replays what was missed
+      // rather than starting over. Keep the existing _term (and whatever's already on screen) and
+      // just retry.
       if (_termReconnectAttempts < 10) {
         _setTermStatusBanner('Reconnecting', true);
         _termReconnectAttempts++;
