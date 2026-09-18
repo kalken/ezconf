@@ -4,17 +4,25 @@ ezconf server — single listener bound to 127.0.0.1:
   http(s)://localhost:9090  static files + API
     GET  /api/v1/ping             {"boot_id", "webroot_hash", "theme", "terminal_enabled",
                                    "mkoptions_enabled", "backup_enabled",
-                                   "nixos_target", "buttons"} — a one-off check, only called by
-                                   the frontend when /api/v1/ping-stream errors out, to tell a
-                                   dead session (401,
-                                   won't get better on retry) apart from a connection blip
-                                   EventSource will just reconnect on its own
-    GET  /api/v1/ping-stream      same payload, pushed over a held-open text/event-stream instead
-                                   of polled — the frontend's restart/upgrade detection reacts to
-                                   the connection dying (this process exiting) and EventSource's
-                                   own auto-reconnect landing on the new process, not to a timer;
-                                   webroot_hash covers an ezconf package upgrade itself (new
-                                   HTML/CSS/JS), not just a settings change
+                                   "nixos_target", "buttons"} — polled periodically by the
+                                   frontend's restart/upgrade detection (initRestartWatcher() in
+                                   index.html); webroot_hash covers an ezconf package upgrade
+                                   itself (new HTML/CSS/JS), not just a settings change. Was
+                                   previously pushed over a held-open /api/v1/ping-stream SSE
+                                   connection instead of polled, for near-instant detection instead
+                                   of up-to-one-poll-interval latency — reverted after confirming
+                                   (repeatedly, with EventSource explicitly stubbed out as a
+                                   control) that an EventSource reconnecting after this process
+                                   restarts reliably wipes the browser's entire cookie jar for this
+                                   origin as a side effect, in both headless and real windowed
+                                   Chrome — a genuine browser behavior, not something in this code,
+                                   but one only a persistent/reconnecting connection type
+                                   triggers; plain one-shot fetch() polling never does. A dead
+                                   session (this process's boot_id changed as part of an actual
+                                   restart, but auth now fails — a fresh session key with no
+                                   session_key_file to persist it) shows up as this endpoint itself
+                                   returning 401, not a separate signal, since there's no
+                                   connection to "error out" under polling
     GET  /api/v1/markdown-files          {"files": [...]} — every *.md file under NIXOS_TARGET,
                                           recursively, as relative paths (e.g.
                                           "services/nginx/README.md"), sorted
@@ -809,10 +817,10 @@ def _compute_webroot_hash():
 
 
 def _ping_payload():
-    """Shared by GET /api/v1/ping and the /api/v1/ping-stream SSE endpoint below — the fields
-    initRestartWatcher() compares against what index.html was actually templated with at load
-    time, to tell a real restart (something here differs) apart from a process restart that
-    changed nothing the frontend cares about."""
+    """GET /api/v1/ping's whole response — the fields initRestartWatcher() (index.html) polls and
+    compares against what index.html was actually templated with at load time, to tell a real
+    restart (something here differs) apart from a process restart that changed nothing the
+    frontend cares about."""
     return {
         'boot_id': BOOT_ID,
         'webroot_hash': WEBROOT_HASH,
@@ -1244,41 +1252,17 @@ class StaticHandler(http.server.SimpleHTTPRequestHandler):
         if parsed.path.rstrip('/') in ('', '/index.html'):
             self._serve_index(); return
         if parsed.path == '/api/v1/ping':
-            # A one-off check — initRestartWatcher() no longer polls this on a timer (see
-            # /api/v1/ping-stream below), but still calls it once when that stream errors out, to
-            # tell "the stream will auto-reconnect on its own" apart from "the session cookie is
-            # dead, a 401 here won't get better on retry" (the latter forces an unconditional
-            # reload straight to the login page).
+            # Polled periodically by initRestartWatcher() (index.html) — see this file's own
+            # module docstring above for why this is polling rather than a held-open SSE
+            # connection (an earlier /api/v1/ping-stream, removed). A dead session (cookie no
+            # longer valid) never reaches this handler at all — check_auth()/_deny() above
+            # already reject it with 401 before this branch runs, same as any other endpoint.
             data = json.dumps(_ping_payload()).encode()
             self.send_response(200)
             self.send_header('Content-Type', 'application/json')
             self.send_header('Content-Length', str(len(data)))
             self.end_headers()
             self.wfile.write(data)
-            return
-        if parsed.path == '/api/v1/ping-stream':
-            # Server-push replacement for polling /api/v1/ping: holds the connection open and
-            # sends the same payload as an SSE event, once immediately and then only a
-            # keep-alive comment (no actual data — nothing here changes while this process is
-            # still running) every 15s, purely so an idle proxy/browser doesn't time the
-            # connection out from under us. The real signal is the connection itself dying — that
-            # happens the instant this process exits (a restart), and EventSource's own built-in
-            # reconnect logic (no code needed here for that part) is what gets the frontend
-            # talking to the *new* process, whose first event carries the fresh boot_id etc. for
-            # initRestartWatcher() to compare. See "Restart detection" in CLAUDE.md.
-            self.send_response(200)
-            self.send_header('Content-Type', 'text/event-stream')
-            self.send_header('Cache-Control', 'no-store')
-            self.end_headers()
-            try:
-                self.wfile.write(f'data: {json.dumps(_ping_payload())}\n\n'.encode())
-                self.wfile.flush()
-                while True:
-                    time.sleep(15)
-                    self.wfile.write(b': keep-alive\n\n')
-                    self.wfile.flush()
-            except (BrokenPipeError, ConnectionResetError, OSError):
-                pass
             return
         if parsed.path == '/api/v1/markdown-files':
             try:

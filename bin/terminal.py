@@ -6,7 +6,18 @@ Run:
   python3 terminal.py --config /run/ezconf/ezconf.toml
   python3 terminal.py --port 9092 --session-key-file /run/ezconf/session.key
 
-Config keys read from TOML: terminal_port, session_key_file, shell, cert, key, webroot
+Config keys read from TOML: terminal_port, session_key_file, shell, cert, key, webroot,
+terminal_persist
+
+terminal_persist = true (default false) makes shell sessions survive a dropped/closed WebSocket
+connection, keyed by a `session` id the client passes as a query param on the WS URL
+(/terminal?session=ID) -- see SESSIONS, _create_session(), _session_reader() below. Reconnecting
+with the same id reattaches to the same still-running shell (replaying its recent output) instead
+of forking a fresh one; the shell itself only ever dies when it exits on its own, or when this
+whole process does (a reboot, a manual restart of ezconf-terminal.service) -- nothing here can
+make it survive that. With terminal_persist left at its default, a client disconnecting kills the
+shell immediately (see TERM_PERSIST/_terminal_ws()'s own finally below) -- exactly the original,
+pre-persistence behavior.
 """
 import argparse
 import base64
@@ -14,6 +25,7 @@ import hashlib
 import http.server
 import json
 import os
+import re
 import secrets
 import select
 import ssl
@@ -22,7 +34,7 @@ import subprocess
 import sys
 import threading
 import time
-from urllib.parse import urlparse
+from urllib.parse import urlparse, parse_qs
 
 try:
     import pty
@@ -99,6 +111,166 @@ BIND_ADDR    = '127.0.0.1'
 
 READY_DELAY  = 0.3  # see the 'ready' comment in _terminal_ws() below
 
+# Off by default -- set by terminal_persist in TOML. When False, a session behaves exactly as
+# before persistence existed: _terminal_ws()'s own finally (a client disconnecting) nudges the
+# shell to exit immediately rather than leaving it running unattached, so nothing outlives the one
+# connection that created it. See that finally block for how this reuses _session_reader()'s
+# normal "the shell exited" teardown path rather than needing a separate one.
+TERM_PERSIST = False
+
+# SESSIONS holds every shell that's still running, keyed by the client-supplied session id --
+# entries live independently of any particular WebSocket connection, which is the whole point:
+# a session outlives a client detaching (browser closed, network drop, logout) and is only ever
+# removed by _session_reader() once the shell itself actually exits. SESSIONS_LOCK guards
+# creating/looking-up/removing entries in this dict; each session also has its own 'lock' guarding
+# that one session's mutable state (buffer/writers/rows/cols) -- two separate locks so one
+# session's I/O never blocks another session's connect/disconnect.
+SESSIONS      = {}
+SESSIONS_LOCK = threading.Lock()
+
+# Bound on how much recent output is kept per session for replay to a client that (re)connects.
+# Not a scrollback restore -- xterm.js's own in-browser scrollback already covers a tab that's
+# stayed open continuously -- just enough recent context that a *newly* connecting client (a fresh
+# tab, or the first reconnect after a drop) isn't looking at a blank screen for a shell that's
+# actually been running and producing output all along.
+TERM_BUFFER_MAX = 200_000
+
+# A missing/malformed id (an old client, or one that never sends one) still works -- see
+# _terminal_ws() below -- it just falls back to a private, one-off id nothing else can ever
+# reconnect with, i.e. exactly the old non-persistent behavior for that one connection.
+_SESSION_ID_RE = re.compile(r'[A-Za-z0-9_-]{1,128}')
+
+
+def _set_winsize(fd, rows, cols):
+    try:
+        fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack('HHHH', rows, cols, 0, 0))
+    except Exception:
+        pass
+
+
+def _create_session(session_id, rows, cols):
+    """Fork a fresh shell and start its dedicated reader thread, returning the new session dict
+    (or None if the PTY/shell itself couldn't be created). From here on, _session_reader() --
+    not any particular WebSocket connection -- owns this shell's entire lifecycle: it keeps
+    running for as long as the shell does, regardless of whether a client is currently attached."""
+    try:
+        master_fd, slave_fd = pty.openpty()
+    except Exception as e:
+        print(f'[terminal] pty.openpty() failed: {e}', file=sys.stderr)
+        return None
+    _set_winsize(slave_fd, rows, cols)
+    env = {'TERM': 'xterm-256color'}
+
+    def _init_child():
+        os.setsid()
+        try:
+            fcntl.ioctl(0, getattr(termios, 'TIOCSCTTY', 0x540E), 0)
+        except Exception:
+            pass
+
+    try:
+        proc = subprocess.Popen(
+            [SHELL, '-l'],
+            stdin=slave_fd, stdout=slave_fd, stderr=slave_fd,
+            close_fds=True,
+            preexec_fn=_init_child,
+            cwd=os.path.expanduser('~'),
+            env=env,
+        )
+    except Exception as e:
+        print(f'[terminal] shell launch failed: {e}', file=sys.stderr)
+        os.close(slave_fd)
+        os.close(master_fd)
+        return None
+    os.close(slave_fd)
+
+    session = {
+        'id': session_id,
+        'proc': proc,
+        'master_fd': master_fd,
+        'rows': rows,
+        'cols': cols,
+        'buffer': bytearray(),
+        'writers': set(),
+        'lock': threading.Lock(),
+        'done': False,
+    }
+    threading.Thread(target=_session_reader, args=(session,), daemon=True).start()
+    return session
+
+
+def _session_reader(session):
+    """The one thread that ever reads this session's PTY, for its entire lifetime -- started once
+    by _create_session() and never restarted. Keeps draining the PTY (into a bounded buffer, and
+    out live to whichever clients are currently attached) regardless of whether anyone's attached
+    at all, so output isn't lost between a client detaching and a later reconnect, and the shell
+    is never left blocked writing into a full pipe with nothing draining it. Only exits -- and
+    only then tears the shell down -- once the shell process itself actually exits or the PTY read
+    fails outright; a client disconnecting never reaches this at all (see _terminal_ws()'s own
+    finally below, which only ever removes that one client from 'writers')."""
+    master_fd = session['master_fd']
+    proc = session['proc']
+    try:
+        while True:
+            if proc.poll() is not None:
+                break
+            try:
+                r, _, _ = select.select([master_fd], [], [], 0.5)
+            except OSError:
+                break
+            if not r:
+                continue
+            try:
+                data = os.read(master_fd, 4096)
+            except OSError:
+                break
+            if not data:
+                break
+            with session['lock']:
+                buf = session['buffer']
+                buf.extend(data)
+                if len(buf) > TERM_BUFFER_MAX:
+                    del buf[:len(buf) - TERM_BUFFER_MAX]
+                writers = list(session['writers'])
+            for wfile in writers:
+                try:
+                    _ws_send(wfile, data, opcode=0x02)
+                except Exception:
+                    pass  # that client's own connection loop will notice and clean itself up
+    finally:
+        # The shell is genuinely gone (or as good as) -- tell every currently attached client
+        # explicitly, via a control message, rather than leaving them to infer it from the
+        # connection merely closing (which also happens on an ordinary drop, where the shell is
+        # still very much alive). See connectTerminalWs()'s _termExited in index.html, which is
+        # the only thing that reacts to this.
+        with session['lock']:
+            session['done'] = True
+            writers = list(session['writers'])
+            session['writers'].clear()
+        for wfile in writers:
+            try:
+                _ws_send(wfile, json.dumps({'type': 'exited'}).encode(), opcode=0x01)
+                _ws_send(wfile, b'', 0x08)
+            except Exception:
+                pass
+        try:
+            if proc.poll() is None:
+                proc.terminate()
+                try:
+                    proc.wait(timeout=1)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                    proc.wait(timeout=2)
+        except Exception:
+            pass
+        try:
+            os.close(master_fd)
+        except Exception:
+            pass
+        with SESSIONS_LOCK:
+            if SESSIONS.get(session['id']) is session:
+                del SESSIONS[session['id']]
+
 
 def _terminal_ws(handler):
     if not _PTY:
@@ -121,99 +293,51 @@ def _terminal_ws(handler):
     rfile = handler.rfile
     wfile = sock.makefile('wb', buffering=0)
 
-    state = {'proc': None, 'master_fd': None, 'rows': 24, 'cols': 80, 'done': False}
+    qs = parse_qs(urlparse(handler.path).query)
+    session_id = (qs.get('session', [''])[0] or '').strip()
+    if not _SESSION_ID_RE.fullmatch(session_id):
+        session_id = secrets.token_hex(16)
 
-    def set_winsize(fd, rows, cols):
+    with SESSIONS_LOCK:
+        session = SESSIONS.get(session_id)
+        is_new = session is None or session.get('done')
+        if is_new:
+            session = _create_session(session_id, rows=24, cols=80)
+            if session is None:
+                handler.send_error(500)
+                return
+            SESSIONS[session_id] = session
+
+    with session['lock']:
+        session['writers'].add(wfile)
+        replay = bytes(session['buffer'])
+
+    if replay:
         try:
-            fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack('HHHH', rows, cols, 0, 0))
+            _ws_send(wfile, replay, opcode=0x02)
         except Exception:
             pass
 
-    def launch_shell():
-        old_fd = state['master_fd']
-        if old_fd is not None:
-            try: os.close(old_fd)
-            except OSError: pass
-        try:
-            master_fd, slave_fd = pty.openpty()
-        except Exception as e:
-            print(f'[terminal] pty.openpty() failed: {e}', file=sys.stderr)
-            return False
-        set_winsize(slave_fd, state['rows'], state['cols'])
-        env = {'TERM': 'xterm-256color'}
-
-        def _init_child():
-            os.setsid()
-            try:
-                fcntl.ioctl(0, getattr(termios, 'TIOCSCTTY', 0x540E), 0)
-            except Exception:
-                pass
-
-        cmd = [SHELL, '-l']
-
-        try:
-            proc = subprocess.Popen(
-                cmd,
-                stdin=slave_fd, stdout=slave_fd, stderr=slave_fd,
-                close_fds=True,
-                preexec_fn=_init_child,
-                cwd=os.path.expanduser('~'),
-                env=env,
-            )
-        except Exception as e:
-            print(f'[terminal] shell launch failed: {e}', file=sys.stderr)
-            os.close(slave_fd)
-            os.close(master_fd)
-            return False
-        os.close(slave_fd)
-        state['proc'] = proc
-        state['master_fd'] = master_fd
-        return True
-
-    if not launch_shell():
-        return
-
-    def pty_to_ws():
-        try:
-            while not state['done']:
-                proc      = state['proc']
-                master_fd = state['master_fd']
-                if proc.poll() is not None:
-                    break
-                r, _, _ = select.select([master_fd], [], [], 0.5)
-                if r:
-                    try:
-                        data = os.read(master_fd, 4096)
-                        _ws_send(wfile, data, opcode=0x02)
-                    except OSError:
-                        pass
-        except Exception:
-            pass
-        finally:
-            try:
-                _ws_send(wfile, b'', 0x08)
-            except Exception:
-                pass
-
-    threading.Thread(target=pty_to_ws, daemon=True).start()
-
-    # A text frame is always a control message from here on (real terminal output is always
-    # sent binary, see pty_to_ws above) -- 'ready' tells the client it's now safe to send input,
-    # rather than the client guessing readiness from the WebSocket's own open state or the first
-    # byte of output, either of which can race ahead of the shell actually being ready to receive
-    # it. Delayed rather than sent the instant the process is forked: a fresh PTY starts in
-    # canonical/echo mode by default, so input sent before the shell has actually finished its
-    # own startup (sourcing profile/rc files) and taken over the terminal gets echoed back raw by
-    # the kernel immediately, then redrawn a second time once the shell's own line editor takes
-    # over and finds it already queued -- visible as a duplicated line (seen in practice on the
-    # first button press right after a reboot, when cold disk/page caches make profile scripts
-    # slow enough to actually hit this). This narrows the window rather than closing it -- a
-    # shell still mid-startup after READY_DELAY would still hit it -- deliberately not guessed
-    # from output patterns instead (unreliable: a shell that's silently slow, e.g. profile
-    # scripts with nothing to print while cold, looks identical to one that's already idle and
-    # settled). pty_to_ws is already running above so any real startup output the shell does
-    # produce during this wait still streams live instead of arriving all at once afterward.
-    time.sleep(READY_DELAY)
+    # A text frame is always a control message from here on (real terminal output is always sent
+    # binary, see _session_reader() above) -- 'ready' tells the client it's now safe to send
+    # input, rather than the client guessing readiness from the WebSocket's own open state or the
+    # first byte of output, either of which can race ahead of the shell actually being ready to
+    # receive it. Delayed rather than sent the instant a *brand new* shell is forked: a fresh PTY
+    # starts in canonical/echo mode by default, so input sent before the shell has actually
+    # finished its own startup (sourcing profile/rc files) and taken over the terminal gets echoed
+    # back raw by the kernel immediately, then redrawn a second time once the shell's own line
+    # editor takes over and finds it already queued -- visible as a duplicated line (seen in
+    # practice on the first button press right after a reboot, when cold disk/page caches make
+    # profile scripts slow enough to actually hit this). This narrows the window rather than
+    # closing it -- a shell still mid-startup after READY_DELAY would still hit it -- deliberately
+    # not guessed from output patterns instead (unreliable: a shell that's silently slow, e.g.
+    # profile scripts with nothing to print while cold, looks identical to one that's already idle
+    # and settled). _session_reader() is already running above so any real startup output the
+    # shell does produce during this wait still streams live instead of arriving all at once
+    # afterward. A *reused* session is long past its own startup by now, so there's nothing to
+    # wait out -- sending 'ready' immediately is both correct and lets a reconnect feel instant.
+    if is_new:
+        time.sleep(READY_DELAY)
     try:
         _ws_send(wfile, json.dumps({'type': 'ready'}).encode(), opcode=0x01)
     except Exception:
@@ -229,35 +353,46 @@ def _terminal_ws(handler):
                     try:
                         msg = json.loads(payload)
                         if msg.get('type') == 'resize':
-                            state['rows'] = int(msg['rows'])
-                            state['cols'] = int(msg['cols'])
-                            set_winsize(state['master_fd'], state['rows'], state['cols'])
+                            with session['lock']:
+                                session['rows'] = int(msg['rows'])
+                                session['cols'] = int(msg['cols'])
+                                _set_winsize(session['master_fd'], session['rows'], session['cols'])
                             continue
                     except Exception:
                         pass
                 try:
-                    os.write(state['master_fd'], payload)
+                    os.write(session['master_fd'], payload)
                 except OSError:
                     pass
     except Exception as e:
         print(f'[terminal] ws loop error: {e}', file=sys.stderr)
     finally:
-        state['done'] = True
-        try:
-            proc = state['proc']
-            if proc.poll() is None:
-                proc.terminate()
-                try:
-                    proc.wait(timeout=1)
-                except subprocess.TimeoutExpired:
-                    proc.kill()
-                    proc.wait(timeout=2)
-        except Exception:
-            pass
-        try:
-            os.close(state['master_fd'])
-        except Exception:
-            pass
+        # Only ever detaches this one client -- the session (and the shell inside it) keeps
+        # running regardless, which is the entire point of this design. _session_reader() is the
+        # only thing that ever actually tears a session down, and only once the shell itself has
+        # genuinely exited.
+        with session['lock']:
+            session['writers'].discard(wfile)
+            remaining = len(session['writers'])
+        if not TERM_PERSIST and remaining == 0:
+            # Non-persistent mode: nothing should outlive the one connection that created it.
+            # Remove this session id from SESSIONS immediately, synchronously, right here --
+            # not left for _session_reader() to notice and do asynchronously on its own next
+            # select() cycle -- so a connection arriving with the same id a moment later (e.g. a
+            # fast page reload) can never win a race against the old shell's own teardown and get
+            # attached to a session that's mid-death. That thread still does the actual OS-level
+            # work (terminate/kill if needed, close the fd) once it notices proc.poll() is no
+            # longer None; its own "remove from SESSIONS" is a no-op by then (already gone), same
+            # as any other double-removal guard.
+            with SESSIONS_LOCK:
+                if SESSIONS.get(session['id']) is session:
+                    del SESSIONS[session['id']]
+            try:
+                proc = session['proc']
+                if proc.poll() is None:
+                    proc.terminate()
+            except Exception:
+                pass
 
 
 def _session_from_cookie(headers):
@@ -308,6 +443,8 @@ if __name__ == '__main__':
     except Exception:
         pass
     SHELL = cfg.get('shell') or _passwd_shell or os.environ.get('SHELL') or '/bin/sh'
+
+    TERM_PERSIST = bool(cfg.get('terminal_persist', False))
 
     WEBROOT   = cfg.get('webroot') or WEBROOT
     BIND_ADDR = cfg.get('listen') or BIND_ADDR
