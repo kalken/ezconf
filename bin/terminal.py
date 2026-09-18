@@ -137,20 +137,31 @@ TERM_PERSIST = False
 _SESSION = None
 _SESSION_LOCK = threading.Lock()
 
-# No output buffer is kept for replay to a (re)connecting client -- an earlier version kept a
-# bounded ring of recent raw bytes for exactly that, and it reliably corrupted a full-screen curses
-# app's display on reattach: replaying a differential-update stream with no full paint underneath
-# into a fresh xterm.js instance leaves its cursor/screen-state tracking wrong from the start. A
-# reattaching client gets a clean, cleared screen instead (see _terminal_ws() below) and, for a
-# full-screen app, a real forced resize to make it repaint properly (see the resize handling below).
+# Bound on how much recent output is kept for replay to a (re)connecting client -- see
+# 'buffer' below for when it's actually used. Not a scrollback restore -- xterm.js's own
+# in-browser scrollback already covers a tab that's stayed open continuously -- just enough
+# recent context that a reattaching client isn't looking at a blank screen for a shell that's
+# actually been running and producing output all along.
+TERM_BUFFER_MAX = 200_000
+#
+# The buffer is only ever replayed when the session is NOT currently in the alternate screen
+# buffer (see 'alt_screen' / _update_alt_screen_state() below) -- an earlier version replayed it
+# unconditionally and that reliably corrupted a full-screen curses app's display on reattach:
+# replaying a differential-update stream with no full paint underneath into a fresh xterm.js
+# instance leaves its cursor/screen-state tracking wrong from the start. A full-screen app instead
+# gets a clean, cleared screen and a real forced resize to make it repaint properly on its own (see
+# the resize handling below) -- the buffer is cleared outright on every alt-screen transition
+# (entering or leaving), so it never straddles a curses session's boundary and there's never
+# anything to (mis)replay for one, only ever for a plain shell prompt.
 #
 # Separately: a shell prompt framework that queries the terminal at startup (background color via
 # OSC 11, device attributes via DA1, DECRQM mode queries, ...) can end up with xterm.js's answer
 # landing as literal typed input sitting unsubmitted in the shell's own line editor, if the shell
 # wasn't still synchronously listening for it by the time the answer got back over the WebSocket
-# round-trip. That's real, live shell state, not anything buffered here -- there's nothing to
-# replay-and-fix. It's normally invisible (nothing redraws it), which is exactly why forcing an
-# unnecessary redraw is worth avoiding -- see the resize handling below.
+# round-trip. That's real, live shell state, and it does end up in the buffer like any other output
+# -- replaying it is exactly reproducing what was actually on screen, which is correct, not a bug.
+# What *is* worth avoiding is redrawing it a second time on top of that replay (the resize
+# handling below deliberately doesn't force a redraw for a plain shell, for this reason).
 
 
 def _set_winsize(fd, rows, cols):
@@ -223,6 +234,7 @@ def _create_session(rows, cols):
         'master_fd': master_fd,
         'rows': rows,
         'cols': cols,
+        'buffer': bytearray(),
         'writers': set(),
         'lock': threading.Lock(),
         'done': False,
@@ -260,7 +272,17 @@ def _session_reader(session):
             if not data:
                 break
             with session['lock']:
+                prev_alt_screen = session['alt_screen']
                 _update_alt_screen_state(session, data)
+                buf = session['buffer']
+                if session['alt_screen'] != prev_alt_screen:
+                    # Crossing into or out of a full-screen app -- drop whatever's buffered rather
+                    # than let a plain-shell replay later pick up a curses session's diff-only
+                    # output (or vice versa) with no full paint underneath it to make sense of.
+                    buf.clear()
+                buf.extend(data)
+                if len(buf) > TERM_BUFFER_MAX:
+                    del buf[:len(buf) - TERM_BUFFER_MAX]
                 writers = list(session['writers'])
             for wfile in writers:
                 try:
@@ -338,32 +360,43 @@ def _terminal_ws(handler):
         session['writers'].add(wfile)
 
     if not is_new:
-        # Reattaching to a shell that's been running unattended. Clear this client's screen
-        # outright rather than replaying any historical output into it -- see _SESSION's own
-        # comment above for why that's actively harmful, not just insufficient. A full-screen app
-        # redraws itself once its own resize wiggle lands (see the resize handling below), onto a
-        # guaranteed-clean canvas.
+        # Reattaching to a shell that's been running unattended. Always clear this client's screen
+        # first -- a full-screen app redraws itself once its own resize wiggle lands (see the
+        # resize handling below), onto a guaranteed-clean canvas; a plain shell gets its recent
+        # output replayed next (see TERM_BUFFER_MAX above for why this is safe for a plain shell
+        # specifically, unlike for a full-screen app).
         try:
             _ws_send(wfile, b'\x1b[2J\x1b[H', opcode=0x02)
         except Exception:
             pass
         with session['lock']:
             alt_screen = session['alt_screen']
-        if not alt_screen:
-            # A plain shell prompt has no resize wiggle coming (see the resize handling below for
-            # why forcing one is actively harmful here) -- with nothing at all redrawing it, the
-            # screen we just cleared would stay genuinely blank (no prompt, not even a cursor
-            # position) until the user happens to type something or press Enter, which looked
-            # exactly like a broken/dead terminal on reattach. Ctrl-L (0x0c) is readline's own
-            # "redraw the current line" binding -- bash and zsh both bind it by default -- so this
-            # asks the shell to redraw its own prompt (and whatever's currently in its input
-            # buffer) the same way pressing it yourself would, without touching window size/SIGWINCH
-            # at all. That input buffer can still contain the same leftover terminal-query-response
-            # bytes described above, so this can still show that content once on reattach -- but
-            # once, not the twice-per-reattach the old resize-based approach caused, and "occasionally
-            # a stale query response" is a far smaller cost than "the terminal looks dead."
+            replay = bytes(session['buffer']) if not alt_screen else b''
+            master_fd = session['master_fd']
+        if replay:
+            # {"type":"replay"} always immediately precedes the one binary frame it describes --
+            # see connectTerminalWs()'s _suppressTermOnData in index.html for why the client needs
+            # this: replayed bytes can contain a terminal-capability query (OSC 10/11, DA1, DECRQM,
+            # ...) that the original xterm.js instance already answered once, live, and replaying
+            # it into a fresh instance with no way to tell replay from live traffic gets it
+            # answered a second time, landing right back in the shell as visible garbage -- the
+            # same failure mode dropping raw replay entirely (a previous version of this fix) was
+            # otherwise solving, just via the query itself this time rather than its answer.
             try:
-                os.write(session['master_fd'], b'\x0c')
+                _ws_send(wfile, json.dumps({'type': 'replay'}).encode(), opcode=0x01)
+                _ws_send(wfile, replay, opcode=0x02)
+            except Exception:
+                pass
+        elif not alt_screen:
+            # Buffer's empty (e.g. right after a curses app just exited and cleared it, before any
+            # new output arrived) -- with nothing at all redrawing the screen we just cleared, it'd
+            # stay genuinely blank (no prompt, not even a cursor position) until the user happened
+            # to type something, which looked exactly like a broken/dead terminal. Ctrl-L (0x0c) is
+            # readline's own "redraw the current line" binding -- bash and zsh both bind it by
+            # default -- so this asks the shell to redraw its own prompt the same way pressing it
+            # yourself would, without touching window size/SIGWINCH at all.
+            try:
+                os.write(master_fd, b'\x0c')
             except OSError:
                 pass
 
