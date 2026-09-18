@@ -4580,6 +4580,16 @@ function connectTerminalWs() {
   });
 }
 
+// Persisted across reloads (not tied to any one browser the way the terminal session itself is,
+// see _getTerminalSessionId() -- this is purely "was the panel showing, and how big" UI state,
+// same convention as ezconf-tree-visible). Restored once at init, below.
+function _persistTerminalOpen(open) {
+  try { localStorage.setItem('ezconf-terminal-open', open ? 'true' : 'false'); } catch (e) {}
+}
+function _persistTerminalSize(size) {
+  try { localStorage.setItem('ezconf-terminal-size', size); } catch (e) {}
+}
+
 function toggleTerminal() {
   const panel = document.getElementById('terminal-panel');
   const btn = document.getElementById('term-toggle');
@@ -4589,6 +4599,7 @@ function toggleTerminal() {
     panel.style.height = panel._openHeight || '25vh';
     btn.textContent = '▼';
     btn.dataset.tooltip = 'Hide';
+    _persistTerminalOpen(true);
     initTerminal().then(() => {
       if (_term) {
         if (!_termWs || _termWs.readyState === WebSocket.CLOSED) connectTerminalWs();
@@ -4603,6 +4614,7 @@ function toggleTerminal() {
     panel.classList.add('collapsed');
     btn.textContent = '▲';
     btn.dataset.tooltip = 'Show';
+    _persistTerminalOpen(false);
   }
 }
 
@@ -4623,6 +4635,8 @@ function setTerminalSize(size) {
   panel.style.height = h;
   panel.classList.remove('collapsed');
   document.getElementById('term-toggle').textContent = '▼';
+  _persistTerminalOpen(true);
+  _persistTerminalSize(size);
   initTerminal().then(() => {
     if (_term) {
       if (!_termWs || _termWs.readyState === WebSocket.CLOSED) connectTerminalWs();
@@ -5764,6 +5778,14 @@ async function loadSiblingFiles() {
   const treeVisible = localStorage.getItem('ezconf-tree-visible') === 'true';
   document.getElementById('sidebar').classList.toggle('hidden', !treeVisible);
   document.getElementById('tree-toggle-btn').classList.toggle('active', treeVisible);
+  // Restores via setTerminalSize() rather than toggleTerminal() -- it recomputes the actual
+  // height from the size name fresh against the current window (needed for "full" regardless,
+  // since that's a live calc() against other elements' heights, not a fixed value that could
+  // itself be persisted), rather than relying on panel._openHeight, a plain JS property that
+  // never survives a reload in the first place.
+  if (TERMINAL_ENABLED && localStorage.getItem('ezconf-terminal-open') === 'true') {
+    setTerminalSize(localStorage.getItem('ezconf-terminal-size') || 'quarter');
+  }
   renderAll();
 
   document.addEventListener('keydown', e => {
