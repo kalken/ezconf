@@ -13,7 +13,8 @@ terminal_persist = true (default false) makes the shell session survive a droppe
 WebSocket connection -- see _SESSION, _create_session(), _session_reader() below. There is only
 ever one session, shared by every connection regardless of who or what browser it comes from --
 see _SESSION's own comment for why. Reconnecting reattaches to the same still-running shell
-(replaying its recent output) instead of forking a fresh one; the shell itself only ever dies when
+(cleared to a blank screen, not replaying its history -- see _SESSION's own comment) instead of
+forking a fresh one; the shell itself only ever dies when
 it exits on its own, or when this whole process does (a reboot, a manual restart of
 ezconf-terminal.service) -- nothing here can make it survive that. With terminal_persist left at
 its default, a client disconnecting kills the shell immediately (see
@@ -136,12 +137,20 @@ TERM_PERSIST = False
 _SESSION = None
 _SESSION_LOCK = threading.Lock()
 
-# Bound on how much recent output is kept for replay to a client that (re)connects. Not a
-# scrollback restore -- xterm.js's own in-browser scrollback already covers a tab that's stayed
-# open continuously -- just enough recent context that a *newly* connecting client (a fresh tab,
-# or the first reconnect after a drop) isn't looking at a blank screen for a shell that's actually
-# been running and producing output all along.
-TERM_BUFFER_MAX = 200_000
+# No output buffer is kept for replay to a (re)connecting client -- an earlier version kept a
+# bounded ring of recent raw bytes for exactly that, and it reliably corrupted a full-screen curses
+# app's display on reattach: replaying a differential-update stream with no full paint underneath
+# into a fresh xterm.js instance leaves its cursor/screen-state tracking wrong from the start. A
+# reattaching client gets a clean, cleared screen instead (see _terminal_ws() below) and, for a
+# full-screen app, a real forced resize to make it repaint properly (see the resize handling below).
+#
+# Separately: a shell prompt framework that queries the terminal at startup (background color via
+# OSC 11, device attributes via DA1, DECRQM mode queries, ...) can end up with xterm.js's answer
+# landing as literal typed input sitting unsubmitted in the shell's own line editor, if the shell
+# wasn't still synchronously listening for it by the time the answer got back over the WebSocket
+# round-trip. That's real, live shell state, not anything buffered here -- there's nothing to
+# replay-and-fix. It's normally invisible (nothing redraws it), which is exactly why forcing an
+# unnecessary redraw is worth avoiding -- see the resize handling below.
 
 
 def _set_winsize(fd, rows, cols):
@@ -149,6 +158,28 @@ def _set_winsize(fd, rows, cols):
         fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack('HHHH', rows, cols, 0, 0))
     except Exception:
         pass
+
+
+# Substrings that mean "a full-screen program just switched into/out of the alternate screen
+# buffer" -- smcup/rmcup in terminfo terms, what ncurses (htop, vim, less, top, ...) wraps its
+# whole screen in. Checked as a plain substring rather than parsed properly: a false negative here
+# (the sequence split exactly across two PTY reads, or a program not using the alt screen at all)
+# just means the resize handling below falls back to treating it as a plain shell -- the same as
+# today, not a regression -- so a cheap check is an acceptable trade rather than a real parser.
+# Deliberately NOT termios ECHO/ICANON state, which was tried first and doesn't work: an
+# interactive readline-based shell (bash, zsh -- most real shells) *also* turns ICANON/ECHO off to
+# do its own line editing, indistinguishable that way from a genuine full-screen app.
+_ALT_SCREEN_ENTER = (b'\x1b[?1049h', b'\x1b[?47h', b'\x1b[?1047h')
+_ALT_SCREEN_EXIT = (b'\x1b[?1049l', b'\x1b[?47l', b'\x1b[?1047l')
+
+
+def _update_alt_screen_state(session, data):
+    for seq in _ALT_SCREEN_ENTER:
+        if seq in data:
+            session['alt_screen'] = True
+    for seq in _ALT_SCREEN_EXIT:
+        if seq in data:
+            session['alt_screen'] = False
 
 
 def _create_session(rows, cols):
@@ -192,10 +223,10 @@ def _create_session(rows, cols):
         'master_fd': master_fd,
         'rows': rows,
         'cols': cols,
-        'buffer': bytearray(),
         'writers': set(),
         'lock': threading.Lock(),
         'done': False,
+        'alt_screen': False,
     }
     threading.Thread(target=_session_reader, args=(session,), daemon=True).start()
     return session
@@ -203,13 +234,12 @@ def _create_session(rows, cols):
 
 def _session_reader(session):
     """The one thread that ever reads this session's PTY, for its entire lifetime -- started once
-    by _create_session() and never restarted. Keeps draining the PTY (into a bounded buffer, and
-    out live to whichever clients are currently attached) regardless of whether anyone's attached
-    at all, so output isn't lost between a client detaching and a later reconnect, and the shell
-    is never left blocked writing into a full pipe with nothing draining it. Only exits -- and
-    only then tears the shell down -- once the shell process itself actually exits or the PTY read
-    fails outright; a client disconnecting never reaches this at all (see _terminal_ws()'s own
-    finally below, which only ever removes that one client from 'writers')."""
+    by _create_session() and never restarted. Keeps draining the PTY out live to whichever clients
+    are currently attached, regardless of whether anyone's attached at all, so the shell is never
+    left blocked writing into a full pipe with nothing draining it. Only exits -- and only then
+    tears the shell down -- once the shell process itself actually exits or the PTY read fails
+    outright; a client disconnecting never reaches this at all (see _terminal_ws()'s own finally
+    below, which only ever removes that one client from 'writers')."""
     global _SESSION
     master_fd = session['master_fd']
     proc = session['proc']
@@ -230,10 +260,7 @@ def _session_reader(session):
             if not data:
                 break
             with session['lock']:
-                buf = session['buffer']
-                buf.extend(data)
-                if len(buf) > TERM_BUFFER_MAX:
-                    del buf[:len(buf) - TERM_BUFFER_MAX]
+                _update_alt_screen_state(session, data)
                 writers = list(session['writers'])
             for wfile in writers:
                 try:
@@ -309,11 +336,15 @@ def _terminal_ws(handler):
 
     with session['lock']:
         session['writers'].add(wfile)
-        replay = bytes(session['buffer'])
 
-    if replay:
+    if not is_new:
+        # Reattaching to a shell that's been running unattended. Clear this client's screen
+        # outright rather than replaying any historical output into it -- see _SESSION's own
+        # comment above for why that's actively harmful, not just insufficient. A plain shell
+        # prompt just reappears empty until the next Enter; a full-screen app redraws itself once
+        # its own resize wiggle lands (see the resize handling below), onto a guaranteed-clean canvas.
         try:
-            _ws_send(wfile, replay, opcode=0x02)
+            _ws_send(wfile, b'\x1b[2J\x1b[H', opcode=0x02)
         except Exception:
             pass
 
@@ -352,10 +383,39 @@ def _terminal_ws(handler):
                     try:
                         msg = json.loads(payload)
                         if msg.get('type') == 'resize':
+                            rows, cols = int(msg['rows']), int(msg['cols'])
                             with session['lock']:
-                                session['rows'] = int(msg['rows'])
-                                session['cols'] = int(msg['cols'])
-                                _set_winsize(session['master_fd'], session['rows'], session['cols'])
+                                same = (session['rows'] == rows and session['cols'] == cols)
+                                session['rows'], session['cols'] = rows, cols
+                                master_fd = session['master_fd']
+                                alt_screen = session['alt_screen']
+                            if same and alt_screen:
+                                # A same-value TIOCSWINSZ is a no-op at the kernel level -- no
+                                # SIGWINCH at all -- which is routinely what a reattach sends (the
+                                # browser resizing to whatever size it already was, e.g. right after
+                                # a plain page reload). A full-screen app (currently in the alternate
+                                # screen buffer -- see _update_alt_screen_state() above) needs a
+                                # genuine SIGWINCH to repaint fully on reattach (its own last paint is
+                                # stale/incomplete), so wiggle through an off-by-one size with a real
+                                # pause before landing back on the real one -- confirmed (manually
+                                # dragging the panel) that a real, sustained size change is what
+                                # actually makes this work, and that the pause matters too: an app
+                                # whose signal handler doesn't run until after both changes have
+                                # already landed can observe only the final, unchanged size and
+                                # correctly (from its own perspective) decide there's nothing to
+                                # redraw. Deliberately NOT done outside the alternate screen (a plain
+                                # shell prompt): forcing a SIGWINCH there has a real cost with no
+                                # benefit -- an interactive shell's own line editor (bash/zsh
+                                # readline, or the kernel's own canonical-mode echo for one that
+                                # doesn't use it) redraws the current input line on SIGWINCH, which
+                                # can contain leftover bytes from an earlier terminal-capability
+                                # query/response the shell never got to consume (see _SESSION's own
+                                # comment on why that's not something this file can safely prevent at
+                                # the source) -- so forcing it twice made that visible, twice, on
+                                # every single reattach.
+                                _set_winsize(master_fd, rows - 1 if rows > 1 else rows + 1, cols)
+                                time.sleep(0.15)
+                            _set_winsize(master_fd, rows, cols)
                             continue
                     except Exception:
                         pass

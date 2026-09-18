@@ -4501,26 +4501,13 @@ function connectTerminalWs() {
         // reused one may have last been resized by a different tab/window entirely.
         _termFit.fit();
         const cols = _term.cols, rows = _term.rows;
-        // Sent as a real, briefly-sustained two-step resize (an off-by-one size, then the actual
-        // size, with a real pause in between) rather than a single message straight to the target
-        // size -- confirmed (manually dragging the panel to resize it) that a genuine, sustained
-        // size change is what makes a foreground full-screen app (htop, vim, ...) left running in
-        // a persistent session actually redraw correctly on reattach, where it otherwise stays
-        // visually stale/incomplete (it only has whatever was replayed from the session's output
-        // buffer to go on, which for a full-screen app is a stream of partial updates with no
-        // full paint underneath -- see _SESSION in terminal.py). A single resize straight to the
-        // target size is a no-op at the kernel level (no SIGWINCH delivered at all) whenever it
-        // happens to already match the size the session was at, e.g. reattaching in the same
-        // browser window -- which is routinely true right after a plain page reload. The pause
-        // matters too, not just the two edges themselves: an app whose signal handler doesn't run
-        // until after both changes have already landed can observe only the final, *unchanged*
-        // size and correctly (from its own perspective) decide there's nothing to redraw.
-        _termWs.send(JSON.stringify({ type: 'resize', cols, rows: rows > 1 ? rows - 1 : rows + 1 }));
-        setTimeout(() => {
-          if (_termWs && _termWs.readyState === WebSocket.OPEN) {
-            _termWs.send(JSON.stringify({ type: 'resize', cols, rows }));
-          }
-        }, 150);
+        // A single message straight to this browser's actual current size. Whether that needs to
+        // turn into a real, sustained two-step resize (to force a foreground full-screen app like
+        // htop to redraw on reattach) is decided server-side now, not here -- see the resize
+        // handling in _terminal_ws() (terminal.py) for why that decision needs to see the PTY's
+        // own byte stream (whether a full-screen app has switched into the alternate screen
+        // buffer), which only the server can.
+        _termWs.send(JSON.stringify({ type: 'resize', cols, rows }));
       }
     }, 200);
   };
