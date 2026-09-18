@@ -9,15 +9,16 @@ Run:
 Config keys read from TOML: terminal_port, session_key_file, shell, cert, key, webroot,
 terminal_persist
 
-terminal_persist = true (default false) makes shell sessions survive a dropped/closed WebSocket
-connection, keyed by a `session` id the client passes as a query param on the WS URL
-(/terminal?session=ID) -- see SESSIONS, _create_session(), _session_reader() below. Reconnecting
-with the same id reattaches to the same still-running shell (replaying its recent output) instead
-of forking a fresh one; the shell itself only ever dies when it exits on its own, or when this
-whole process does (a reboot, a manual restart of ezconf-terminal.service) -- nothing here can
-make it survive that. With terminal_persist left at its default, a client disconnecting kills the
-shell immediately (see TERM_PERSIST/_terminal_ws()'s own finally below) -- exactly the original,
-pre-persistence behavior.
+terminal_persist = true (default false) makes the shell session survive a dropped/closed
+WebSocket connection -- see _SESSION, _create_session(), _session_reader() below. There is only
+ever one session, shared by every connection regardless of who or what browser it comes from --
+see _SESSION's own comment for why. Reconnecting reattaches to the same still-running shell
+(replaying its recent output) instead of forking a fresh one; the shell itself only ever dies when
+it exits on its own, or when this whole process does (a reboot, a manual restart of
+ezconf-terminal.service) -- nothing here can make it survive that. With terminal_persist left at
+its default, a client disconnecting kills the shell immediately (see
+TERM_PERSIST/_terminal_ws()'s own finally below) -- exactly the original, pre-persistence
+behavior, except still shared across simultaneous connections rather than one shell each.
 """
 import argparse
 import base64
@@ -25,7 +26,6 @@ import hashlib
 import http.server
 import json
 import os
-import re
 import secrets
 import select
 import ssl
@@ -34,7 +34,7 @@ import subprocess
 import sys
 import threading
 import time
-from urllib.parse import urlparse, parse_qs
+from urllib.parse import urlparse
 
 try:
     import pty
@@ -118,27 +118,30 @@ READY_DELAY  = 0.3  # see the 'ready' comment in _terminal_ws() below
 # normal "the shell exited" teardown path rather than needing a separate one.
 TERM_PERSIST = False
 
-# SESSIONS holds every shell that's still running, keyed by the client-supplied session id --
-# entries live independently of any particular WebSocket connection, which is the whole point:
-# a session outlives a client detaching (browser closed, network drop, logout) and is only ever
-# removed by _session_reader() once the shell itself actually exits. SESSIONS_LOCK guards
-# creating/looking-up/removing entries in this dict; each session also has its own 'lock' guarding
-# that one session's mutable state (buffer/writers/rows/cols) -- two separate locks so one
-# session's I/O never blocks another session's connect/disconnect.
-SESSIONS      = {}
-SESSIONS_LOCK = threading.Lock()
+# _SESSION holds the one shell that's still running, or None -- independent of any particular
+# WebSocket connection, which is the whole point: it outlives a client detaching (browser closed,
+# network drop, logout) and is only ever cleared by _session_reader() once the shell itself
+# actually exits. There's only ever this one session, shared by every connection regardless of who
+# or what browser it comes from -- there's no per-browser identity anywhere else in ezconf either
+# (one shared login for everyone with access, see check_auth() in server.py), so a per-browser
+# terminal would be the only thing in the whole app pretending otherwise. It's also simpler, and
+# has no failure mode a per-browser id (tried first, then reverted) did: clearing cookies/site
+# data (which usually wipes localStorage too, where a per-browser id would live) would silently
+# orphan that browser's still-running shell forever, unreachable by anything, with no cleanup
+# mechanism -- there's no id here to lose in the first place. The trade-off is explicit: anyone
+# who can log in shares this exact one terminal, always, not just multiple tabs of one browser.
+# _SESSION_LOCK guards setting/clearing/checking _SESSION itself; the session also has its own
+# 'lock' guarding that session's mutable state (buffer/writers/rows/cols) -- two separate locks so
+# the session's I/O never blocks a connect/disconnect deciding whether to (re)create it.
+_SESSION = None
+_SESSION_LOCK = threading.Lock()
 
-# Bound on how much recent output is kept per session for replay to a client that (re)connects.
-# Not a scrollback restore -- xterm.js's own in-browser scrollback already covers a tab that's
-# stayed open continuously -- just enough recent context that a *newly* connecting client (a fresh
-# tab, or the first reconnect after a drop) isn't looking at a blank screen for a shell that's
-# actually been running and producing output all along.
+# Bound on how much recent output is kept for replay to a client that (re)connects. Not a
+# scrollback restore -- xterm.js's own in-browser scrollback already covers a tab that's stayed
+# open continuously -- just enough recent context that a *newly* connecting client (a fresh tab,
+# or the first reconnect after a drop) isn't looking at a blank screen for a shell that's actually
+# been running and producing output all along.
 TERM_BUFFER_MAX = 200_000
-
-# A missing/malformed id (an old client, or one that never sends one) still works -- see
-# _terminal_ws() below -- it just falls back to a private, one-off id nothing else can ever
-# reconnect with, i.e. exactly the old non-persistent behavior for that one connection.
-_SESSION_ID_RE = re.compile(r'[A-Za-z0-9_-]{1,128}')
 
 
 def _set_winsize(fd, rows, cols):
@@ -148,7 +151,7 @@ def _set_winsize(fd, rows, cols):
         pass
 
 
-def _create_session(session_id, rows, cols):
+def _create_session(rows, cols):
     """Fork a fresh shell and start its dedicated reader thread, returning the new session dict
     (or None if the PTY/shell itself couldn't be created). From here on, _session_reader() --
     not any particular WebSocket connection -- owns this shell's entire lifecycle: it keeps
@@ -185,7 +188,6 @@ def _create_session(session_id, rows, cols):
     os.close(slave_fd)
 
     session = {
-        'id': session_id,
         'proc': proc,
         'master_fd': master_fd,
         'rows': rows,
@@ -208,6 +210,7 @@ def _session_reader(session):
     only then tears the shell down -- once the shell process itself actually exits or the PTY read
     fails outright; a client disconnecting never reaches this at all (see _terminal_ws()'s own
     finally below, which only ever removes that one client from 'writers')."""
+    global _SESSION
     master_fd = session['master_fd']
     proc = session['proc']
     try:
@@ -267,12 +270,13 @@ def _session_reader(session):
             os.close(master_fd)
         except Exception:
             pass
-        with SESSIONS_LOCK:
-            if SESSIONS.get(session['id']) is session:
-                del SESSIONS[session['id']]
+        with _SESSION_LOCK:
+            if _SESSION is session:
+                _SESSION = None
 
 
 def _terminal_ws(handler):
+    global _SESSION
     if not _PTY:
         handler.send_error(501, 'PTY not available on this platform')
         return
@@ -293,20 +297,15 @@ def _terminal_ws(handler):
     rfile = handler.rfile
     wfile = sock.makefile('wb', buffering=0)
 
-    qs = parse_qs(urlparse(handler.path).query)
-    session_id = (qs.get('session', [''])[0] or '').strip()
-    if not _SESSION_ID_RE.fullmatch(session_id):
-        session_id = secrets.token_hex(16)
-
-    with SESSIONS_LOCK:
-        session = SESSIONS.get(session_id)
+    with _SESSION_LOCK:
+        session = _SESSION
         is_new = session is None or session.get('done')
         if is_new:
-            session = _create_session(session_id, rows=24, cols=80)
+            session = _create_session(rows=24, cols=80)
             if session is None:
                 handler.send_error(500)
                 return
-            SESSIONS[session_id] = session
+            _SESSION = session
 
     with session['lock']:
         session['writers'].add(wfile)
@@ -376,17 +375,16 @@ def _terminal_ws(handler):
             remaining = len(session['writers'])
         if not TERM_PERSIST and remaining == 0:
             # Non-persistent mode: nothing should outlive the one connection that created it.
-            # Remove this session id from SESSIONS immediately, synchronously, right here --
-            # not left for _session_reader() to notice and do asynchronously on its own next
-            # select() cycle -- so a connection arriving with the same id a moment later (e.g. a
-            # fast page reload) can never win a race against the old shell's own teardown and get
-            # attached to a session that's mid-death. That thread still does the actual OS-level
-            # work (terminate/kill if needed, close the fd) once it notices proc.poll() is no
-            # longer None; its own "remove from SESSIONS" is a no-op by then (already gone), same
-            # as any other double-removal guard.
-            with SESSIONS_LOCK:
-                if SESSIONS.get(session['id']) is session:
-                    del SESSIONS[session['id']]
+            # Clear _SESSION immediately, synchronously, right here -- not left for
+            # _session_reader() to notice and do asynchronously on its own next select() cycle --
+            # so a connection arriving a moment later (e.g. a fast page reload) can never win a
+            # race against the old shell's own teardown and get attached to a session that's
+            # mid-death. That thread still does the actual OS-level work (terminate/kill if
+            # needed, close the fd) once it notices proc.poll() is no longer None; its own "clear
+            # _SESSION" is a no-op by then (already gone), same as any other double-clear guard.
+            with _SESSION_LOCK:
+                if _SESSION is session:
+                    _SESSION = None
             try:
                 proc = session['proc']
                 if proc.poll() is None:
