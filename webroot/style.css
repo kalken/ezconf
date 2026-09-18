@@ -1,5 +1,5 @@
 
-/* Reset: no implicit box-model sizing or default spacing on any element. */
+/* Reset: strip the browser's default box-model sizing and spacing from every element. */
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
 body {
