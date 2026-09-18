@@ -123,21 +123,17 @@ TERM_PERSIST = False
 # a session outlives a client detaching (browser closed, network drop, logout) and is only ever
 # removed by _session_reader() once the shell itself actually exits. SESSIONS_LOCK guards
 # creating/looking-up/removing entries in this dict; each session also has its own 'lock' guarding
-# that one session's mutable state (writers/rows/cols) -- two separate locks so one session's I/O
-# never blocks another session's connect/disconnect.
-#
-# No output buffer is kept for replay to a (re)connecting client -- an earlier version kept a
-# bounded ring of recent raw bytes for exactly that, and it reliably corrupted a full-screen
-# curses app's display (htop, vim, top, ...) on reattach: a fresh xterm.js interpreting a stream
-# of *differential* updates with no full paint underneath them (the app's original full paint,
-# for anything that's been running a while, has almost certainly already scrolled out of any
-# bounded buffer) ends up with its own internal cursor/screen-state tracking corrupted -- and even
-# a subsequent, fully-correct redraw can't cleanly recover from that, since curses's own optimized
-# diffing draws deltas against *its* last-known screen state, not a hard clear. See _terminal_ws()
-# below for what replaces it: clear the reattaching client's screen outright, then nudge whatever
-# is actually running to redraw itself via SIGWINCH.
+# that one session's mutable state (buffer/writers/rows/cols) -- two separate locks so one
+# session's I/O never blocks another session's connect/disconnect.
 SESSIONS      = {}
 SESSIONS_LOCK = threading.Lock()
+
+# Bound on how much recent output is kept per session for replay to a client that (re)connects.
+# Not a scrollback restore -- xterm.js's own in-browser scrollback already covers a tab that's
+# stayed open continuously -- just enough recent context that a *newly* connecting client (a fresh
+# tab, or the first reconnect after a drop) isn't looking at a blank screen for a shell that's
+# actually been running and producing output all along.
+TERM_BUFFER_MAX = 200_000
 
 # A missing/malformed id (an old client, or one that never sends one) still works -- see
 # _terminal_ws() below -- it just falls back to a private, one-off id nothing else can ever
@@ -194,6 +190,7 @@ def _create_session(session_id, rows, cols):
         'master_fd': master_fd,
         'rows': rows,
         'cols': cols,
+        'buffer': bytearray(),
         'writers': set(),
         'lock': threading.Lock(),
         'done': False,
@@ -204,12 +201,13 @@ def _create_session(session_id, rows, cols):
 
 def _session_reader(session):
     """The one thread that ever reads this session's PTY, for its entire lifetime -- started once
-    by _create_session() and never restarted. Keeps draining the PTY and forwarding it live to
-    whichever clients are currently attached, regardless of whether anyone's attached at all, so
-    the shell is never left blocked writing into a full pipe with nothing draining it. Only exits
-    -- and only then tears the shell down -- once the shell process itself actually exits or the
-    PTY read fails outright; a client disconnecting never reaches this at all (see
-    _terminal_ws()'s own finally below, which only ever removes that one client from 'writers')."""
+    by _create_session() and never restarted. Keeps draining the PTY (into a bounded buffer, and
+    out live to whichever clients are currently attached) regardless of whether anyone's attached
+    at all, so output isn't lost between a client detaching and a later reconnect, and the shell
+    is never left blocked writing into a full pipe with nothing draining it. Only exits -- and
+    only then tears the shell down -- once the shell process itself actually exits or the PTY read
+    fails outright; a client disconnecting never reaches this at all (see _terminal_ws()'s own
+    finally below, which only ever removes that one client from 'writers')."""
     master_fd = session['master_fd']
     proc = session['proc']
     try:
@@ -229,6 +227,10 @@ def _session_reader(session):
             if not data:
                 break
             with session['lock']:
+                buf = session['buffer']
+                buf.extend(data)
+                if len(buf) > TERM_BUFFER_MAX:
+                    del buf[:len(buf) - TERM_BUFFER_MAX]
                 writers = list(session['writers'])
             for wfile in writers:
                 try:
@@ -308,40 +310,13 @@ def _terminal_ws(handler):
 
     with session['lock']:
         session['writers'].add(wfile)
+        replay = bytes(session['buffer'])
 
-    if not is_new:
-        # Reattaching to a shell that's been running unattended. Clear this client's screen
-        # outright (rather than trying to replay historical output into it, which was tried and
-        # reliably corrupted a full-screen curses app's display -- see SESSIONS' own comment
-        # above for why), then nudge whatever's running via a resize -- see need_reattach_redraw
-        # below for why that's deferred rather than done here immediately. A plain shell prompt
-        # just reappears empty until the next Enter -- there's no scrollback to lose, since
-        # xterm.js's own in-browser scrollback already covers a tab that's stayed open
-        # continuously; this only ever affects a genuinely fresh client (a new tab, or the first
-        # reconnect after a drop).
-        #
-        # KNOWN LIMITATION, not fixed by any of this: a full-screen curses app (htop, vim, top,
-        # less, ...) commonly diffs its output against its *own* internal model of what it already
-        # drew, rather than unconditionally repainting everything on a resize -- since the process
-        # itself never restarted, that internal model still believes the static parts it only ever
-        # drew once (headers, labels, F-key bars) are already correctly on screen, so it never
-        # re-sends them even after a real SIGWINCH, leaving them missing from this fresh client's
-        # display while the parts it redraws every cycle regardless (numbers, process rows) show
-        # up fine. Confirmed empirically with htop: identical result whether the redraw is forced
-        # immediately here or deferred to the real resize below. The only way to genuinely fix
-        # this would be maintaining a real virtual-terminal emulator server-side (continuously
-        # tracking actual screen contents from every byte, the way tmux/screen do internally) and
-        # painting *that* on reattach instead of asking the app to redraw at all -- a real new
-        # dependency (e.g. pyte) and meaningfully more code, not attempted here.
+    if replay:
         try:
-            _ws_send(wfile, b'\x1b[2J\x1b[H', opcode=0x02)
+            _ws_send(wfile, replay, opcode=0x02)
         except Exception:
             pass
-    # Deferred to this connection's first resize message below, at whatever size the client turns
-    # out to actually be, rather than done here immediately at a size this session merely has on
-    # record from whenever it was last resized -- avoids wasting the one redraw attempt on a size
-    # that's about to change anyway the moment the client's own always-sent resize arrives.
-    need_reattach_redraw = not is_new
 
     # A text frame is always a control message from here on (real terminal output is always sent
     # binary, see _session_reader() above) -- 'ready' tells the client it's now safe to send
@@ -379,21 +354,9 @@ def _terminal_ws(handler):
                         msg = json.loads(payload)
                         if msg.get('type') == 'resize':
                             with session['lock']:
-                                new_rows, new_cols = int(msg['rows']), int(msg['cols'])
-                                changed = (new_rows, new_cols) != (session['rows'], session['cols'])
-                                session['rows'], session['cols'] = new_rows, new_cols
-                                _set_winsize(session['master_fd'], new_rows, new_cols)
-                                if need_reattach_redraw and not changed:
-                                    # The client's real size happens to already match what was on
-                                    # record, so the resize above was a no-op at the kernel level
-                                    # -- no SIGWINCH delivered, no redraw triggered. Force exactly
-                                    # one here, at this connection's own final size, now that it's
-                                    # actually known (see the attach-time comment above for why
-                                    # this isn't done any earlier).
-                                    wiggled = new_rows - 1 if new_rows > 1 else new_rows + 1
-                                    _set_winsize(session['master_fd'], wiggled, new_cols)
-                                    _set_winsize(session['master_fd'], new_rows, new_cols)
-                            need_reattach_redraw = False
+                                session['rows'] = int(msg['rows'])
+                                session['cols'] = int(msg['cols'])
+                                _set_winsize(session['master_fd'], session['rows'], session['cols'])
                             continue
                     except Exception:
                         pass
