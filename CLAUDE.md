@@ -28,7 +28,7 @@ nix run .#ezconf -- --file /path/to/configuration.json
 
 Python deps (all optional, all in the flake devShell): `python-pam` (PAM auth), `cryptography` (`--generate-cert`/`--generate-ca`), `tomli` (TOML config on Python < 3.11).
 
-Auth: `--auth auto` (default — PAM if available, else custom), `--auth custom` (username/password from config), `--auth pam`. `allowed_users` in config restricts PAM logins and renders a dropdown instead of a free-text username field. Authentication is always required.
+Auth: `--auth auto` (default — PAM if available, else custom), `--auth custom` (username/password from config), `--auth pam`. `allowed_users` in config restricts PAM logins and turns the username field into a text input with a `<datalist>` of suggestions rather than a free-text field with none — a `<select>` was tried first and reverted: browsers' saved-password heuristics don't recognize a `<select>` as a username field at all, so Brave/Chrome saved the password with no username attached. `user_allowed()` re-checks the submitted username against `allowed_users` server-side regardless of how it arrived, so this was always just a UX convenience, never a security boundary — a `<select>` couldn't have been one anyway, since anyone can `POST /login` directly with an arbitrary username. Authentication is always required.
 
 Terminal: a separate process, `bin/terminal.py`. Pass `--terminal-port PORT` to `server.py` to enable the panel; run `terminal.py --config ezconf.toml` on the same port.
 
