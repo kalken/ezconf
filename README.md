@@ -361,7 +361,7 @@ services.ezconf = {
 | `generateCert` | bool | auto | Generate a local CA + cert in `/var/lib/ezconf/` (set automatically when `https = true` and no cert/key provided) |
 | `certNames` | list of str | `[]` | Extra hostnames or IPs to include in the generated cert (e.g. `[ "myserver.local" ]`); `localhost`, `127.0.0.1`, and `listen` are always included |
 | `installCerts` | bool | `true` | Install generated CA into `~/.pki/nssdb` and each Firefox profile's own database, for each user in `certUsers` |
-| `certUsers` | list of str | `auth.allowedUsers` | OS users to install the generated CA for; set separately from `allowedUsers` if you log in as a different user than the one browsing |
+| `certUsers` | list of str | `[]` (falls back to `auth.allowedUsers`) | OS users to install the generated CA for; set separately from `allowedUsers` if you log in as a different user than the one browsing |
 | `cert` | str or null | `null` | Path to TLS certificate (PEM) |
 | `key` | str or null | `null` | Path to TLS private key (PEM) |
 | `listen` | str or null | `null` | IP address to listen on (default: `127.0.0.1`; use `0.0.0.0` for all interfaces) |

@@ -57,6 +57,12 @@ rec {
   };
 
   mkPrestart = { cfg, staticToml, mkoptions, package }:
+    # certUsers' own option default stays a plain [] (rather than defaultText referencing
+    # auth.allowedUsers) so the editor's GUI can pre-fill a freshly-added certUsers field with a
+    # real, editable [] instead of an unparseable Nix expression string -- see certUsers'
+    # description in ezconf.nix. The actual "falls back to allowedUsers" behavior lives here
+    # instead, as a plain runtime fallback, with the exact same effective result.
+    let certUsers = if cfg.certUsers != [] then cfg.certUsers else cfg.auth.allowedUsers; in
     pkgs.writeShellScript "ezconf-prestart" ''
       ${pkgs.lib.optionalString cfg.generateCert ''
         ${package}/bin/ezconf --generate-ca /var/lib/ezconf \
@@ -68,7 +74,7 @@ rec {
           /var/lib/ezconf/ca-key.pem /var/lib/ezconf/localhost.pem \
           /var/lib/ezconf/localhost-key.pem
       ''}
-      ${pkgs.lib.optionalString (cfg.generateCert && cfg.installCerts && cfg.certUsers != []) ''
+      ${pkgs.lib.optionalString (cfg.generateCert && cfg.installCerts && certUsers != []) ''
         # Runs on every activation, not just when the CA is freshly generated -- this is what lets
         # a user added to certUsers *after* the CA already existed still get the cert installed on
         # their next rebuild, instead of only ever on the one activation that generated the CA in
@@ -138,7 +144,7 @@ rec {
                 fi
               done
             fi
-          '') cfg.certUsers}
+          '') certUsers}
         fi
       ''}
       ${pkgs.lib.optionalString cfg.generateAutocomplete ''

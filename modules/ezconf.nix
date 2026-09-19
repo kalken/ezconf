@@ -236,9 +236,8 @@ in
 
     certUsers = lib.mkOption {
       type        = lib.types.listOf lib.types.str;
-      default     = cfg.auth.allowedUsers;
-      defaultText = lib.literalExpression "auth.allowedUsers";
-      description = "OS user accounts to install the generated CA certificate for (see installCerts). Defaults to auth.allowedUsers, but is independent of it -- e.g. you might log into ezconf as root over PAM while browsing as your own normal user account, in which case set this to that username instead.";
+      default     = [];
+      description = "OS user accounts to install the generated CA certificate for (see installCerts). An empty list (the default) falls back to auth.allowedUsers at cert-install time; set this explicitly when that's not the right list -- e.g. you might log into ezconf as root over PAM while browsing as your own normal user account, in which case set this to that username instead. Kept as a real option default (rather than defaultText referencing auth.allowedUsers) specifically so the editor's own GUI can pre-fill a freshly-added certUsers field with a plain, editable [] instead of an unparseable Nix expression string.";
     };
 
     cert = lib.mkOption {
