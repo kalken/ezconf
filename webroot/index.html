@@ -5007,9 +5007,6 @@ async function apiFetch(path, opts = {}) {
 }
 
 // ── Multi-file (tabs) ───────────────────────────────────────────────────────
-function _fileQuery() {
-  return activeFile ? ('?file=' + encodeURIComponent(activeFile)) : '';
-}
 function _cfgPathFor(name) {
   return name ? ('/api/v1/file?file=' + encodeURIComponent(name)) : '/api/v1/file';
 }
@@ -5125,7 +5122,13 @@ function _makeTab(name) {
 
   tab.addEventListener('click', () => { if (!suppressClick) switchFile(name); });
   tab.addEventListener('dblclick', e => { e.preventDefault(); _startTabRename(name); });
-  tab.oncontextmenu = e => {
+  tab.oncontextmenu = async e => {
+    // Prevented synchronously, up front -- showContextMenu()'s own preventDefault() runs after
+    // the async backup fetch below, too late to stop the native menu from flashing up first
+    // (preventDefault() on a contextmenu event only has an effect within its own synchronous
+    // dispatch; calling it again once the event's already fully dispatched is a no-op).
+    e.preventDefault();
+    e.stopPropagation();
     const items = [];
     const ownDisabled = name.endsWith('.json.disabled');
     // If the file is only disabled because it sits in a disabled folder, toggling its own
@@ -5138,6 +5141,26 @@ function _makeTab(name) {
       });
     }
     items.push({ label: 'Export', onclick: () => exportFile(name) });
+    // This file's own backups (was the header Restore button's "File" submenu, back when it
+    // covered both scopes — see showBackupsMenu()'s own comment for why that split moved here).
+    // Explicitly this file, not activeFile: right-clicking a tab that isn't the active one should
+    // restore into *that* file, not silently overwrite whatever's currently open.
+    if (BACKUP_ENABLED) {
+      let fileBackups = [];
+      try {
+        const res = await apiFetch('/backups?file=' + encodeURIComponent(name));
+        if (res.ok) fileBackups = (await res.json()).backups || [];
+      } catch (err) { /* falls through to the empty-state item below */ }
+      items.push({
+        label: 'Restore',
+        items: fileBackups.length
+          ? fileBackups.map(b => ({
+              label: new Date(b.mtime * 1000).toLocaleString() + '  ·  ' + _formatBackupSize(b.size),
+              onclick: () => loadBackup(b.name, name),
+            }))
+          : [{ label: 'No backups yet — one is made on every save.', disabled: true }],
+      });
+    }
     items.push({ separator: true });
     items.push({ label: 'Clear', onclick: () => clearFile(name) });
     items.push({ label: 'Delete', danger: true, onclick: () => deleteFile(name) });
@@ -5738,20 +5761,18 @@ function _formatBackupSize(n) {
 
 // The Restore button opens a dropdown, not a modal — showContextMenu doesn't care whether it's
 // triggered by a right-click or a plain click, so it's reused here as a left-click dropdown menu.
-// Split into "File"/"System" submenus, same shape as the "⬆ Export"/"⬇ Import" dropdowns: "File"
-// is the pre-existing per-file behavior (pick a backup of the active tab and it loads straight
-// into the editor, see loadBackup(), no confirmation -- nothing is written to disk until Save, so
-// there's nothing to confirm), "System" lists whole-NIXOS_TARGET backups (see server.py's
-// backup_system()/_restore_system_zip()) — hidden entirely when SYSTEM_BACKUP_ENABLED is false,
-// same as it would be if this were its own button. Named "Restore" rather than "Backups" since
-// every action in this menu is a restore, not a way to make a new backup: there's no manual
-// "back up now" trigger -- a system backup is only ever created automatically, right before
-// system-import/system-backup/restore overwrites something (see backup_system()'s call sites in
-// server.py), so the list here is really a history of "state right before the last few destructive
-// writes," which is the only thing a backup is actually for. Clicking an entry restores it
-// directly (via restoreSystemBackup()'s own confirm()) rather than opening a further submenu --
-// there's no separate download action either, since downloading a system backup for its own sake
-// isn't something this app needs to support.
+// Used to be split into "File"/"System" submenus, but restoring a specific file's own backup
+// moved to that file's tab right-click menu instead (see _makeTab()'s oncontextmenu) — this button
+// only ever covers the whole-NIXOS_TARGET case now (see server.py's
+// backup_system()/_restore_system_zip()), so there's nothing left to choose between; it goes
+// straight to the list. Named "Restore" rather than "Backups" since every action in this menu is a
+// restore, not a way to make a new backup: there's no manual "back up now" trigger -- a system
+// backup is only ever created automatically, right before system-import/system-backup/restore
+// overwrites something (see backup_system()'s call sites in server.py), so the list here is really
+// a history of "state right before the last few destructive writes," which is the only thing a
+// backup is actually for. Clicking an entry restores it directly (via restoreSystemBackup()'s own
+// confirm()) -- there's no separate download action either, since downloading a system backup for
+// its own sake isn't something this app needs to support.
 async function showBackupsMenu(event) {
   // showContextMenu positions itself at event.clientX/clientY — for a right-click that's exactly
   // the cursor, which is fine, but for this left-click button it'd be wherever inside the button
@@ -5766,39 +5787,18 @@ async function showBackupsMenu(event) {
     clientX: rect.left, clientY: rect.bottom + 4,
     preventDefault: () => event.preventDefault(), stopPropagation: () => event.stopPropagation(),
   };
-  let fileBackups = [];
-  if (BACKUP_ENABLED) {
-    try {
-      const res = await apiFetch('/backups' + _fileQuery());
-      if (res.ok) fileBackups = (await res.json()).backups || [];
-    } catch (e) { /* falls through to the empty-state item below */ }
-  }
-  const items = [{
-    label: 'File',
-    items: fileBackups.length
-      ? fileBackups.map(b => ({
-          label: new Date(b.mtime * 1000).toLocaleString() + '  ·  ' + _formatBackupSize(b.size),
-          onclick: () => loadBackup(b.name),
-        }))
-      : [{ label: 'No backups yet — one is made on every save.', disabled: true }],
-  }];
-  if (SYSTEM_BACKUP_ENABLED) {
-    let systemBackups = [];
-    try {
-      const res = await apiFetch('/system-backups');
-      if (res.ok) systemBackups = (await res.json()).backups || [];
-    } catch (e) { /* falls through to the empty-state item below */ }
-    items.push({
-      label: 'System',
-      items: systemBackups.length
-        ? systemBackups.map(b => ({
-            label: new Date(b.mtime * 1000).toLocaleString() + '  ·  ' + _formatBackupSize(b.size),
-            danger: true,
-            onclick: () => restoreSystemBackup(b.name),
-          }))
-        : [{ label: 'No system backups yet — one is made automatically before any system import or restore.', disabled: true }],
-    });
-  }
+  let systemBackups = [];
+  try {
+    const res = await apiFetch('/system-backups');
+    if (res.ok) systemBackups = (await res.json()).backups || [];
+  } catch (e) { /* falls through to the empty-state item below */ }
+  const items = systemBackups.length
+    ? systemBackups.map(b => ({
+        label: new Date(b.mtime * 1000).toLocaleString() + '  ·  ' + _formatBackupSize(b.size),
+        danger: true,
+        onclick: () => restoreSystemBackup(b.name),
+      }))
+    : [{ label: 'No system backups yet — one is made automatically before any system import or restore.', disabled: true }];
   showContextMenu(anchor, items, { triggerEl: btn });
 }
 
@@ -5806,13 +5806,22 @@ async function showBackupsMenu(event) {
 // only replaces the in-memory config, same as switching files/importing does. Nothing is written
 // until the user hits Save, and the load itself is undo-able (renderAll()'s _pushHistory()
 // snapshots it) since it's just a normal wholesale `config` reassignment — so no confirmation.
-async function loadBackup(name) {
+// `targetFile` defaults to activeFile (the original behavior, still what the Restore panel uses)
+// but a tab's own right-click Restore (see _makeTab()) passes that tab's name explicitly — a
+// backup is always a specific file's own history, so restoring one should never silently land in
+// whichever *other* file happens to be open at the time.
+async function loadBackup(name, targetFile) {
+  const file = targetFile || activeFile;
   try {
     const res = await apiFetch('/backup/content?name=' + encodeURIComponent(name));
     if (!res.ok) { setStatus('Load failed (' + res.status + ')', 4000, 'err'); return; }
-    config = normalizeConfig(await res.json());
-    fileConfigs[activeFile] = config;
-    renderAll();
+    fileConfigs[file] = normalizeConfig(await res.json());
+    if (file === activeFile) {
+      config = fileConfigs[file];
+      renderAll();
+    } else {
+      await switchFile(file);
+    }
     setStatus('Loaded backup — review and Save to keep it', 3500, 'ok');
   } catch (e) {
     setStatus('Load failed: ' + e.message, 4000, 'err');
@@ -5887,10 +5896,13 @@ async function loadSiblingFiles() {
     ordinaryRow.classList.add('install-mode-disabled');
     _wireHoverTooltip(ordinaryRow, 'Disabled in install mode');
   }
-  if (BACKUP_ENABLED || SYSTEM_BACKUP_ENABLED) {
+  // File-level restore lives on each tab's own right-click menu now (see _makeTab()) -- this
+  // button only ever covers the whole system, so its visibility follows SYSTEM_BACKUP_ENABLED
+  // alone rather than either backup setting.
+  if (SYSTEM_BACKUP_ENABLED) {
     const btn = document.createElement('button');
     btn.className = 'btn'; btn.id = 'restore-btn';
-    _wireHoverTooltip(btn, 'Load a file backup, or restore/back up the whole system');
+    _wireHoverTooltip(btn, 'Restore the whole system from an automatic backup');
     btn.textContent = '🕐 Restore';
     btn.onclick = showBackupsMenu;
     const actions = document.querySelector('.header-actions');
