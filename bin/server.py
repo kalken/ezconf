@@ -839,17 +839,52 @@ def _read_login_page(error=''):
         # A <select> here (tried first) can only ever submit one of these exact values, but
         # browsers' saved-password heuristics look for an <input> paired with the password field --
         # a <select> isn't recognized as a username field at all, so Brave/Chrome saved the password
-        # with no username attached. A plain text <input> with a <datalist> keeps the same pick-
-        # from-a-list convenience (and still autocompletes/saves correctly) while giving up nothing
-        # real: user_allowed() already re-checks the submitted username against ALLOWED_USERS
-        # server-side regardless of how it arrived, so the <select> was never a security boundary --
-        # anyone can POST /login with an arbitrary username directly, with or without it.
-        options = ''.join(f'<option value="{u}">{u}</option>' for u in sorted(ALLOWED_USERS))
-        username_field = (
-            '<input id="u" name="username" type="text" list="allowed-users" '
-            'autocomplete="username" autofocus>'
-            f'<datalist id="allowed-users">{options}</datalist>'
-        )
+        # with no username attached. Switching to a plain <input> with a <list>-linked <datalist>
+        # (tried second) fixed that, but broke autofill in a different way: Chromium suppresses its
+        # own saved-password suggestion dropdown on any input that has a `list` attribute, since the
+        # datalist popup and the browser's native autofill popup would otherwise compete for the
+        # same space -- confirmed this is what was happening, not something specific to this app,
+        # since it reproduces on any <input list=...> paired with a password field, in any site.
+        # A plain <input> with no `list` attribute at all, plus this file's own small hand-rolled
+        # suggestion dropdown (real DOM elements below the field, not a native datalist), keeps the
+        # same pick-from-a-list convenience without that attribute ever being present for Chromium
+        # to react to -- the browser sees an entirely ordinary text input and autofills it normally.
+        # None of this is a security boundary either way: user_allowed() re-checks the submitted
+        # username against ALLOWED_USERS server-side regardless of how it arrived, since anyone can
+        # POST /login with an arbitrary username directly, with or without a picker in front of it.
+        users_json = json.dumps(sorted(ALLOWED_USERS))
+        username_field = f'''<div class="login-suggest-wrap">
+      <input id="u" name="username" type="text" autocomplete="username" autofocus>
+      <div class="login-suggest hidden" id="u-suggest"></div>
+    </div>
+    <script>
+    (function() {{
+      var users = {users_json};
+      var inp = document.getElementById('u');
+      var list = document.getElementById('u-suggest');
+      function render() {{
+        var q = inp.value.toLowerCase();
+        var matches = users.filter(function(u) {{ return u.toLowerCase().indexOf(q) !== -1; }});
+        list.innerHTML = '';
+        if (!matches.length) {{ list.classList.add('hidden'); return; }}
+        matches.forEach(function(u) {{
+          var item = document.createElement('div');
+          item.className = 'login-suggest-item';
+          item.textContent = u;
+          item.addEventListener('mousedown', function(e) {{
+            e.preventDefault();
+            inp.value = u;
+            list.classList.add('hidden');
+          }});
+          list.appendChild(item);
+        }});
+        list.classList.remove('hidden');
+      }}
+      inp.addEventListener('focus', render);
+      inp.addEventListener('input', render);
+      inp.addEventListener('blur', function() {{ setTimeout(function() {{ list.classList.add('hidden'); }}, 150); }});
+    }})();
+    </script>'''
     else:
         username_field = '<input id="u" name="username" type="text" autocomplete="username" autofocus>'
     ca_link = ''
