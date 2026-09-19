@@ -880,7 +880,12 @@ def _read_login_page(error=''):
         }});
         list.classList.remove('hidden');
       }}
-      inp.addEventListener('focus', render);
+      // Deliberately not wired to 'focus' too: the browser's own saved-password autofill
+      // suggestion also opens on focus, right over the same field, and having both appear at once
+      // stacked two separate dropdowns on top of each other -- confirmed visually, not just in
+      // theory. Waiting for an actual keystroke means the common case (click the field, pick the
+      // browser's own suggestion) shows only that, and this dropdown still helps once someone
+      // starts typing a name that suggestion doesn't cover.
       inp.addEventListener('input', render);
       inp.addEventListener('blur', function() {{ setTimeout(function() {{ list.classList.add('hidden'); }}, 150); }});
     }})();
