@@ -113,6 +113,12 @@ in
       description = "Flake path passed as TARGET to ezconf-mkoptions when generating autocomplete data.";
     };
 
+    generateAutocomplete = lib.mkOption {
+      type        = lib.types.bool;
+      default     = true;
+      description = "Run ezconf-mkoptions automatically the first time the service starts (whenever /var/lib/ezconf/autocomplete doesn't exist yet), evaluating nixosTarget to populate the editor's option/package/kernel autocomplete. Set to false to skip this -- the editor still works fully without it (just without autocomplete suggestions) until the \"Refresh Autocomplete\" button is used manually, e.g. if the eval is slow enough to be worth not doing unconditionally on every fresh boot/state wipe.";
+    };
+
     systemExportExcludeDotfiles = lib.mkOption {
       type        = lib.types.bool;
       default     = true;

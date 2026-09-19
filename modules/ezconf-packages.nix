@@ -92,11 +92,13 @@ rec {
           '') cfg.auth.allowedUsers}
         fi
       ''}
-      # Generate autocomplete data on first start
-      if [ ! -d /var/lib/ezconf/autocomplete ]; then
-        TARGET=${pkgs.lib.escapeShellArg cfg.nixosTarget} \
-          ${mkoptions}/bin/ezconf-mkoptions -o /var/lib/ezconf/autocomplete
-      fi
+      ${pkgs.lib.optionalString cfg.generateAutocomplete ''
+        # Generate autocomplete data on first start
+        if [ ! -d /var/lib/ezconf/autocomplete ]; then
+          TARGET=${pkgs.lib.escapeShellArg cfg.nixosTarget} \
+            ${mkoptions}/bin/ezconf-mkoptions -o /var/lib/ezconf/autocomplete
+        fi
+      ''}
       # Always fix ownership (handles user/group changes)
       [ -d /var/lib/ezconf/autocomplete ] && \
         chown -R ${cfg.user}:${cfg.group} /var/lib/ezconf/autocomplete

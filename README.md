@@ -301,7 +301,7 @@ services.ezconf = {
 
 ## 🔄 Autocomplete Data
 
-The editor loads NixOS option, package, and kernel data from `autocomplete_dir` if set in the config, otherwise `autocomplete/` under the webroot. The NixOS module sets `autocomplete_dir` to `/var/lib/ezconf/autocomplete/` and generates the data on first start. To regenerate from the UI, the `↻ Autocomplete` button appears automatically when `mkoptions` is configured (the module sets this up). If the run fails, or completes with warnings (e.g. an option that failed to evaluate and was skipped), the full output is shown in a popup — no need for the terminal panel to see what went wrong.
+The editor loads NixOS option, package, and kernel data from `autocomplete_dir` if set in the config, otherwise `autocomplete/` under the webroot. The NixOS module sets `autocomplete_dir` to `/var/lib/ezconf/autocomplete/` and generates the data on first start, unless `generateAutocomplete = false`. To regenerate from the UI, the `↻ Autocomplete` button appears automatically when `mkoptions` is configured (the module sets this up) — this is also how to populate it the first time if `generateAutocomplete` was turned off. If the run fails, or completes with warnings (e.g. an option that failed to evaluate and was skipped), the full output is shown in a popup — no need for the terminal panel to see what went wrong.
 
 For standalone use:
 
@@ -369,6 +369,7 @@ services.ezconf = {
 | `interface` | str or null | `null` | Network interface to open firewall ports on (e.g. `"eth0"`); when set, ports are opened only on that interface instead of all interfaces |
 | `trustedHosts` | list of str | `[]` | Extra hostnames trusted for CSRF check — required when behind a reverse proxy; `listen` and `certNames` are trusted automatically. `[ "*" ]` disables the check entirely (accepts any Host header) — for cases like an installer ISO where the address can't be known ahead of time |
 | `nixosTarget` | str | `"/etc/nixos"` | Flake path passed to `ezconf-mkoptions`; also what system export zips up |
+| `generateAutocomplete` | bool | `true` | Run `ezconf-mkoptions` automatically the first time the service starts (when `/var/lib/ezconf/autocomplete` doesn't exist yet). Set `false` to skip this and rely on the `↻ Autocomplete` button instead — useful if evaluating `nixosTarget` is slow enough to be worth not doing unconditionally on every fresh boot/state wipe |
 | `systemExportExcludeDotfiles` | bool | `true` | Exclude dotfiles/dotdirs from the system export zip |
 | `systemExportExclude` | list of str | `["hardware-configuration.nix"]` | Basenames the system export zip always skips, anywhere in the tree |
 | `backupDir` | str | `"/var/lib/ezconf/backups"` | Directory to store config file backups (one subset per file) |
@@ -381,7 +382,7 @@ services.ezconf = {
 ## 📝 Notes
 
 - `configDir` is created automatically with a `default.nix` that applies whatever `*.json` files end up there — it starts with none; create your first one from the editor (right-click the tab bar, or the empty editor area, for "New file"). Add `./ezconf` to your `nixosSystem` modules list in `flake.nix` to wire it in.
-- Autocomplete data is generated on first service start into `/var/lib/ezconf/autocomplete/` and can be refreshed from the UI.
+- Autocomplete data is generated on first service start into `/var/lib/ezconf/autocomplete/` (set `generateAutocomplete = false` to skip this) and can be refreshed from the UI.
 - The terminal service has `restartIfChanged = false` — it forks the shell directly as its own child, so restarting it (e.g. `systemctl restart ezconf-terminal` to pick up a package update) kills whatever's running inside it. A rebuild never does this automatically; restart it yourself when you need to pick up a change.
 - `auth.password` is stored in the Nix store (world-readable). Use `auth.passwordFile` for anything real.
 - PAM mode defaults `allowedUsers` to the user running the service if the list is empty.
