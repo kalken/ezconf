@@ -836,8 +836,20 @@ def _ping_payload():
 
 def _read_login_page(error=''):
     if ALLOWED_USERS:
+        # A <select> here (tried first) can only ever submit one of these exact values, but
+        # browsers' saved-password heuristics look for an <input> paired with the password field --
+        # a <select> isn't recognized as a username field at all, so Brave/Chrome saved the password
+        # with no username attached. A plain text <input> with a <datalist> keeps the same pick-
+        # from-a-list convenience (and still autocompletes/saves correctly) while giving up nothing
+        # real: user_allowed() already re-checks the submitted username against ALLOWED_USERS
+        # server-side regardless of how it arrived, so the <select> was never a security boundary --
+        # anyone can POST /login with an arbitrary username directly, with or without it.
         options = ''.join(f'<option value="{u}">{u}</option>' for u in sorted(ALLOWED_USERS))
-        username_field = f'<select id="u" name="username" class="enum-select">{options}</select>'
+        username_field = (
+            '<input id="u" name="username" type="text" list="allowed-users" '
+            'autocomplete="username" autofocus>'
+            f'<datalist id="allowed-users">{options}</datalist>'
+        )
     else:
         username_field = '<input id="u" name="username" type="text" autocomplete="username" autofocus>'
     ca_link = ''

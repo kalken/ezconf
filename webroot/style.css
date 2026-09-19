@@ -540,7 +540,7 @@ body {
 .editor-area.file-disabled { opacity: 0.45; }
 
 /* ── Inputs ── */
-input[type=text], input[type=number], input[type=password], textarea, select.enum-select {
+input[type=text], input[type=number], input[type=password], textarea {
   background: transparent;
   border: 1px solid var(--input-border);
   color: var(--text);
@@ -551,33 +551,8 @@ input[type=text], input[type=number], input[type=password], textarea, select.enu
   outline: none;
   width: 100%;
 }
-input:focus, textarea:focus, select.enum-select:focus { border-color: var(--accent2); }
+input:focus, textarea:focus { border-color: var(--accent2); }
 textarea { resize: vertical; min-height: unset; line-height: 1.5; }
-
-/* A plain <select> (the login page's username dropdown when allowed_users is set -- the one
-   native <select> anywhere in the app, everywhere else uses the custom makeCustomSelect() widget)
-   ignores `background: transparent` above without `appearance: none` too -- browsers paint their
-   own native chrome regardless, which looked like a plain white box against a dark theme. Restyled
-   as its own rule rather than folded into the shared one above: it needs the arrow/option handling
-   below, which a plain text input has no equivalent of. Reuses --select-option-* rather than
-   introducing its own colors, matching the custom-select/context-menu dropdowns elsewhere. */
-select.enum-select {
-  appearance: none;
-  -webkit-appearance: none;
-  -moz-appearance: none;
-  background-color: var(--select-option-bg);
-  background-image: var(--select-arrow);
-  background-repeat: no-repeat;
-  background-position: right 8px center;
-  background-size: 11px;
-  padding-right: 26px;
-  cursor: pointer;
-}
-/* Most browsers use the <select>'s own background/color as the baseline for its native option
-   popup too (not fully themeable beyond this -- the popup itself stays OS-drawn), so this is what
-   keeps the open dropdown's list dark instead of falling back to a native white one. */
-select.enum-select option { background-color: var(--select-option-bg); color: var(--select-option-color); }
-select.enum-select option:checked { background-color: var(--select-option-hover); }
 
 /* ── Toggle ── */
 .toggle-wrap { display: flex; align-items: center; gap: 8px; }
