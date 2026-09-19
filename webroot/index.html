@@ -1619,7 +1619,14 @@ function doAdd() {
         if (addSelectedType === 'expr') {
           initialVal = { _expr: defStr };
         } else {
-          initialVal = nixToJs(defStr, true);
+          // Same nixToJs() catch-all issue as unwrapAction() above: unparseable text (a bare
+          // identifier like "auth.allowedUsers", not a literal) comes back wrapped as
+          // { _expr: defStr } rather than undefined. Since addSelectedType is known and isn't
+          // 'expr' here, that wrapper isn't a usable seed value -- treat it the same as a real
+          // parse failure so the defaultForType() fallback below runs instead of leaving a fresh
+          // array/object/etc.-typed option stuck as raw Nix the moment it's added.
+          const parsedDef = nixToJs(defStr, true);
+          initialVal = isExprPkg(parsedDef) ? undefined : parsedDef;
         }
       }
     }
@@ -3161,9 +3168,15 @@ function renderField(container, key, val, path) {
         renderAll();
         return;
       }
-      // Try to parse the Nix expression back to a JS value.
+      // Try to parse the Nix expression back to a JS value. nixToJs()'s own final fallback for
+      // anything it doesn't recognize as a literal (a bare identifier like "auth.allowedUsers",
+      // "pkgs.foo", "lib.mkForce true", ...) is to hand the text straight back wrapped as
+      // { _expr: s } rather than failing outright -- checking only `!== undefined` treated that
+      // catch-all as a successful native conversion, so "Convert to native" silently did nothing
+      // for exactly the inputs it exists to handle: it just handed back the identical expr. Only
+      // accept a result that's actually not still an expr wrapper as a real conversion.
       const parsed = nixToJs(inp.value);
-      if (parsed !== undefined) {
+      if (parsed !== undefined && !isExprPkg(parsed)) {
         setAtPath(config, path, parsed);
         renderAll();
         return;
