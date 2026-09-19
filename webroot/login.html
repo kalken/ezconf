@@ -15,11 +15,20 @@
   .login-card h1 { font-size: 18px; font-weight: 700; margin-bottom: 28px; color: var(--accent); letter-spacing: .04em; }
   .login-card label { display: block; font-size: 11px; color: var(--text2); text-transform: uppercase; letter-spacing: .06em; margin-bottom: 5px; }
   .login-card input { display: block; margin-bottom: 16px; padding: 7px 10px; }
-  /* The username picker (allowed_users) -- deliberately not a native <datalist>, which suppresses
-     Chromium's own saved-password autofill dropdown on any input carrying a `list` attribute (see
-     _read_login_page()'s own comment in server.py). This is a small hand-rolled dropdown instead,
-     so the input itself stays an entirely ordinary text field as far as the browser is concerned. */
+  /* The username picker (allowed_users) -- deliberately not a native <datalist>, and deliberately
+     not opened by focusing or typing in the field either. Both were tried and both collided with
+     the browser's own saved-password autofill, which reacts to those same triggers on this same
+     field (see _read_login_page()'s own comment in server.py for the full history). This version
+     only ever opens on an explicit click of its own arrow button -- an action the browser's
+     autofill has no reason to react to at all, so there's nothing left for it to collide with. */
   .login-suggest-wrap { position: relative; }
+  .login-suggest-wrap input { padding-right: 30px; }
+  .login-suggest-arrow {
+    position: absolute; top: 0; right: 2px; height: 100%; width: 26px;
+    display: flex; align-items: center; justify-content: center;
+    background: transparent; border: none; color: var(--text2); font-size: 10px; cursor: pointer;
+  }
+  .login-suggest-arrow:hover { color: var(--accent); }
   .login-suggest {
     position: absolute; top: calc(100% - 12px); left: 0; right: 0; z-index: 10;
     background: var(--bg2); border: 1px solid var(--border2); border-radius: 6px;
