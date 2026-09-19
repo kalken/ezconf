@@ -69,12 +69,32 @@ rec {
           /var/lib/ezconf/localhost-key.pem
       ''}
       ${pkgs.lib.optionalString (cfg.generateCert && cfg.installCerts && cfg.certUsers != []) ''
-        # Runs on every activation, not just when the CA is freshly generated -- each certutil
-        # call below is idempotent (-D to drop any stale entry, then -A to re-add), so this is
-        # cheap to repeat, and it's what lets a user added to certUsers *after* the CA already
-        # existed still get the cert installed on their next rebuild, instead of only ever on the
-        # one activation that happened to generate the CA in the first place.
+        # Runs on every activation, not just when the CA is freshly generated -- this is what lets
+        # a user added to certUsers *after* the CA already existed still get the cert installed on
+        # their next rebuild, instead of only ever on the one activation that generated the CA in
+        # the first place. Cheap to repeat since _ezconf_install_ca below skips real no-ops.
         if [ -f /var/lib/ezconf/ca.pem ]; then
+          # Compares what's already trusted under this nickname against the current ca.pem before
+          # touching anything, and skips the delete+add entirely when they already match -- this
+          # runs on every single ezconf.service (re)start (boot, manual restart, a crash-loop via
+          # Restart=on-failure), not just when the CA actually changes, so skipping a real no-op
+          # avoids needlessly rewriting every user's database that often. A missing or different
+          # cert just fails the comparison (cmp against empty/wrong output) and falls through to a
+          # normal reinstall, so this can only ever skip a genuine no-op, never a needed update.
+          _ezconf_install_ca() {
+            # certutil's own -a (armored/PEM) export uses CRLF line endings, while ca.pem (written
+            # by Python's cryptography library) uses plain LF -- confirmed empirically: comparing
+            # the two directly never matches even for an identical cert, which would have made
+            # this skip check pure dead code, always falling through to reinstall. tr strips that
+            # difference out before the comparison.
+            if timeout 10 ${pkgs.nssTools}/bin/certutil -d "sql:$1" -L -a -n "ezconf Local CA" 2>/dev/null \
+                | tr -d '\r' | cmp -s - /var/lib/ezconf/ca.pem; then
+              return 0
+            fi
+            timeout 10 ${pkgs.nssTools}/bin/certutil -d "sql:$1" -D -n "ezconf Local CA" 2>/dev/null || true
+            timeout 10 ${pkgs.nssTools}/bin/certutil -d "sql:$1" -A -t "CT,," \
+              -n "ezconf Local CA" -i /var/lib/ezconf/ca.pem || true
+          }
           ${pkgs.lib.concatMapStrings (user:
             let home = "/home/${user}"; in ''
             _dir="${home}/.pki/nssdb"
@@ -85,9 +105,7 @@ rec {
                 chown -R ${pkgs.lib.escapeShellArg user} "${home}/.pki"
               fi
               if timeout 10 ${pkgs.nssTools}/bin/certutil -d "sql:$_dir" -L >/dev/null 2>&1; then
-                timeout 10 ${pkgs.nssTools}/bin/certutil -d "sql:$_dir" -D -n "ezconf Local CA" 2>/dev/null || true
-                timeout 10 ${pkgs.nssTools}/bin/certutil -d "sql:$_dir" -A -t "CT,," \
-                  -n "ezconf Local CA" -i /var/lib/ezconf/ca.pem || true
+                _ezconf_install_ca "$_dir"
               else
                 echo "ezconf: WARNING: NSS database at ${home}/.pki/nssdb appears corrupt; skipping cert install for ${user}" >&2
               fi
@@ -116,9 +134,7 @@ rec {
                   chown ${pkgs.lib.escapeShellArg user} "$_ffdir"/cert9.db "$_ffdir"/key4.db 2>/dev/null || true
                 fi
                 if timeout 10 ${pkgs.nssTools}/bin/certutil -d "sql:$_ffdir" -L >/dev/null 2>&1; then
-                  timeout 10 ${pkgs.nssTools}/bin/certutil -d "sql:$_ffdir" -D -n "ezconf Local CA" 2>/dev/null || true
-                  timeout 10 ${pkgs.nssTools}/bin/certutil -d "sql:$_ffdir" -A -t "CT,," \
-                    -n "ezconf Local CA" -i /var/lib/ezconf/ca.pem || true
+                  _ezconf_install_ca "$_ffdir"
                 fi
               done
             fi
