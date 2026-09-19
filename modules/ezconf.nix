@@ -231,7 +231,7 @@ in
     installCerts = lib.mkOption {
       type        = lib.types.bool;
       default     = true;
-      description = "Install the generated CA certificate into ~/.pki/nssdb for each user in auth.allowedUsers so web browsers trust it. Only has effect when generateCert = true.";
+      description = "Install the generated CA certificate into ~/.pki/nssdb (Chrome/Chromium-family browsers) and each detected Firefox profile's own certificate database, for each user in auth.allowedUsers, so browsers trust it. Only has effect when generateCert = true.";
     };
 
     cert = lib.mkOption {

@@ -88,6 +88,29 @@ rec {
               else
                 echo "ezconf: WARNING: NSS database at ${home}/.pki/nssdb appears corrupt; skipping cert install for ${user}" >&2
               fi
+              # Firefox keeps its own certificate database per profile, entirely separate from
+              # the shared ~/.pki/nssdb above -- Chrome/Chromium-family browsers (Brave included)
+              # read from that shared one, but Firefox never does, on any platform. Installing
+              # only into ~/.pki/nssdb leaves Firefox not trusting the CA at all -- confirmed by a
+              # real report: the terminal panel's WSS connection failed in Firefox specifically
+              # (worked the whole time in Brave) until the cert was trusted there too, by hand.
+              # mkcert's own -install handles this the same way: glob every profile directory and
+              # add the cert to each one's own database, creating it first via -N if that profile
+              # has never triggered NSS to make one yet -- a brand new, never-launched profile has
+              # no database at all, nothing here can install into one that doesn't exist yet.
+              for _ffdir in "${home}"/.mozilla/firefox/*/; do
+                [ -d "$_ffdir" ] || continue
+                _ffdir="''${_ffdir%/}"
+                if [ ! -f "$_ffdir/cert9.db" ] && [ ! -f "$_ffdir/cert8.db" ]; then
+                  timeout 10 ${pkgs.nssTools}/bin/certutil -d "sql:$_ffdir" -N -f /dev/null 2>/dev/null || true
+                  chown ${pkgs.lib.escapeShellArg user} "$_ffdir"/cert9.db "$_ffdir"/key4.db 2>/dev/null || true
+                fi
+                if timeout 10 ${pkgs.nssTools}/bin/certutil -d "sql:$_ffdir" -L >/dev/null 2>&1; then
+                  timeout 10 ${pkgs.nssTools}/bin/certutil -d "sql:$_ffdir" -D -n "ezconf Local CA" 2>/dev/null || true
+                  timeout 10 ${pkgs.nssTools}/bin/certutil -d "sql:$_ffdir" -A -t "CT,," \
+                    -n "ezconf Local CA" -i /var/lib/ezconf/ca.pem || true
+                fi
+              done
             fi
           '') cfg.auth.allowedUsers}
         fi
