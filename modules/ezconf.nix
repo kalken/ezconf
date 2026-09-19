@@ -51,6 +51,10 @@ let
     "system_backup_count = ${toString cfg.systemBackupCount}"
     (lib.optional cfg.terminal "terminal_port = ${toString cfg.ports.terminal}")
     (lib.optional (cfg.terminal && cfg.terminalPersist) "terminal_persist = true")
+    # Lets server.py hash the terminal.py that's actually on disk right now (see
+    # TERMINAL_CURRENT_HASH) -- ezconf.service restarts on every rebuild so this is always fresh
+    # as of the last one, unlike ezconf-terminal.service itself, which deliberately doesn't.
+    (lib.optional cfg.terminal "terminal_script = ${str "${termPkg}/share/ezconf-terminal/terminal.py"}")
     (lib.optional (cfg.auth.username     != null) "username = ${str cfg.auth.username}")
     (lib.optional (cfg.auth.password     != null) "password = ${str cfg.auth.password}")
     (lib.optional (cfg.auth.allowedUsers != [])   "allowed_users = ${toml-list cfg.auth.allowedUsers}")

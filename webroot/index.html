@@ -79,7 +79,10 @@ const _DEFAULT_THEME = '%%EZCONF_THEME%%';
       <div class="tree" id="tree-root"></div>
     </div>
     <div class="markdown-panels" id="markdown-panels"></div>
-    <div class="reload-notification hidden" id="reload-notification" onclick="location.reload()" data-tooltip="ezconf was updated or restarted -- click to reload">New version installed - click to reload</div>
+    <div class="notification-stack">
+      <div class="reload-notification hidden" id="reload-notification" onclick="location.reload()" data-tooltip="ezconf was updated or restarted -- click to reload">New version installed - click to reload</div>
+      <div class="reload-notification hidden" id="terminal-restart-notification" onclick="restartTerminalService()" data-tooltip="the running terminal service is older than what's on disk -- click to restart it">Terminal needs a restart - click to restart</div>
+    </div>
   </div>
 </div>
 
@@ -3747,6 +3750,10 @@ function initRestartWatcher() {
       STATIC_BUTTONS.push(...data.buttons);
       renderButtons();
     }
+    if (typeof data.terminal_current_hash === 'string') {
+      _terminalCurrentHash = data.terminal_current_hash;
+      _updateTerminalRestartNotification();
+    }
     const reloadNeeded = data.webroot_hash !== WEBROOT_HASH
       || data.theme !== THEME
       || !!data.terminal_enabled !== TERMINAL_ENABLED
@@ -4561,6 +4568,35 @@ let _termReadyWaiters = [];
 // of every connectTerminalWs() call.
 let _termExited = false;
 
+// The content hash of whatever ezconf-terminal.service process is actually answering right now
+// (from its own 'ready' message — see bin/terminal.py's SELF_HASH), refreshed on every connect/
+// reconnect. Compared against _terminalCurrentHash (from /api/v1/ping, see initRestartWatcher())
+// to tell whether the running terminal service is stale relative to what's on disk — drives
+// #terminal-restart-notification, see _updateTerminalRestartNotification().
+let _terminalRunningHash = null;
+let _terminalCurrentHash = null;
+function _terminalNeedsRestart() {
+  return !!(_terminalRunningHash && _terminalCurrentHash && _terminalRunningHash !== _terminalCurrentHash);
+}
+function _updateTerminalRestartNotification() {
+  document.getElementById('terminal-restart-notification').classList.toggle('hidden', !_terminalNeedsRestart());
+}
+// Restarting ends every running shell for everyone connected, so this stays something the user
+// triggers themselves from the notification's own onclick, never automatically -- same rule
+// #reload-notification already follows for the page reload it offers.
+function restartTerminalService() {
+  const panel = document.getElementById('terminal-panel');
+  if (panel.classList.contains('collapsed')) toggleTerminal();
+  initTerminal().then(() => {
+    if (!_term) return;
+    if (!_termWs || _termWs.readyState === WebSocket.CLOSED) connectTerminalWs();
+    _waitTermReady().then(() => {
+      if (_termWs) _termWs.send('\x15'); // clear whatever's half-typed at the prompt, always
+      if (_termWs) _termWs.send('systemctl restart ezconf-terminal.service\r');
+    });
+  });
+}
+
 function _waitTermReady() {
   if (_termReady) return Promise.resolve();
   return new Promise(resolve => _termReadyWaiters.push(resolve));
@@ -4739,6 +4775,10 @@ function connectTerminalWs() {
       const msg = JSON.parse(e.data);
       if (msg.type === 'ready') {
         _termReady = true;
+        if (typeof msg.hash === 'string') {
+          _terminalRunningHash = msg.hash;
+          _updateTerminalRestartNotification();
+        }
         const waiters = _termReadyWaiters;
         _termReadyWaiters = [];
         waiters.forEach(fn => fn());
@@ -5054,6 +5094,7 @@ const STATIC_BUTTONS    = %%EZCONF_BUTTONS%%; // from [[buttons]] in ezconf.toml
 const NIXOS_TARGET      = '%%EZCONF_NIXOS_TARGET%%'; // flake path GET /api/v1/system-export zips up
 const BOOT_ID           = '%%EZCONF_BOOT_ID%%'; // this page's server process — see initRestartWatcher()
 const WEBROOT_HASH      = '%%EZCONF_WEBROOT_HASH%%'; // this page's own frontend files — see initRestartWatcher()
+_terminalCurrentHash    = '%%EZCONF_TERMINAL_CURRENT_HASH%%' || null; // baked in at load, same as WEBROOT_HASH -- see _terminalNeedsRestart()
 
 
 async function apiFetch(path, opts = {}) {

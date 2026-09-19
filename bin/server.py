@@ -173,6 +173,8 @@ DEFAULT_FILE     = None          # basename to prefer as the initial tab; set wh
 AUTH_MODE        = 'none'        # set by --auth: 'none', 'custom', 'pam'
 TERMINAL_ENABLED = False         # True when terminal_port is set
 TERMINAL_PORT    = None          # port the terminal WebSocket service is running on
+TERMINAL_SCRIPT  = None          # path to the terminal.py currently on disk; set by terminal_script in TOML
+TERMINAL_CURRENT_HASH = ''       # hash of TERMINAL_SCRIPT, computed once at startup — see _ping_payload()
 THEME            = 'nixos'       # ui theme: nixos, dark, light
 EZCONF_MODE      = None          # None or 'install'; baked into index.html on load — shows
                                   # install-mode buttons in their own row and greys out ordinary
@@ -816,6 +818,19 @@ def _compute_webroot_hash():
     return h.hexdigest()[:16]
 
 
+def _compute_file_hash(path):
+    """Same truncated-sha256 convention as _compute_webroot_hash(), for a single file — used for
+    TERMINAL_CURRENT_HASH (see there). Returns '' if path is unset or unreadable, same as an
+    ordinary "nothing to compare against" case rather than an error."""
+    if not path:
+        return ''
+    try:
+        with open(path, 'rb') as f:
+            return hashlib.sha256(f.read()).hexdigest()[:16]
+    except OSError:
+        return ''
+
+
 def _ping_payload():
     """GET /api/v1/ping's whole response — the fields initRestartWatcher() (index.html) polls and
     compares against what index.html was actually templated with at load time, to tell a real
@@ -831,6 +846,7 @@ def _ping_payload():
         'system_backup_enabled': SYSTEM_BACKUP_COUNT > 0,
         'nixos_target': NIXOS_TARGET,
         'buttons': STATIC_BUTTONS,
+        'terminal_current_hash': TERMINAL_CURRENT_HASH,
     }
 
 
@@ -1466,6 +1482,7 @@ class StaticHandler(http.server.SimpleHTTPRequestHandler):
                 .replace('%%EZCONF_NIXOS_TARGET%%', NIXOS_TARGET.replace('\\', '\\\\').replace("'", "\\'"))
                 .replace('%%EZCONF_BOOT_ID%%', BOOT_ID)
                 .replace('%%EZCONF_WEBROOT_HASH%%', WEBROOT_HASH)
+                .replace('%%EZCONF_TERMINAL_CURRENT_HASH%%', TERMINAL_CURRENT_HASH)
                 # Escape "</" so a command/label containing "</script>" can't prematurely close
                 # the <script> block this gets embedded into as a JS array literal.
                 .replace('%%EZCONF_BUTTONS%%', json.dumps(STATIC_BUTTONS).replace('</', '<\\/'))
@@ -1568,6 +1585,8 @@ if __name__ == '__main__':
     if _term_port:
         TERMINAL_PORT    = int(_term_port)
         TERMINAL_ENABLED = True
+    TERMINAL_SCRIPT = cfg.get('terminal_script')
+    TERMINAL_CURRENT_HASH = _compute_file_hash(TERMINAL_SCRIPT)
 
     _key_file = args.session_key_file or cfg.get('session_key_file')
     if _key_file:

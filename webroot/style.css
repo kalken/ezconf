@@ -266,9 +266,10 @@ body {
 
 /* Floats over .editor-area (position: absolute, .main is its positioning context) in the top
    right corner -- same convention as .sidebar/.markdown-panels below, just anchored to the
-   opposite corner. Shown by onRestartDetected() once a real restart is seen; reload only ever
-   happens from this element's own onclick, never automatically (see its own comment). */
-.reload-notification {
+   opposite corner. Holds both #reload-notification and #terminal-restart-notification, stacked
+   vertically with a gap when both happen to be showing at once (e.g. after a rebuild that changed
+   both the frontend and terminal.py) rather than the two overlapping at the same fixed position. */
+.notification-stack {
   position: absolute;
   top: 12px;
   right: 12px;
@@ -276,6 +277,15 @@ body {
      the drag ghost, ...) -- a restart/update is more important than whatever's on screen, so this
      should never end up hidden behind something else that happens to be open at the time. */
   z-index: 99999;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+}
+/* Shown by onRestartDetected()/_updateTerminalRestartNotification() once a real restart is
+   needed; reloading/restarting only ever happens from an element's own onclick, never
+   automatically (see each one's own comment). */
+.reload-notification {
   background: var(--bg2);
   border: 1px solid var(--accent2);
   border-radius: var(--radius);
