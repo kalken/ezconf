@@ -101,7 +101,14 @@ rec {
               # add the cert to each one's own database, creating it first via -N if that profile
               # has never triggered NSS to make one yet -- a brand new, never-launched profile has
               # no database at all, nothing here can install into one that doesn't exist yet.
-              for _ffdir in "${home}"/.mozilla/firefox/*/; do
+              # Two possible locations: the classic ~/.mozilla/firefox, and ~/.config/mozilla/firefox
+              # on newer XDG-Base-Directory-compliant Firefox builds -- confirmed by a real report
+              # of a profile living at the latter, not the former, on which the loop below found
+              # nothing until this second glob was added. A non-matching glob is left as a literal
+              # "*"-containing string by bash (no nullglob here), which the [ -d ] check right
+              # below already filters out, so adding a pattern that happens to match nothing on a
+              # given system is always safe.
+              for _ffdir in "${home}"/.mozilla/firefox/*/ "${home}"/.config/mozilla/firefox/*/; do
                 [ -d "$_ffdir" ] || continue
                 _ffdir="''${_ffdir%/}"
                 if [ ! -f "$_ffdir/cert9.db" ] && [ ! -f "$_ffdir/cert8.db" ]; then
