@@ -3748,10 +3748,6 @@ function initRestartWatcher() {
       STATIC_BUTTONS.push(...data.buttons);
       renderButtons();
     }
-    if (typeof data.terminal_current_hash === 'string') {
-      _terminalCurrentHash = data.terminal_current_hash;
-      _updateTerminalRestartBadge();
-    }
     const reloadNeeded = data.webroot_hash !== WEBROOT_HASH
       || data.theme !== THEME
       || !!data.terminal_enabled !== TERMINAL_ENABLED
@@ -4566,31 +4562,6 @@ let _termReadyWaiters = [];
 // of every connectTerminalWs() call.
 let _termExited = false;
 
-// The content hash of whatever ezconf-terminal.service process is actually answering right now
-// (from its own 'ready' message — see bin/terminal.py's SELF_HASH), refreshed on every connect/
-// reconnect. Compared against _terminalCurrentHash (from /api/v1/ping, see initRestartWatcher())
-// to tell whether the running terminal service is stale relative to what's on disk — drives the
-// "needs restart" badge on the built-in Restart Terminal button, see _updateTerminalRestartBadge().
-let _terminalRunningHash = null;
-let _terminalCurrentHash = null;
-function _terminalNeedsRestart() {
-  return !!(_terminalRunningHash && _terminalCurrentHash && _terminalRunningHash !== _terminalCurrentHash);
-}
-// Restarting the terminal ends every running shell for everyone connected, so this stays a small,
-// passive notice rather than anything automatic — the same "user picks the moment" rule the
-// page-level reload notification already follows, just scoped to this one button instead of a
-// separate banner. Finds the button by its exact command (not index/position) since getAllButtons()
-// can reorder or the user could add their own other "internal" buttons alongside it.
-function _updateTerminalRestartBadge() {
-  const btn = document.querySelector(
-    '#terminal-cmd-btns-internal button[data-command="systemctl restart ezconf-terminal.service"]'
-  );
-  if (!btn) return;
-  const stale = _terminalNeedsRestart();
-  btn.classList.toggle('needs-restart', stale);
-  if (stale) _wireHoverTooltip(btn, 'Restart Terminal — code changed since this shell started');
-}
-
 function _waitTermReady() {
   if (_termReady) return Promise.resolve();
   return new Promise(resolve => _termReadyWaiters.push(resolve));
@@ -4769,10 +4740,6 @@ function connectTerminalWs() {
       const msg = JSON.parse(e.data);
       if (msg.type === 'ready') {
         _termReady = true;
-        if (typeof msg.hash === 'string') {
-          _terminalRunningHash = msg.hash;
-          _updateTerminalRestartBadge();
-        }
         const waiters = _termReadyWaiters;
         _termReadyWaiters = [];
         waiters.forEach(fn => fn());
@@ -4969,9 +4936,6 @@ function renderButtons() {
   // "Restart Terminal" button (see modules/ezconf.nix), but available to any buttons-config entry.
   _renderButtonRow(internalContainer, entries.filter(e => e.btn.mode === 'internal'), buttons, dirty);
   _renderButtonRow(container, entries.filter(e => e.btn.mode !== 'install' && e.btn.mode !== 'internal'), buttons, dirty, INSTALL_MODE ? 'Disabled in install mode' : null);
-  // The internal row was just rebuilt from scratch above, so any badge state set on a previous
-  // button element is gone -- reapply it to whichever fresh element now matches.
-  _updateTerminalRestartBadge();
 }
 
 // disabledTitle, when set, overrides every button's own title in this row (used for the ordinary
@@ -5006,7 +4970,6 @@ function _renderButtonRow(container, entries, buttons, dirty, disabledTitle) {
     const b = document.createElement('button');
     b.className = 'btn term-run-btn';
     b.textContent = btn.label || '(no label)';
-    b.dataset.command = btn.command;
     _wireHoverTooltip(b, disabledTitle || btn.command);
     if (btn.save_first) {
       b.dataset.saveFirst = '1';
@@ -5098,7 +5061,6 @@ const STATIC_BUTTONS    = %%EZCONF_BUTTONS%%; // from [[buttons]] in ezconf.toml
 const NIXOS_TARGET      = '%%EZCONF_NIXOS_TARGET%%'; // flake path GET /api/v1/system-export zips up
 const BOOT_ID           = '%%EZCONF_BOOT_ID%%'; // this page's server process — see initRestartWatcher()
 const WEBROOT_HASH      = '%%EZCONF_WEBROOT_HASH%%'; // this page's own frontend files — see initRestartWatcher()
-_terminalCurrentHash    = '%%EZCONF_TERMINAL_CURRENT_HASH%%' || null; // baked in at load, same as WEBROOT_HASH -- see _terminalNeedsRestart()
 
 
 async function apiFetch(path, opts = {}) {
