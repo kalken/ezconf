@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# Bumped to verify the terminal-restart notification picks up a real content change.
 """
 ezconf terminal service — standalone WebSocket PTY server.
 
