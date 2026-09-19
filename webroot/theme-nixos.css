@@ -28,6 +28,7 @@
   --select-option-bg:    #0d1a2e; /* dropdown background */
   --select-option-color: #dce6f4; /* dropdown option text */
   --select-option-hover: #1a2c50; /* dropdown option hover */
+  --select-arrow: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%235e7899' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 6l4 4 4-4'/%3E%3C/svg%3E"); /* login page's <select> dropdown arrow, since appearance:none removes the native one */
 
   /* ── Button states ── */
   --btn-primary-bg:     #1a3a70;
