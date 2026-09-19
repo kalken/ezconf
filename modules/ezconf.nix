@@ -231,7 +231,14 @@ in
     installCerts = lib.mkOption {
       type        = lib.types.bool;
       default     = true;
-      description = "Install the generated CA certificate into ~/.pki/nssdb (Chrome/Chromium-family browsers) and each detected Firefox profile's own certificate database, for each user in auth.allowedUsers, so browsers trust it. Only has effect when generateCert = true.";
+      description = "Install the generated CA certificate into ~/.pki/nssdb (Chrome/Chromium-family browsers) and each detected Firefox profile's own certificate database, for each user in certUsers, so browsers trust it. Only has effect when generateCert = true.";
+    };
+
+    certUsers = lib.mkOption {
+      type        = lib.types.listOf lib.types.str;
+      default     = cfg.auth.allowedUsers;
+      defaultText = lib.literalExpression "auth.allowedUsers";
+      description = "OS user accounts to install the generated CA certificate for (see installCerts). Defaults to auth.allowedUsers, but is independent of it -- e.g. you might log into ezconf as root over PAM while browsing as your own normal user account, in which case set this to that username instead.";
     };
 
     cert = lib.mkOption {
