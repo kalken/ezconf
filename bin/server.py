@@ -1292,8 +1292,18 @@ class StaticHandler(http.server.SimpleHTTPRequestHandler):
                 with open(CA_FILE, 'rb') as f:
                     data = f.read()
                 self.send_response(200)
-                self.send_header('Content-Type', 'application/x-pem-file')
-                self.send_header('Content-Disposition', 'attachment; filename="ezconf-ca.pem"')
+                # Firefox treats application/x-x509-ca-cert specially: served without a
+                # Content-Disposition: attachment, it intercepts the navigation and opens its own
+                # "Downloading Certificate" trust dialog directly, instead of downloading the
+                # file -- a real, still-functional NSS/PSM behavior, not something ezconf
+                # implements. No other browser exposes anything like it to a webpage: Chrome
+                # dropped it years ago, so Chrome/Chromium/Brave/Safari all just download the
+                # file (correctly) here, same as before this branch existed.
+                if 'Firefox' in self.headers.get('User-Agent', ''):
+                    self.send_header('Content-Type', 'application/x-x509-ca-cert')
+                else:
+                    self.send_header('Content-Type', 'application/x-pem-file')
+                    self.send_header('Content-Disposition', 'attachment; filename="ezconf-ca.pem"')
                 self.send_header('Content-Length', str(len(data)))
                 self.end_headers()
                 self.wfile.write(data)
