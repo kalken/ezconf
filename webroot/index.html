@@ -92,7 +92,6 @@ const _DEFAULT_THEME = '%%EZCONF_THEME%%';
     <div class="terminal-header">
       <div class="terminal-cmd-btns" id="terminal-cmd-btns"></div>
       <div class="terminal-header-actions">
-        <div class="terminal-cmd-btns" id="terminal-cmd-btns-internal"></div>
         <button class="btn" data-tooltip="Quarter screen" onclick="setTerminalSize('quarter')"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><rect x="3" y="16" width="18" height="5" fill="currentColor" stroke="none"/></svg></button>
         <button class="btn" data-tooltip="Half screen" onclick="setTerminalSize('half')"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><rect x="3" y="12" width="18" height="9" fill="currentColor" stroke="none"/></svg></button>
         <button class="btn" data-tooltip="Full screen" onclick="setTerminalSize('full')"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><rect x="4" y="4" width="16" height="16" rx="1" fill="currentColor" stroke="none"/></svg></button>
@@ -4919,23 +4918,17 @@ function renderButtons() {
   if (!TERMINAL_ENABLED) return;
   const container = document.getElementById('terminal-cmd-btns');
   const installContainer = document.getElementById('terminal-cmd-btns-install');
-  const internalContainer = document.getElementById('terminal-cmd-btns-internal');
-  if (!container || !installContainer || !internalContainer) return;
+  if (!container || !installContainer) return;
   container.innerHTML = '';
   installContainer.innerHTML = '';
-  internalContainer.innerHTML = '';
   const buttons = getAllButtons();
   const dirty = isAnyDirty();
   // Each entry keeps its index into the *full* buttons list — runButton()/showButtonMenu() both
-  // index into that same full list, so splitting into three groups here doesn't need to change
+  // index into that same full list, so splitting into two rows here doesn't need to change
   // either of them.
   const entries = buttons.map((btn, idx) => ({ btn, idx }));
   _renderButtonRow(installContainer, entries.filter(e => e.btn.mode === 'install'), buttons, dirty);
-  // mode: "internal" renders into the terminal panel's own header-actions bar (alongside the
-  // size/show-hide controls) instead of the ordinary command row -- used by the built-in
-  // "Restart Terminal" button (see modules/ezconf.nix), but available to any buttons-config entry.
-  _renderButtonRow(internalContainer, entries.filter(e => e.btn.mode === 'internal'), buttons, dirty);
-  _renderButtonRow(container, entries.filter(e => e.btn.mode !== 'install' && e.btn.mode !== 'internal'), buttons, dirty, INSTALL_MODE ? 'Disabled in install mode' : null);
+  _renderButtonRow(container, entries.filter(e => e.btn.mode !== 'install'), buttons, dirty, INSTALL_MODE ? 'Disabled in install mode' : null);
 }
 
 // disabledTitle, when set, overrides every button's own title in this row (used for the ordinary
