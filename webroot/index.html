@@ -5093,6 +5093,7 @@ const INSTALL_MODE      = EZCONF_MODE === 'install';
 const STATIC_BUTTONS    = %%EZCONF_BUTTONS%%; // from [[buttons]] in ezconf.toml — not tied to any tab
 const NIXOS_TARGET      = '%%EZCONF_NIXOS_TARGET%%'; // flake path GET /api/v1/system-export zips up
 const BOOT_ID           = '%%EZCONF_BOOT_ID%%'; // this page's server process — see initRestartWatcher()
+// Bumped to verify the page-level reload notification picks up a real content change.
 const WEBROOT_HASH      = '%%EZCONF_WEBROOT_HASH%%'; // this page's own frontend files — see initRestartWatcher()
 _terminalCurrentHash    = '%%EZCONF_TERMINAL_CURRENT_HASH%%' || null; // baked in at load, same as WEBROOT_HASH -- see _terminalNeedsRestart()
 
