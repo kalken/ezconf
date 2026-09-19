@@ -113,6 +113,18 @@ BIND_ADDR    = '127.0.0.1'
 
 READY_DELAY  = 0.3  # see the 'ready' comment in _terminal_ws() below
 
+# A content hash of this running process's own source file, computed once at import time --
+# included in every 'ready' message so the frontend can tell whether the ezconf-terminal.service
+# it's actually connected to is stale relative to what's currently on disk (server.py computes the
+# same hash fresh at its own startup, since ezconf.service restarts on every rebuild and
+# ezconf-terminal.service deliberately doesn't -- see restartIfChanged in the NixOS module). Same
+# truncated-sha256 convention as WEBROOT_HASH in server.py.
+try:
+    with open(__file__, 'rb') as _f:
+        SELF_HASH = hashlib.sha256(_f.read()).hexdigest()[:16]
+except OSError:
+    SELF_HASH = ''
+
 # Off by default -- set by terminal_persist in TOML. When False, a session behaves exactly as
 # before persistence existed: _terminal_ws()'s own finally (a client disconnecting) nudges the
 # shell to exit immediately rather than leaving it running unattached, so nothing outlives the one
@@ -771,7 +783,7 @@ def _terminal_ws(handler):
     if is_new:
         time.sleep(READY_DELAY)
     try:
-        _ws_send(wfile, json.dumps({'type': 'ready'}).encode(), opcode=0x01)
+        _ws_send(wfile, json.dumps({'type': 'ready', 'hash': SELF_HASH}).encode(), opcode=0x01)
     except Exception:
         pass
 

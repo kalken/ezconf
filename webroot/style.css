@@ -961,6 +961,16 @@ textarea { resize: vertical; min-height: unset; line-height: 1.5; }
    in both height and padding/font-size. Switched to plain .btn instead of trying to keep a
    second, smaller variant in sync with the first -- .btn-sm is now unused and removed. */
 .terminal-header-actions { display: flex; gap: 6px; margin-left: auto; }
+/* A small dot on the built-in Restart Terminal button (see _updateTerminalRestartBadge()) when
+   the running ezconf-terminal.service is stale relative to what's on disk -- reuses --dirty-color
+   (the same "needs attention, not yet applied" amber already used for the unsaved-changes status
+   dot) rather than a new token, matching that existing color language. */
+.term-run-btn.needs-restart { position: relative; }
+.term-run-btn.needs-restart::after {
+  content: ''; position: absolute; top: -2px; right: -2px;
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--dirty-color); border: 1px solid var(--term-bg);
+}
 /* #term-toggle's chevron points up by default ("Show"); toggleTerminal()/setTerminalSize() add
    .expanded once the panel is open ("Hide") rather than swapping in a second, mirrored SVG. */
 #term-toggle.expanded svg { transform: rotate(180deg); }
