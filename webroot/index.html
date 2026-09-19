@@ -23,7 +23,7 @@ const _DEFAULT_THEME = '%%EZCONF_THEME%%';
 <div class="btn-group">
     <button class="btn" onclick="undo()" data-tooltip="Undo (Ctrl+Z)"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 14 4 9 9 4"/><path d="M20 20v-7a4 4 0 0 0-4-4H4"/></svg></button>
     <button class="btn" onclick="redo()" data-tooltip="Redo (Ctrl+Y)"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="15 14 20 9 15 4"/><path d="M4 20v-7a4 4 0 0 1 4-4h12"/></svg></button>
-    <button class="btn" onclick="reloadConfig()" data-tooltip="Reload saved file"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3.5-7.1"/><polyline points="3 3 3 8 8 8"/></svg></button>
+    <button class="btn" onclick="reloadAllFiles()" data-tooltip="Reload all files from disk"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3.5-7.1"/><polyline points="3 3 3 8 8 8"/></svg></button>
   </div>
   <div class="header-actions">
     <input type="file" id="import-file-input" accept=".json,.nix,.zip">
@@ -3804,16 +3804,58 @@ function redo() {
   _restoreSnapshot(globalHistory[globalHistoryIndex]);
 }
 
-async function reloadConfig() {
+// Re-fetches one file's saved content from disk, discarding any unsaved edits to just that file
+// -- `name` defaults to activeFile (the tab bar's own Reload item always passes one explicitly,
+// including for a tab that isn't the active one, same as loadBackup()'s targetFile: reloading a
+// background tab shouldn't silently switch to it or disturb whatever's currently open). Undo-able
+// for free via renderAll()'s own _pushHistory(), so no confirm() needed, consistent with every
+// other wholesale content-replace action in this app (loadBackup(), doImport(), ...).
+async function reloadFile(name) {
+  const file = name || activeFile;
+  if (!file) return;
   try {
-    const r = await fetch(_cfgPath(), { cache: 'no-cache' });
+    const r = await fetch(_cfgPathFor(file), { cache: 'no-cache' });
     if (!r.ok) throw r.status;
-    const data = await r.json();
-    config = normalizeConfig(data);
-    fileConfigs[activeFile] = config;
+    const fresh = normalizeConfig(await r.json());
+    fileConfigs[file] = fresh;
+    fileSaved[file] = JSON.stringify(fresh);
+    if (file === activeFile) config = fresh;
     renderAll();
-    markSaved();
-    setStatus('Reloaded', 2000, 'ok');
+    setStatus('Reloaded ' + file, 2000, 'ok');
+  } catch (e) {
+    setStatus('Reload failed', 3000, 'err');
+  }
+}
+
+// The header's own Reload button -- reloads every file plus the autocomplete schema data, not
+// just the active tab (reloadFile() above stays available per-file from a tab's own right-click
+// menu). Resets pendingFsOps too: those are local-only rename/delete/create operations queued
+// against the *old* file list, and keeping them queued across a full resync from disk risks Save
+// replaying a stale op (e.g. a queued delete) against a file list that no longer has anything to
+// do with it. fileConfigs/fileSaved are reset to {} first, not just overwritten per current
+// `files` entry, so a file deleted on disk since the last load doesn't linger as a phantom dirty
+// entry nothing else references anymore (isAnyDirty() scans Object.keys(fileConfigs), not files).
+async function reloadAllFiles() {
+  try {
+    const filesRes = await apiFetch('/files');
+    if (!filesRes.ok) throw filesRes.status;
+    const data = await filesRes.json();
+    files = data.files || [];
+    folders = data.folders || [];
+    folderExists = new Set(folders);
+    pendingFsOps = [];
+    fileConfigs = {};
+    fileSaved = {};
+    if (files.length) {
+      activeFile = files.includes(activeFile) ? activeFile : (files.includes(data.default) ? data.default : files[0]);
+    } else {
+      activeFile = null;
+    }
+    const ok = await loadSiblingFiles();
+    if (!ok) return;
+    renderFileSelector();
+    renderAll();
+    setStatus('Reloaded all files', 2000, 'ok');
   } catch (e) {
     setStatus('Reload failed', 3000, 'err');
   }
@@ -5154,6 +5196,7 @@ function _makeTab(name) {
       });
     }
     items.push({ label: 'Export', onclick: () => exportFile(name) });
+    items.push({ label: 'Reload', title: 'Discard unsaved edits to this file and reload it from disk', onclick: () => reloadFile(name) });
     // This file's own backups (was the header Restore button's "File" submenu, back when it
     // covered both scopes — see showBackupsMenu()'s own comment for why that split moved here).
     // Explicitly this file, not activeFile: right-clicking a tab that isn't the active one should
