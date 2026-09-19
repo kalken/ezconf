@@ -59,8 +59,6 @@ rec {
   mkPrestart = { cfg, staticToml, mkoptions, package }:
     pkgs.writeShellScript "ezconf-prestart" ''
       ${pkgs.lib.optionalString cfg.generateCert ''
-        _cert_new=0
-        [ -f /var/lib/ezconf/ca.pem ] || _cert_new=1
         ${package}/bin/ezconf --generate-ca /var/lib/ezconf \
           ${pkgs.lib.optionalString (cfg.listen != null && !builtins.elem cfg.listen ["0.0.0.0" "::"]) "--san ${cfg.listen}"} \
           ${pkgs.lib.concatMapStringsSep " " (san: "--san ${pkgs.lib.escapeShellArg san}") cfg.certNames}
@@ -71,7 +69,12 @@ rec {
           /var/lib/ezconf/localhost-key.pem
       ''}
       ${pkgs.lib.optionalString (cfg.generateCert && cfg.installCerts && cfg.auth.allowedUsers != []) ''
-        if [ "$_cert_new" = "1" ] && [ -f /var/lib/ezconf/ca.pem ]; then
+        # Runs on every activation, not just when the CA is freshly generated -- each certutil
+        # call below is idempotent (-D to drop any stale entry, then -A to re-add), so this is
+        # cheap to repeat, and it's what lets a user added to allowedUsers *after* the CA already
+        # existed still get the cert installed on their next rebuild, instead of only ever on the
+        # one activation that happened to generate the CA in the first place.
+        if [ -f /var/lib/ezconf/ca.pem ]; then
           ${pkgs.lib.concatMapStrings (user:
             let home = "/home/${user}"; in ''
             _dir="${home}/.pki/nssdb"
