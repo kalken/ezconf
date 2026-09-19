@@ -68,10 +68,10 @@ rec {
           /var/lib/ezconf/ca-key.pem /var/lib/ezconf/localhost.pem \
           /var/lib/ezconf/localhost-key.pem
       ''}
-      ${pkgs.lib.optionalString (cfg.generateCert && cfg.installCerts && cfg.auth.allowedUsers != []) ''
+      ${pkgs.lib.optionalString (cfg.generateCert && cfg.installCerts && cfg.certUsers != []) ''
         # Runs on every activation, not just when the CA is freshly generated -- each certutil
         # call below is idempotent (-D to drop any stale entry, then -A to re-add), so this is
-        # cheap to repeat, and it's what lets a user added to allowedUsers *after* the CA already
+        # cheap to repeat, and it's what lets a user added to certUsers *after* the CA already
         # existed still get the cert installed on their next rebuild, instead of only ever on the
         # one activation that happened to generate the CA in the first place.
         if [ -f /var/lib/ezconf/ca.pem ]; then
@@ -122,7 +122,7 @@ rec {
                 fi
               done
             fi
-          '') cfg.auth.allowedUsers}
+          '') cfg.certUsers}
         fi
       ''}
       ${pkgs.lib.optionalString cfg.generateAutocomplete ''

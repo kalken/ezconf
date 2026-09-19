@@ -50,7 +50,7 @@ Then enable the service in your NixOS configuration (e.g. `configuration.nix`), 
 }
 ```
 
-After `nixos-rebuild switch` the editor is at `https://localhost:9090`. A local CA and certificate are generated automatically, and installed into the browser trust store for each user in `allowedUsers`.
+After `nixos-rebuild switch` the editor is at `https://localhost:9090`. A local CA and certificate are generated automatically, and installed into the browser trust store for each user in `allowedUsers` (set `certUsers` separately if you log in as a different user than the one whose browser needs to trust it).
 
 > **Tip:** In Chrome or any Chromium-based browser, open the address bar menu and choose *Install page as app* to get a standalone desktop app with no browser chrome.
 
@@ -241,7 +241,7 @@ Running that "Rebuild" button (or `nixos-rebuild switch` from anywhere) restarts
 
 ## 🔒 HTTPS
 
-HTTPS is enabled by default. When no `cert` or `key` are provided a local CA and certificate are generated automatically in `/var/lib/ezconf/`. With `installCerts = true` (the default) the CA is installed into `~/.pki/nssdb` (Chrome/Chromium-family browsers) and into each detected Firefox profile's own certificate database, for each user in `auth.allowedUsers`, so browsers trust it without a warning.
+HTTPS is enabled by default. When no `cert` or `key` are provided a local CA and certificate are generated automatically in `/var/lib/ezconf/`. With `installCerts = true` (the default) the CA is installed into `~/.pki/nssdb` (Chrome/Chromium-family browsers) and into each detected Firefox profile's own certificate database, for each user in `certUsers` (defaults to `auth.allowedUsers`), so browsers trust it without a warning. Set `certUsers` explicitly if you log into ezconf as a different OS user than the one whose browser you actually use — e.g. logging in as `root` over PAM while browsing as your own normal user account.
 
 The login page shows a **Download CA certificate** link when a generated CA is available — use this to import the CA into browsers or devices that aren't covered by `installCerts` (e.g. macOS or other machines on the network). The CA is stable and never regenerated unless deleted, so this is a one-time import. The server cert is regenerated automatically when `listen` or `certNames` change, with no browser action needed.
 
@@ -360,7 +360,8 @@ services.ezconf = {
 | `https` | bool | `true` | Enable HTTPS |
 | `generateCert` | bool | auto | Generate a local CA + cert in `/var/lib/ezconf/` (set automatically when `https = true` and no cert/key provided) |
 | `certNames` | list of str | `[]` | Extra hostnames or IPs to include in the generated cert (e.g. `[ "myserver.local" ]`); `localhost`, `127.0.0.1`, and `listen` are always included |
-| `installCerts` | bool | `true` | Install generated CA into `~/.pki/nssdb` and each Firefox profile's own database, for each user in `allowedUsers` |
+| `installCerts` | bool | `true` | Install generated CA into `~/.pki/nssdb` and each Firefox profile's own database, for each user in `certUsers` |
+| `certUsers` | list of str | `auth.allowedUsers` | OS users to install the generated CA for; set separately from `allowedUsers` if you log in as a different user than the one browsing |
 | `cert` | str or null | `null` | Path to TLS certificate (PEM) |
 | `key` | str or null | `null` | Path to TLS private key (PEM) |
 | `listen` | str or null | `null` | IP address to listen on (default: `127.0.0.1`; use `0.0.0.0` for all interfaces) |
