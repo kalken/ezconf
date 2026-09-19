@@ -720,6 +720,24 @@ textarea { resize: vertical; min-height: unset; line-height: 1.5; }
 .type-btn.cancel { color: var(--text3); }
 .type-btn.cancel:hover { color: var(--red); border-color: var(--red); background: var(--bg4); }
 
+/* ── Search panel (toggleSearchPanel()) -- a floating input+dropdown anchored under
+   #search-toggle-btn, same positioning idea as .floating-add-container above but its own simpler
+   rule set: nothing here gets detached/reattached from elsewhere in the page, it's a self-
+   contained pair of elements created fresh on open and discarded on close. */
+.search-panel-container { position: fixed; z-index: 2000; }
+.search-panel-wrap { width: 380px; }
+.search-panel-wrap input {
+  width: 100%; box-sizing: border-box; height: 30px;
+  background: var(--select-option-bg); border: 1px solid var(--border2);
+  border-radius: var(--radius); box-shadow: 0 4px 16px var(--shadow);
+  padding: 6px 10px; font-family: var(--font); font-size: 12px; color: var(--text); outline: none;
+}
+.search-panel-wrap input:focus { border-color: var(--accent2); }
+.search-results-list { top: calc(100% + 2px); width: 380px; border-radius: var(--radius); }
+/* The "No matches" / "N+ matches, refine" rows aren't results -- no hover highlight, no pointer. */
+.search-info-row { color: var(--text2); cursor: default; }
+.search-info-row:hover { background: transparent; }
+
 /* ── Expr field (object rendered as _expr) ── */
 .expr-field-wrap {
   display: flex; align-items: flex-start; gap: 6px; width: 100%;

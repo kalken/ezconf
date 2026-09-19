@@ -7,6 +7,7 @@ Graphical editor for nix configurations. Zero dependencies, no build step, no fr
 ## ✨ Features
 
 - Edit NixOS configuration through a clean web UI with option autocomplete
+- Search (Ctrl+F or the 🔍 button) across every open file for an option path or a value, jumping straight to it
 - Split config across multiple files and folders — organize however you like, merged only at Nix-eval time
 - Inline terminal panel with configurable shortcut buttons
 - Browse any `.md` files anywhere in the system config (e.g. `README.md`), rendered in a side panel

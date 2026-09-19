@@ -43,6 +43,7 @@ const _DEFAULT_THEME = '%%EZCONF_THEME%%';
   <div class="tab-bar-actions">
     <button class="btn" id="flat-mode-btn" onclick="toggleFlatMode()" data-tooltip="Toggle flat / nested view"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M21 9H3"/><path d="M21 15H3"/></svg></button>
     <button class="btn" id="tree-toggle-btn" onclick="toggleTree()" data-tooltip="Show/hide the configuration tree"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 5h13"/><path d="M13 12h8"/><path d="M13 19h8"/><path d="M3 10a2 2 0 0 0 2 2h3"/><path d="M3 5v12a2 2 0 0 0 2 2h3"/></svg></button>
+    <button class="btn" id="search-toggle-btn" onclick="toggleSearchPanel()" data-tooltip="Search option paths and values (Ctrl+F)"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg></button>
   </div>
 </div>
 
@@ -1669,7 +1670,171 @@ function doAdd() {
   }, 80);
 }
 
+// ── Search (option paths / values across all files) ────────────────────────────
+// Searches live data (fileConfigs), not the NixOS options schema optionSearch() covers (that's
+// for the "Add option" autocomplete, over options/packages docs, not what's actually set). Leaf
+// classification mirrors renderTreeLevel()'s own isSection test exactly, so every result this
+// finds is guaranteed to have a real element findEditorEl() can jump to -- an array, a disabled
+// wrapper, and an `_expr` object are none of them descended into here for the same reason the
+// tree doesn't expand them: there's no per-item/per-field row of their own to jump to, only one
+// row for the whole value.
+const SEARCH_MAX_RESULTS = 150;
 
+function _searchMatchText(v) {
+  if (v === null) return 'null';
+  if (Array.isArray(v)) return v.map(_searchMatchText).join(' ');
+  if (isExprPkg(v)) return v._expr;
+  if (isDisabled(v)) return _searchMatchText(v._value);
+  return String(v);
+}
+
+function _searchValuePreview(v) {
+  if (v === null) return 'null';
+  if (Array.isArray(v)) return '[' + v.map(_searchValuePreview).join(', ') + ']';
+  if (isExprPkg(v)) return '<' + v._expr + '>';
+  if (isDisabled(v)) return '(disabled) ' + _searchValuePreview(v._value);
+  if (typeof v === 'string') return JSON.stringify(v);
+  return String(v);
+}
+
+function _collectSearchMatches(query) {
+  const q = query.trim().toLowerCase();
+  if (!q) return { results: [], truncated: false };
+  const results = [];
+  let truncated = false;
+
+  function walk(file, obj, path) {
+    if (truncated || typeof obj !== 'object' || obj === null || Array.isArray(obj)) return;
+    for (const [k, v] of Object.entries(obj)) {
+      if (truncated) return;
+      const childPath = [...path, k];
+      const pathKey = childPath.join('.');
+      const isSection = v !== null && typeof v === 'object' && !Array.isArray(v) && !isExprPkg(v) && !isDisabled(v);
+      if (isSection) { walk(file, v, childPath); continue; }
+      const pathMatch = pathKey.toLowerCase().includes(q);
+      const valueMatch = _searchMatchText(v).toLowerCase().includes(q);
+      if (pathMatch || valueMatch) {
+        results.push({ file, pathKey, value: v });
+        if (results.length >= SEARCH_MAX_RESULTS) { truncated = true; return; }
+      }
+    }
+  }
+
+  for (const file of Object.keys(fileConfigs)) {
+    walk(file, fileConfigs[file], []);
+    if (truncated) break;
+  }
+  return { results, truncated };
+}
+
+let _searchPanelState = null;
+
+function toggleSearchPanel() {
+  if (_searchPanelState) { _closeSearchPanel(); return; }
+
+  const btn = document.getElementById('search-toggle-btn');
+  const rect = btn.getBoundingClientRect();
+  const W = 380;
+  let x = rect.left;
+  if (x + W > window.innerWidth) x = Math.max(4, window.innerWidth - W - 4);
+
+  const container = document.createElement('div');
+  container.className = 'search-panel-container';
+  container.style.left = x + 'px';
+  container.style.top = (rect.bottom + 4) + 'px';
+
+  const wrap = document.createElement('div');
+  wrap.className = 'autocomplete-wrap search-panel-wrap';
+  const inp = document.createElement('input');
+  inp.type = 'text';
+  inp.placeholder = 'Search option paths or values…';
+  inp.autocomplete = 'off';
+  const list = document.createElement('div');
+  list.className = 'autocomplete-list search-results-list hidden';
+  wrap.appendChild(inp);
+  wrap.appendChild(list);
+  container.appendChild(wrap);
+  document.body.appendChild(container);
+
+  let idx = -1;
+
+  function render() {
+    list.innerHTML = '';
+    idx = -1;
+    if (!inp.value.trim()) { list.classList.add('hidden'); return; }
+    const { results, truncated } = _collectSearchMatches(inp.value);
+    if (!results.length) {
+      const empty = document.createElement('div');
+      empty.className = 'autocomplete-item search-info-row';
+      empty.textContent = 'No matches';
+      list.appendChild(empty);
+      list.classList.remove('hidden');
+      return;
+    }
+    const multiFile = Object.keys(fileConfigs).length > 1;
+    results.forEach(r => {
+      const item = document.createElement('div');
+      item.className = 'autocomplete-item';
+      item._match = r;
+      const fileTag = multiFile ? `<span class="ac-type">${r.file}</span>` : '';
+      item.innerHTML = `<span class="ac-name">${r.pathKey}</span><span class="ac-desc">${_searchValuePreview(r.value)}</span>${fileTag}`;
+      item.addEventListener('mousedown', e => { e.preventDefault(); _jumpToSearchResult(r); });
+      list.appendChild(item);
+    });
+    if (truncated) {
+      const more = document.createElement('div');
+      more.className = 'autocomplete-item search-info-row';
+      more.textContent = `${SEARCH_MAX_RESULTS}+ matches — refine your search`;
+      list.appendChild(more);
+    }
+    list.classList.remove('hidden');
+  }
+
+  inp.addEventListener('input', render);
+  inp.addEventListener('keydown', e => {
+    const items = Array.from(list.querySelectorAll('.autocomplete-item')).filter(el => el._match);
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (!items.length) return;
+      idx = e.key === 'ArrowDown' ? Math.min(idx + 1, items.length - 1) : Math.max(idx - 1, 0);
+      items.forEach((el, i) => el.classList.toggle('active', i === idx));
+      items[idx].scrollIntoView({ block: 'nearest' });
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      const active = items[idx] || items[0];
+      if (active) _jumpToSearchResult(active._match);
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      _closeSearchPanel();
+    }
+  });
+
+  function outsideHandler(e) { if (!container.contains(e.target) && e.target !== btn) _closeSearchPanel(); }
+  setTimeout(() => document.addEventListener('mousedown', outsideHandler, true), 0);
+
+  _searchPanelState = { container, outsideHandler };
+  inp.focus();
+}
+
+function _closeSearchPanel() {
+  if (!_searchPanelState) return;
+  document.removeEventListener('mousedown', _searchPanelState.outsideHandler, true);
+  _searchPanelState.container.remove();
+  _searchPanelState = null;
+}
+
+// switchFile() already no-ops if `match.file` is the active file, and otherwise finishes its own
+// renderAll() before the awaited promise resolves (every file's config is loaded into fileConfigs
+// up front -- see the data model note in CLAUDE.md -- so the fetch branch inside it, the only
+// truly async part, never actually runs here) -- so the editor DOM is always current by the time
+// this reaches findEditorEl(), no extra delay needed the way doAdd()'s own post-render jump above
+// needs one (there, waiting out a newly-inserted row's own CSS transition, not a full re-render).
+async function _jumpToSearchResult(match) {
+  _closeSearchPanel();
+  await switchFile(match.file);
+  const el = findEditorEl(match.pathKey);
+  if (el) { scrollThenFlash(el, 'center'); setStatusPath(match.pathKey); }
+}
 
 // ── Tree ──────────────────────────────────────────────────────────────────────
 function findEditorEl(pathKey) {
@@ -5783,6 +5948,11 @@ async function loadSiblingFiles() {
   document.addEventListener('keydown', e => {
     if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key === 'z') { e.preventDefault(); undo(); }
     if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.shiftKey && e.key === 'z'))) { e.preventDefault(); redo(); }
+    // Overrides the browser's own find-in-page deliberately -- a plain text search over the
+    // rendered page wouldn't find anything anyway (the editor only ever renders the active file,
+    // and most content lives in input values, not text nodes at all), where this searches the
+    // live config data (every open file, not just the active one) and jumps straight to a match.
+    if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'f') { e.preventDefault(); toggleSearchPanel(); }
   });
 
   // Text/number fields now write straight into `config` on every keystroke ('input', see
