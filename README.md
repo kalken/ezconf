@@ -281,12 +281,12 @@ services.ezconf = {
 
 The editor is then reachable at `https://192.168.1.2:9090` from any device on the network.
 
-**Trusting the certificate on other devices**: the login page shows a **Download CA certificate** link.
+**Trusting the certificate on other devices**: the login page shows a **Download CA certificate** link. Download `ezconf-ca.pem` and import it once on each device:
 
-- **Firefox (any OS)**: just click the link — Firefox recognizes the certificate and opens its own "Downloading Certificate" trust dialog directly, no manual import needed
-- **macOS**: download `ezconf-ca.pem`, open it in Keychain Access → set trust to *Always Trust*
-- **Windows**: download `ezconf-ca.pem`, double-click → *Install Certificate* → *Local Machine* → *Trusted Root Certification Authorities*
-- **Android**: download `ezconf-ca.pem`, then Settings → Security → Install from storage
+- **macOS**: open the file in Keychain Access → set trust to *Always Trust*
+- **Windows**: double-click → *Install Certificate* → *Local Machine* → *Trusted Root Certification Authorities*
+- **Firefox (any OS)**: Settings → Privacy & Security → View Certificates → Authorities → Import
+- **Android**: Settings → Security → Install from storage
 
 The CA never changes, so this is a one-time step per device.
 
