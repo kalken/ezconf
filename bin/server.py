@@ -116,6 +116,7 @@ import shutil
 import ssl
 import subprocess
 import sys
+import threading
 import time
 import zipfile
 from urllib.parse import urlparse, parse_qs
@@ -205,6 +206,15 @@ SYSTEM_EXPORT_EXCLUDE = {'hardware-configuration.nix'}     # extra basenames ski
                                                             # system_export_exclude in TOML
 
 _SESSION_KEY = secrets.token_hex(32)
+# Login brute-force throttling: per-source-IP failed-attempt tracking, checked before touching
+# validate_credentials() at all (so a locked-out IP doesn't even trigger a PAM call). Not
+# persisted across a restart -- a restart is already a real barrier of its own, and this only
+# needs to slow down sustained guessing within one process's uptime, not survive a reboot.
+# _LOGIN_LOCK guards the dict since ThreadingHTTPServer runs every request on its own thread.
+LOGIN_MAX_ATTEMPTS = 5
+LOGIN_WINDOW_SECONDS = 300       # failures older than this no longer count against the limit
+_LOGIN_FAILURES = {}             # ip -> [failure timestamps within the current window]
+_LOGIN_LOCK = threading.Lock()
 # Fresh every process start, unlike _SESSION_KEY (which can persist across restarts via
 # --session-key-file so logins survive a service restart) — this is deliberately *not*
 # persisted, since its only job is letting the frontend's periodic /api/v1/ping poll notice the
@@ -390,9 +400,16 @@ def user_allowed(username):
 
 
 def validate_credentials(username, password):
-    """Return True if username/password are valid."""
+    """Return True if username/password are valid. secrets.compare_digest (not ==) for both,
+    evaluated unconditionally rather than short-circuited with `and` -- a plain == returns as
+    soon as it hits the first differing byte, and `and` skips the password check entirely on a
+    wrong username, both of which leak timing information an attacker could use to narrow down
+    a guess. Neither is a practical attack over a real network, but there's no reason to accept
+    the risk when the constant-time version costs nothing."""
     if AUTH_MODE == 'custom':
-        return username == LOGIN_USER and password == LOGIN_PASS
+        user_ok = secrets.compare_digest(username, LOGIN_USER)
+        pass_ok = secrets.compare_digest(password, LOGIN_PASS)
+        return user_ok and pass_ok
     if AUTH_MODE == 'pam':
         if not user_allowed(username):
             return False
@@ -407,7 +424,33 @@ def _session_from_cookie(headers):
     return ''
 
 def check_auth(headers):
-    return _session_from_cookie(headers) == _SESSION_KEY
+    return secrets.compare_digest(_session_from_cookie(headers), _SESSION_KEY)
+
+
+def _login_retry_after(ip):
+    """Seconds until `ip` may attempt to log in again, or 0 if it isn't currently rate-limited.
+    Also prunes failures older than LOGIN_WINDOW_SECONDS so _LOGIN_FAILURES doesn't grow
+    unbounded over a long-running process."""
+    now = time.time()
+    with _LOGIN_LOCK:
+        attempts = [t for t in _LOGIN_FAILURES.get(ip, []) if now - t < LOGIN_WINDOW_SECONDS]
+        if attempts:
+            _LOGIN_FAILURES[ip] = attempts
+        else:
+            _LOGIN_FAILURES.pop(ip, None)
+        if len(attempts) < LOGIN_MAX_ATTEMPTS:
+            return 0
+        return max(1, int(LOGIN_WINDOW_SECONDS - (now - attempts[0])))
+
+
+def _record_login_failure(ip):
+    with _LOGIN_LOCK:
+        _LOGIN_FAILURES.setdefault(ip, []).append(time.time())
+
+
+def _clear_login_failures(ip):
+    with _LOGIN_LOCK:
+        _LOGIN_FAILURES.pop(ip, None)
 
 
 _ANSI_RE = re.compile(r'\x1b\[[0-9;]*m')
@@ -968,17 +1011,24 @@ class StaticHandler(http.server.SimpleHTTPRequestHandler):
     def do_POST(self):
         parsed = urlparse(self.path)
         if parsed.path == '/login':
+            ip = self.client_address[0]
+            retry_after = _login_retry_after(ip)
+            if retry_after:
+                self._deny(f'Too many failed attempts. Try again in {retry_after}s.')
+                return
             length = int(self.headers.get('Content-Length', 0))
             body = self.rfile.read(length).decode('utf-8', errors='replace')
             params = {k: v[0] for k, v in parse_qs(body).items()}
             username = params.get('username', '')
             password = params.get('password', '')
             if validate_credentials(username, password):
+                _clear_login_failures(ip)
                 self.send_response(303)
                 self.send_header('Location', '/')
                 self.send_header('Set-Cookie', f'ezconf_session={_SESSION_KEY}; HttpOnly; SameSite=Strict; Path=/')
                 self.end_headers()
             else:
+                _record_login_failure(ip)
                 self._deny('Invalid username or password.')
             return
         if not _valid_host(self.headers):
