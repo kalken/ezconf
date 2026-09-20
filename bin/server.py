@@ -218,6 +218,11 @@ BOOT_ID = secrets.token_hex(8)
 # — a restart alone doesn't necessarily mean anything the frontend serves actually changed, but a
 # real upgrade always does, and unlike a settings change there's no way to apply it live at all.
 WEBROOT_HASH = ''
+# Lazily-populated cache of (raw_bytes, gzip_bytes) for static frontend files served via
+# _serve_static_gzip()/_serve_index() — keyed by absolute path. Safe to compute once and reuse
+# for the life of the process: these files don't change while it's running (a real change only
+# ever arrives via a restart, same assumption WEBROOT_HASH above already relies on).
+_STATIC_GZIP_CACHE = {}
 
 
 def make_ssl_context():
@@ -1299,7 +1304,7 @@ class StaticHandler(http.server.SimpleHTTPRequestHandler):
         else:
             self.send_error(404)
 
-    _PUBLIC_PATHS = {'/style.css', '/login.html'}
+    _PUBLIC_PATHS = {'/login.html'}
 
     def do_GET(self):
         parsed = urlparse(self.path)
@@ -1322,8 +1327,12 @@ class StaticHandler(http.server.SimpleHTTPRequestHandler):
             else:
                 self.send_error(404)
             return
-        if parsed.path in self._PUBLIC_PATHS or (
+        if parsed.path == '/style.css' or (
                 parsed.path.startswith('/theme-') and parsed.path.endswith('.css')):
+            # Public (pre-auth, for the login page) and worth gzipping: style.css alone runs
+            # ~46KB, served fresh on every page load since WEBROOT files are no-store.
+            self._serve_static_gzip(parsed.path.lstrip('/')); return
+        if parsed.path in self._PUBLIC_PATHS:
             super().do_GET()
             return
         if not check_auth(self.headers):
@@ -1446,6 +1455,10 @@ class StaticHandler(http.server.SimpleHTTPRequestHandler):
         # autocomplete files: AUTOCOMPLETE_DIR when set, else WEBROOT/autocomplete/ (same default
         # as MKOPTIONS_CMD's own out_dir) — served via _serve_autocomplete() for conditional GET
         # + gzip, since options.json/packages.json can run into several MB on a large flake
+        if parsed.path.startswith('/addons/'):
+            # xterm.js + addons: only ever requested once logged in (terminal panel), but
+            # xterm.js/xterm-addon-webgl.js alone run ~735KB combined — worth gzipping.
+            self._serve_static_gzip(parsed.path.lstrip('/')); return
         if parsed.path.startswith('/autocomplete/'):
             rel = os.path.normpath(parsed.path[len('/autocomplete/'):]).lstrip('/')
             base = AUTOCOMPLETE_DIR or os.path.join(WEBROOT, 'autocomplete')
@@ -1516,34 +1529,76 @@ class StaticHandler(http.server.SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
+    def _serve_static_gzip(self, rel_path):
+        """Gzip-capable serving for a handful of sizeable static WEBROOT files (style.css,
+        theme-*.css, addons/*) that don't go through SimpleHTTPRequestHandler's own static
+        serving, which has no compression at all. Cache-Control stays no-store (see
+        end_headers()) — these files really can change across a restart, unlike /autocomplete/*'s
+        genuinely-fresh mtimes, so no attempt at conditional-GET caching here, just compression.
+        _STATIC_GZIP_CACHE holds both encodings per path, built on first request."""
+        path = os.path.join(WEBROOT, rel_path)
+        cached = _STATIC_GZIP_CACHE.get(path)
+        if cached is None:
+            try:
+                with open(path, 'rb') as f:
+                    raw = f.read()
+            except OSError:
+                self.send_error(404); return
+            cached = (raw, gzip.compress(raw))
+            _STATIC_GZIP_CACHE[path] = cached
+        raw, gzipped_data = cached
+        use_gzip = 'gzip' in self.headers.get('Accept-Encoding', '')
+        data = gzipped_data if use_gzip else raw
+        self.send_response(200)
+        self.send_header('Content-Type', self.guess_type(path))
+        if use_gzip:
+            self.send_header('Content-Encoding', 'gzip')
+        self.send_header('Content-Length', str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
     def _serve_index(self):
         try:
-            terminal_scripts = (
-                '<link rel="stylesheet" href="addons/xterm.css">\n'
-                '<script src="addons/xterm.js"></script>\n'
-                '<script src="addons/xterm-addon-fit.js"></script>\n'
-                '<script src="addons/xterm-addon-webgl.js"></script>'
-            ) if TERMINAL_PORT else ''
-            content = (open(os.path.join(WEBROOT, 'index.html')).read()
-                .replace('%%EZCONF_TERMINAL_SCRIPTS%%', terminal_scripts)
-                .replace('%%EZCONF_TERMINAL%%', 'true' if TERMINAL_PORT else 'false')
-                .replace('%%EZCONF_TERMINAL_PORT%%', str(TERMINAL_PORT or WEB_PORT))
-                .replace('%%EZCONF_THEME%%', THEME)
-                .replace('%%EZCONF_MKOPTIONS%%', 'true' if MKOPTIONS_CMD else 'false')
-                .replace('%%EZCONF_BACKUP%%', 'true' if BACKUP_COUNT > 0 else 'false')
-                .replace('%%EZCONF_SYSTEM_BACKUP%%', 'true' if SYSTEM_BACKUP_COUNT > 0 else 'false')
-                .replace('%%EZCONF_MODE%%', json.dumps(EZCONF_MODE))
-                .replace('%%EZCONF_NIXOS_TARGET%%', NIXOS_TARGET.replace('\\', '\\\\').replace("'", "\\'"))
-                .replace('%%EZCONF_BOOT_ID%%', BOOT_ID)
-                .replace('%%EZCONF_WEBROOT_HASH%%', WEBROOT_HASH)
-                .replace('%%EZCONF_TERMINAL_CURRENT_HASH%%', TERMINAL_CURRENT_HASH)
-                # Escape "</" so a command/label containing "</script>" can't prematurely close
-                # the <script> block this gets embedded into as a JS array literal.
-                .replace('%%EZCONF_BUTTONS%%', json.dumps(STATIC_BUTTONS).replace('</', '<\\/'))
-            )
-            data = content.encode('utf-8')
+            # Every %%EZCONF_...%% substitution below comes from a global finalized once at
+            # startup (config parsing, or a once-computed hash/id), so the rendered output is
+            # constant for the life of this process — same "only a restart changes it" assumption
+            # as _STATIC_GZIP_CACHE's other entries. '__index__' is a synthetic key (not a real
+            # filesystem path) since this content is templated, not read verbatim from disk.
+            cached = _STATIC_GZIP_CACHE.get('__index__')
+            if cached is None:
+                terminal_scripts = (
+                    '<link rel="stylesheet" href="addons/xterm.css">\n'
+                    '<script src="addons/xterm.js"></script>\n'
+                    '<script src="addons/xterm-addon-fit.js"></script>\n'
+                    '<script src="addons/xterm-addon-webgl.js"></script>'
+                ) if TERMINAL_PORT else ''
+                content = (open(os.path.join(WEBROOT, 'index.html')).read()
+                    .replace('%%EZCONF_TERMINAL_SCRIPTS%%', terminal_scripts)
+                    .replace('%%EZCONF_TERMINAL%%', 'true' if TERMINAL_PORT else 'false')
+                    .replace('%%EZCONF_TERMINAL_PORT%%', str(TERMINAL_PORT or WEB_PORT))
+                    .replace('%%EZCONF_THEME%%', THEME)
+                    .replace('%%EZCONF_MKOPTIONS%%', 'true' if MKOPTIONS_CMD else 'false')
+                    .replace('%%EZCONF_BACKUP%%', 'true' if BACKUP_COUNT > 0 else 'false')
+                    .replace('%%EZCONF_SYSTEM_BACKUP%%', 'true' if SYSTEM_BACKUP_COUNT > 0 else 'false')
+                    .replace('%%EZCONF_MODE%%', json.dumps(EZCONF_MODE))
+                    .replace('%%EZCONF_NIXOS_TARGET%%', NIXOS_TARGET.replace('\\', '\\\\').replace("'", "\\'"))
+                    .replace('%%EZCONF_BOOT_ID%%', BOOT_ID)
+                    .replace('%%EZCONF_WEBROOT_HASH%%', WEBROOT_HASH)
+                    .replace('%%EZCONF_TERMINAL_CURRENT_HASH%%', TERMINAL_CURRENT_HASH)
+                    # Escape "</" so a command/label containing "</script>" can't prematurely close
+                    # the <script> block this gets embedded into as a JS array literal.
+                    .replace('%%EZCONF_BUTTONS%%', json.dumps(STATIC_BUTTONS).replace('</', '<\\/'))
+                )
+                raw = content.encode('utf-8')
+                cached = (raw, gzip.compress(raw))
+                _STATIC_GZIP_CACHE['__index__'] = cached
+            raw, gzipped_data = cached
+            use_gzip = 'gzip' in self.headers.get('Accept-Encoding', '')
+            data = gzipped_data if use_gzip else raw
             self.send_response(200)
             self.send_header('Content-Type', 'text/html; charset=utf-8')
+            if use_gzip:
+                self.send_header('Content-Encoding', 'gzip')
             self.send_header('Content-Length', str(len(data)))
             self.end_headers()
             self.wfile.write(data)
