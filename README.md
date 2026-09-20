@@ -268,13 +268,13 @@ python3 bin/server.py --generate-cert
 
 ## 🌐 Accessing from other devices
 
-To reach ezconf from other devices on your network, set `listen` to a LAN IP or `0.0.0.0` for all interfaces. The firewall is opened and a TLS certificate covering the listen address is generated automatically. Set `interface` to restrict the firewall rule to a specific network interface instead of opening the port on all interfaces:
+To reach ezconf from other devices on your network, set `listen` to a LAN IP or `0.0.0.0` for all interfaces. The firewall is opened and a TLS certificate covering the listen address is generated automatically. Set `interface` to restrict the firewall rule to specific network interfaces instead of opening the port on all interfaces:
 
 ```nix
 services.ezconf = {
   enable    = true;
   listen    = "192.168.1.2";
-  interface = "enp3s0";        # optional: restrict firewall rule to this interface
+  interface = [ "enp3s0" ];    # optional: restrict firewall rule to these interfaces
   auth.allowedUsers = [ "alice" ];
 };
 ```
@@ -366,7 +366,7 @@ services.ezconf = {
 | `key` | str or null | `null` | Path to TLS private key (PEM) |
 | `listen` | str or null | `null` | IP address to listen on (default: `127.0.0.1`; use `0.0.0.0` for all interfaces) |
 | `openFirewall` | bool | `false` | Open the web service's firewall port; enabled automatically when `listen` is set to a non-localhost address. The terminal service's port is never opened — it only binds `127.0.0.1` and is reached through the web service's own port |
-| `interface` | str or null | `null` | Network interface to open firewall ports on (e.g. `"eth0"`); when set, ports are opened only on that interface instead of all interfaces |
+| `interface` | list of str | `[]` | Network interfaces to open firewall ports on (e.g. `[ "eth0" "wg0" ]`); when set, ports are opened only on those interfaces instead of all interfaces |
 | `trustedHosts` | list of str | `[]` | Extra hostnames trusted for CSRF check — required when behind a reverse proxy; `listen` and `certNames` are trusted automatically. `[ "*" ]` disables the check entirely (accepts any Host header) — for cases like an installer ISO where the address can't be known ahead of time |
 | `nixosTarget` | str | `"/etc/nixos"` | Flake path passed to `ezconf-mkoptions`; also what system export zips up |
 | `generateAutocomplete` | bool | `true` | Run `ezconf-mkoptions` automatically the first time the service starts (when `/var/lib/ezconf/autocomplete` doesn't exist yet). Set `false` to skip this and rely on the `↻ Autocomplete` button instead — useful if evaluating `nixosTarget` is slow enough to be worth not doing unconditionally on every fresh boot/state wipe |
