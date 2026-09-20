@@ -4283,7 +4283,7 @@ async function exportAll() {
   if (!files.length) { setStatus('No files to export', 3000, 'err'); return; }
   const entries = files.map(name => ({ name, text: JSON.stringify(_exportableConfig(fileConfigs[name]), null, 2) }));
   const blob = await createZip(entries);
-  _triggerDownload(blob, `ezconf-export-${_exportTimestamp()}-files.zip`);
+  _triggerDownload(blob, `${HOSTNAME}-${_exportTimestamp()}-files.zip`);
   setStatus(`Exported ${entries.length} file(s)`, 3000, 'ok');
 }
 
@@ -5092,6 +5092,7 @@ const EZCONF_MODE       = %%EZCONF_MODE%%; // null or "install" — services.ezc
 const INSTALL_MODE      = EZCONF_MODE === 'install';
 const STATIC_BUTTONS    = %%EZCONF_BUTTONS%%; // from [[buttons]] in ezconf.toml — not tied to any tab
 const NIXOS_TARGET      = '%%EZCONF_NIXOS_TARGET%%'; // flake path GET /api/v1/system-export zips up
+const HOSTNAME          = '%%EZCONF_HOSTNAME%%'; // default basename for exported zips — see exportAll()
 const BOOT_ID           = '%%EZCONF_BOOT_ID%%'; // this page's server process — see initRestartWatcher()
 const WEBROOT_HASH      = '%%EZCONF_WEBROOT_HASH%%'; // this page's own frontend files — see initRestartWatcher()
 _terminalCurrentHash    = '%%EZCONF_TERMINAL_CURRENT_HASH%%' || null; // baked in at load, same as WEBROOT_HASH -- see _terminalNeedsRestart()
