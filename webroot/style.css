@@ -266,15 +266,15 @@ body {
 
 /* Floats over .editor-area (position: absolute, .main is its positioning context) in the top
    right corner -- same convention as .sidebar/.markdown-panels below, just anchored to the
-   opposite corner. Holds both #reload-notification and #terminal-restart-notification, stacked
-   vertically with a gap when both happen to be showing at once (e.g. after a rebuild that changed
-   both the frontend and terminal.py) rather than the two overlapping at the same fixed position. */
+   opposite corner. Currently only ever holds #terminal-restart-notification (a page reload
+   itself is automatic now, no banner -- see onRestartDetected()), but stays a flex column with a
+   gap rather than positioning that one element directly, in case a future banner joins it. */
 .notification-stack {
   position: absolute;
   top: 12px;
   right: 12px;
   /* Deliberately higher than every other z-index in the app (context menus, modals, tooltips,
-     the drag ghost, ...) -- a restart/update is more important than whatever's on screen, so this
+     the drag ghost, ...) -- a restart is more important than whatever's on screen, so this
      should never end up hidden behind something else that happens to be open at the time. */
   z-index: 99999;
   display: flex;
@@ -282,10 +282,10 @@ body {
   align-items: flex-end;
   gap: 8px;
 }
-/* Shown by onRestartDetected()/_updateTerminalRestartNotification() once a real restart is
-   needed; reloading/restarting only ever happens from an element's own onclick, never
-   automatically (see each one's own comment). */
-.reload-notification {
+/* Shared banner styling -- currently only #terminal-restart-notification, shown by
+   _updateTerminalRestartNotification() and always a manual click (see restartTerminalService()'s
+   own comment on why that one in particular never happens automatically). */
+.notification-banner {
   background: var(--bg2);
   border: 1px solid var(--accent2);
   border-radius: var(--radius);
@@ -296,7 +296,7 @@ body {
   cursor: pointer;
   transition: background .15s;
 }
-.reload-notification:hover { background: var(--bg3); }
+.notification-banner:hover { background: var(--bg3); }
 
 /* Only ever houses the always-hidden add-input/button below — a home for showAddOptionMenu() to
    detach them from and restore them to (right-click "Add option..."/"Add sub option..." is the
