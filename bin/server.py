@@ -102,6 +102,8 @@ Config file (ezconf.toml):
 """
 import argparse
 import datetime
+import email.utils
+import gzip
 import hashlib
 import http.server
 import io
@@ -936,7 +938,11 @@ class StaticHandler(http.server.SimpleHTTPRequestHandler):
         # Files served from WEBROOT often come from the Nix store, where mtimes are normalized
         # to a fixed value for build reproducibility — Last-Modified-based conditional caching
         # would then treat genuinely new content as unchanged. Disable caching outright instead.
-        self.send_header('Cache-Control', 'no-store')
+        # /autocomplete/* opts out of this (see _serve_autocomplete()): those files live in a
+        # real writable directory and get a genuinely fresh mtime every time ezconf-mkoptions
+        # regenerates them, so Last-Modified-based caching is trustworthy there.
+        if not getattr(self, '_no_default_cache_control', False):
+            self.send_header('Cache-Control', 'no-store')
         super().end_headers()
 
     def _deny(self, error=''):
@@ -1437,10 +1443,13 @@ class StaticHandler(http.server.SimpleHTTPRequestHandler):
             self._serve_raw(target); return
         if parsed.path == '/custom-options.json':
             self._serve_raw(os.path.join(CONFIG_DIR, 'custom-options.json')); return
-        # autocomplete files served from AUTOCOMPLETE_DIR when set
-        if AUTOCOMPLETE_DIR and parsed.path.startswith('/autocomplete/'):
+        # autocomplete files: AUTOCOMPLETE_DIR when set, else WEBROOT/autocomplete/ (same default
+        # as MKOPTIONS_CMD's own out_dir) — served via _serve_autocomplete() for conditional GET
+        # + gzip, since options.json/packages.json can run into several MB on a large flake
+        if parsed.path.startswith('/autocomplete/'):
             rel = os.path.normpath(parsed.path[len('/autocomplete/'):]).lstrip('/')
-            self._serve_raw(os.path.join(AUTOCOMPLETE_DIR, rel)); return
+            base = AUTOCOMPLETE_DIR or os.path.join(WEBROOT, 'autocomplete')
+            self._serve_autocomplete(os.path.join(base, rel)); return
         super().do_GET()
 
     def do_HEAD(self):
@@ -1461,6 +1470,51 @@ class StaticHandler(http.server.SimpleHTTPRequestHandler):
             self.send_error(404)
         except Exception as e:
             self.send_error(500, str(e))
+
+    def _serve_autocomplete(self, path):
+        """Conditional-GET + gzip serving for /autocomplete/*.json. Unlike _serve_raw() (always
+        no-store, see end_headers()), these files get real caching: options.json alone can be
+        several MB on a large flake, re-downloaded on every page load/reload otherwise, and their
+        mtime is genuinely meaningful (they're rewritten by ezconf-mkoptions, not Nix-store
+        artifacts with a frozen mtime)."""
+        try:
+            mtime = int(os.stat(path).st_mtime)
+        except OSError:
+            self.send_error(404); return
+        last_modified = self.date_time_string(mtime)
+        ims = self.headers.get('If-Modified-Since')
+        if ims:
+            try:
+                ims_dt = email.utils.parsedate_to_datetime(ims)
+                if ims_dt.tzinfo is None:
+                    ims_dt = ims_dt.replace(tzinfo=datetime.timezone.utc)
+                if int(ims_dt.timestamp()) >= mtime:
+                    self._no_default_cache_control = True
+                    self.send_response(304)
+                    self.send_header('Cache-Control', 'no-cache')
+                    self.send_header('Last-Modified', last_modified)
+                    self.end_headers()
+                    return
+            except (TypeError, ValueError, OverflowError):
+                pass
+        try:
+            with open(path, 'rb') as f:
+                data = f.read()
+        except OSError:
+            self.send_error(404); return
+        gzipped = 'gzip' in self.headers.get('Accept-Encoding', '')
+        if gzipped:
+            data = gzip.compress(data)
+        self._no_default_cache_control = True
+        self.send_response(200)
+        self.send_header('Content-Type', 'application/json')
+        self.send_header('Cache-Control', 'no-cache')
+        self.send_header('Last-Modified', last_modified)
+        if gzipped:
+            self.send_header('Content-Encoding', 'gzip')
+        self.send_header('Content-Length', str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
 
     def _serve_index(self):
         try:
