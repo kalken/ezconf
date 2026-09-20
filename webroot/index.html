@@ -5773,6 +5773,13 @@ async function updateAutocomplete() {
       packages = pkgRes;
       options = optRes;
       if (kernelRes) kernels = kernelRes;
+      // renderField() bakes each field's option object into its hover-tooltip listener as a
+      // closure (see _wireTooltipAnchor()) rather than looking it up fresh on every hover --
+      // without a re-render here, every already-rendered row keeps showing whatever `options`
+      // held at its last render, until something else (an edit, undo, tab switch, reload)
+      // happens to trigger one. _pushHistory() (inside renderAll()) dedupes against the previous
+      // snapshot, so this doesn't spend an undo step since nothing tracked by it actually changed.
+      renderAll();
       // Server only responds ok:true once it's checked the generated files aren't suspiciously
       // empty (see server.py) — a plain exit 0 doesn't by itself mean the data is any good.
       setStatus('Autocomplete updated', 3000, 'ok');
