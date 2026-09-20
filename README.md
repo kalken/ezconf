@@ -268,18 +268,30 @@ python3 bin/server.py --generate-cert
 
 ## 🌐 Accessing from other devices
 
-To reach ezconf from other devices on your network, set `listen` to a LAN IP or `0.0.0.0` for all interfaces. The firewall is opened and a TLS certificate covering the listen address is generated automatically. Set `interfaces` to restrict the firewall rule to specific network interfaces instead of opening the port on all interfaces:
+To reach ezconf from other devices on your network, either set `listen` to a static LAN IP or `0.0.0.0`, or set `interfaces` to the NIC(s) you want reachable and leave `listen` alone — `listen` then defaults to `0.0.0.0` automatically (only when `interfaces` is non-empty; it stays `127.0.0.1` otherwise). Either way, the firewall is opened automatically and a TLS certificate is generated.
+
+`interfaces` is the better fit on a DHCP-configured machine, where the interface *name* is stable but the IP isn't — the firewall rule (and thus actual reachability) is scoped by interface, not by an address that can drift on the next lease renewal:
 
 ```nix
 services.ezconf = {
-  enable    = true;
-  listen    = "192.168.1.2";
-  interfaces = [ "enp3s0" ];   # optional: restrict firewall rule to these interfaces
+  enable     = true;
+  interfaces = [ "enp3s0" ];   # listen defaults to 0.0.0.0 because this is set
+  certNames  = [ "myhost.local" ];  # a DHCP IP isn't worth pinning the cert to; use the hostname
   auth.allowedUsers = [ "alice" ];
 };
 ```
 
-The editor is then reachable at `https://192.168.1.2:9090` from any device on the network.
+Use `listen` directly when the machine has a fixed IP instead:
+
+```nix
+services.ezconf = {
+  enable    = true;
+  listen    = "192.168.1.2";   # included in the generated cert's SANs automatically
+  auth.allowedUsers = [ "alice" ];
+};
+```
+
+Either way, the editor ends up reachable at `https://<address>:9090` from any device on the network (or, with `interfaces` set, from any device reaching it through one of those NICs specifically).
 
 **Trusting the certificate on other devices**: the login page shows a **Download CA certificate** link. Download `ezconf-ca.pem` and import it once on each device:
 
@@ -364,7 +376,7 @@ services.ezconf = {
 | `certUsers` | list of str | `[]` (falls back to `auth.allowedUsers`) | OS users to install the generated CA for; set separately from `allowedUsers` if you log in as a different user than the one browsing |
 | `cert` | str or null | `null` | Path to TLS certificate (PEM) |
 | `key` | str or null | `null` | Path to TLS private key (PEM) |
-| `listen` | str or null | `null` | IP address to listen on (default: `127.0.0.1`; use `0.0.0.0` for all interfaces) |
+| `listen` | str or null | `null` | IP address to listen on (default: `127.0.0.1`, or `0.0.0.0` automatically when `interfaces` is set; use `0.0.0.0` explicitly for all interfaces with no `interfaces` restriction) |
 | `openFirewall` | bool | `false` | Open the web service's firewall port; enabled automatically when `listen` is set to a non-localhost address. The terminal service's port is never opened — it only binds `127.0.0.1` and is reached through the web service's own port |
 | `interfaces` | list of str | `[]` | Network interfaces to open firewall ports on (e.g. `[ "eth0" "wg0" ]`); when set, ports are opened only on those interfaces instead of all interfaces |
 | `trustedHosts` | list of str | `[]` | Extra hostnames trusted for CSRF check — required when behind a reverse proxy; `listen` and `certNames` are trusted automatically. `[ "*" ]` disables the check entirely (accepts any Host header) — for cases like an installer ISO where the address can't be known ahead of time |
