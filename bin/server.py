@@ -113,6 +113,7 @@ import os
 import re
 import secrets
 import shutil
+import socket
 import ssl
 import subprocess
 import sys
@@ -204,6 +205,13 @@ SYSTEM_EXPORT_EXCLUDE_DOTFILES = True                      # blanket dotfile/dot
 SYSTEM_EXPORT_EXCLUDE = {'hardware-configuration.nix'}     # extra basenames skipped by
                                                             # _iter_system_export_files(); set by
                                                             # system_export_exclude in TOML
+
+# Short hostname (domain stripped, same convention as generate-nixos-data.py's own
+# system_hostname), used as the default basename for exported zips (exportAll()/exportSystem())
+# so a download is identifiable by which machine it came from rather than a generic "ezconf"/
+# "nixos" label. Doesn't depend on any config/args, so unlike WEBROOT_HASH etc. it's computed
+# immediately rather than deferred to __main__.
+HOSTNAME = socket.gethostname().split('.')[0]
 
 _SESSION_KEY = secrets.token_hex(32)
 # Login brute-force throttling: per-source-IP failed-attempt tracking, checked before touching
@@ -1454,7 +1462,7 @@ class StaticHandler(http.server.SimpleHTTPRequestHandler):
                 data = buf.getvalue()
                 self.send_response(200)
                 self.send_header('Content-Type', 'application/zip')
-                self.send_header('Content-Disposition', 'attachment; filename="nixos-export-system.zip"')
+                self.send_header('Content-Disposition', f'attachment; filename="{HOSTNAME}-system.zip"')
                 self.send_header('Content-Length', str(len(data)))
                 self.end_headers()
                 self.wfile.write(data)
@@ -1632,6 +1640,7 @@ class StaticHandler(http.server.SimpleHTTPRequestHandler):
                     .replace('%%EZCONF_SYSTEM_BACKUP%%', 'true' if SYSTEM_BACKUP_COUNT > 0 else 'false')
                     .replace('%%EZCONF_MODE%%', json.dumps(EZCONF_MODE))
                     .replace('%%EZCONF_NIXOS_TARGET%%', NIXOS_TARGET.replace('\\', '\\\\').replace("'", "\\'"))
+                    .replace('%%EZCONF_HOSTNAME%%', HOSTNAME.replace('\\', '\\\\').replace("'", "\\'"))
                     .replace('%%EZCONF_BOOT_ID%%', BOOT_ID)
                     .replace('%%EZCONF_WEBROOT_HASH%%', WEBROOT_HASH)
                     .replace('%%EZCONF_TERMINAL_CURRENT_HASH%%', TERMINAL_CURRENT_HASH)
