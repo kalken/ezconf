@@ -268,10 +268,10 @@ in
       description = "Open the firewall port for the web service. Enabled automatically when listen is set to a non-localhost address. The terminal service's own port is never opened -- it only ever binds 127.0.0.1 and is reached through the web service's own port (see bin/server.py's terminal proxy), so a browser only ever needs to trust one certificate.";
     };
 
-    interface = lib.mkOption {
+    interfaces = lib.mkOption {
       type        = lib.types.listOf lib.types.str;
       default     = [];
-      description = "Network interfaces to open firewall ports on (e.g. [ \"eth0\" \"wg0\" ]). When set, ports are opened only on those interfaces; when empty (the default), ports are opened on all interfaces.";
+      description = "Network interfaces to open firewall ports on (e.g. [ \"eth0\" \"wg0\" ]), same naming convention as networking.firewall.interfaces. When set, ports are opened only on those interfaces; when empty (the default), ports are opened on all interfaces.";
     };
 
     trustedHosts = lib.mkOption {
@@ -315,8 +315,8 @@ in
         # cfg.ports.terminal is deliberately excluded -- terminal.py only ever binds 127.0.0.1
         # (see bin/terminal.py), reached through the web service's own port instead.
         let ports = [ cfg.ports.web ];
-        in if cfg.interface != []
-           then { interfaces = lib.genAttrs cfg.interface (_: { allowedTCPPorts = ports; }); }
+        in if cfg.interfaces != []
+           then { interfaces = lib.genAttrs cfg.interfaces (_: { allowedTCPPorts = ports; }); }
            else { allowedTCPPorts = ports; }
       );
 
