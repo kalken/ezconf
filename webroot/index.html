@@ -4597,8 +4597,8 @@ let _termExited = false;
 let _terminalRunningHash = null;
 let _terminalCurrentHash = null;
 // Same idea, but for *config* drift rather than code drift (bin/terminal.py's CONFIG_HASH):
-// SELF_HASH alone doesn't catch e.g. flipping terminalPersist in the NixOS module, since that
-// only changes the generated ezconf.toml, never terminal.py's own file content -- kept as a
+// SELF_HASH alone doesn't catch e.g. changing `shell` in the NixOS module, since that only
+// changes the generated ezconf.toml, never terminal.py's own file content -- kept as a
 // separate pair (not folded into the hash pair above) so the two kinds of drift stay
 // independently correct even though _terminalNeedsRestart() itself doesn't distinguish why.
 let _terminalRunningConfigHash = null;

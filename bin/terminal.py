@@ -6,7 +6,7 @@ Run:
   python3 terminal.py --config /run/ezconf/ezconf.toml
   python3 terminal.py --port 9092 --session-key-file /run/ezconf/session.key
 
-Config keys read from TOML: terminal_port, session_key_file, shell, webroot, terminal_persist
+Config keys read from TOML: terminal_port, session_key_file, shell, webroot
 
 Always binds 127.0.0.1 regardless of `listen` in TOML -- the browser never connects here
 directly. server.py proxies /terminal straight through to this process over loopback (see
@@ -15,17 +15,21 @@ not a second one for a separate wss://host:terminal_port origin. That also means
 never needs its own TLS: loopback traffic never leaves the machine, so there's nothing to
 encrypt on this leg regardless of whether server.py itself is running HTTPS.
 
-terminal_persist = true (default false) makes the shell session survive a dropped/closed
-WebSocket connection -- see _SESSION, _create_session(), _session_reader() below. There is only
-ever one session, shared by every connection regardless of who or what browser it comes from --
-see _SESSION's own comment for why. Reconnecting reattaches to the same still-running shell,
+The shell session always survives a dropped/closed WebSocket connection (browser closed, network
+blip, logout) -- see _SESSION, _create_session(), _session_reader() below. There is only ever one
+session, shared by every connection regardless of who or what browser it comes from -- see
+_SESSION's own comment for why. Reconnecting reattaches to the same still-running shell,
 repainting a snapshot of its current screen content (see _VirtualScreen below) rather than
-replaying its raw output history, instead of forking a fresh one; the shell itself only ever dies when
-it exits on its own, or when this whole process does (a reboot, a manual restart of
-ezconf-terminal.service) -- nothing here can make it survive that. With terminal_persist left at
-its default, a client disconnecting kills the shell immediately (see
-TERM_PERSIST/_terminal_ws()'s own finally below) -- exactly the original, pre-persistence
-behavior, except still shared across simultaneous connections rather than one shell each.
+replaying its raw output history, instead of forking a fresh one; the shell itself only ever dies
+when it exits on its own, or when this whole process does (a reboot, a manual restart of
+ezconf-terminal.service, which kills every process in its cgroup including anything the shell
+spawned -- systemd's own default KillMode, not anything this file does) -- nothing here can make
+it survive that. This used to be a `terminal_persist` toggle (off by default, matching the
+original pre-persistence behavior of killing the shell the moment its one connection ended) --
+removed once it became clear the "kill on disconnect" path was the one actually causing problems:
+a foreground job (htop, say) running when the browser tab reloaded got orphaned, since only the
+shell itself was ever signaled, not what it had spawned. Simpler to just always persist and let
+that whole failure mode not exist, than to also chase down killing an entire job tree correctly.
 """
 import argparse
 import base64
@@ -36,7 +40,6 @@ import json
 import os
 import secrets
 import select
-import signal
 import struct
 import subprocess
 import sys
@@ -134,18 +137,11 @@ except OSError:
 # Same idea as SELF_HASH, but for *config* drift rather than code drift: a hash of the raw TOML
 # values (not their resolved/fallback-applied form -- see __main__) for every key this process
 # actually reads (see the module docstring's "Config keys read from TOML" line, the single source
-# of truth for exactly which keys belong here). SELF_HASH alone doesn't catch e.g. flipping
-# terminal_persist in the NixOS module: that only changes the generated ezconf.toml, never this
-# file's own bytes, so the running process's SELF_HASH stays identical either way -- computed
-# once at startup below, in __main__.
+# of truth for exactly which keys belong here). SELF_HASH alone doesn't catch e.g. changing
+# `shell` in the NixOS module: that only changes the generated ezconf.toml, never this file's own
+# bytes, so the running process's SELF_HASH stays identical either way -- computed once at
+# startup below, in __main__.
 CONFIG_HASH = ''
-
-# Off by default -- set by terminal_persist in TOML. When False, a session behaves exactly as
-# before persistence existed: _terminal_ws()'s own finally (a client disconnecting) nudges the
-# shell to exit immediately rather than leaving it running unattached, so nothing outlives the one
-# connection that created it. See that finally block for how this reuses _session_reader()'s
-# normal "the shell exited" teardown path rather than needing a separate one.
-TERM_PERSIST = False
 
 # _SESSION holds the one shell that's still running, or None -- independent of any particular
 # WebSocket connection, which is the whole point: it outlives a client detaching (browser closed,
@@ -601,50 +597,6 @@ def _update_alt_screen_state(session, data):
             session['alt_screen'] = False
 
 
-def _kill_process_tree(root_pid, sig):
-    """Send `sig` to root_pid and every one of its descendants (children, grandchildren, ...),
-    not just root_pid itself. A foreground job run interactively (htop, vim, ...) or a
-    backgrounded one (`sleep 300 &`) normally gets its *own* process group under standard shell
-    job control, distinct from the shell's own -- so signaling just the shell (what a plain
-    proc.terminate()/kill() does) leaves it running, orphaned, indefinitely once the shell exits.
-    Confirmed empirically: a `sleep 300 &` job survived proc.terminate() even though the shell
-    that spawned it did exit (its own pgid differed from the job's). Walking the process tree via
-    `ps -eo pid,ppid` rather than matching by session id (the first version of this, since
-    reverted) is deliberate: `ps` is a standard POSIX tool, unlike /proc, which is Linux-only and
-    wouldn't even let this be tested on a non-Linux dev machine. Best-effort throughout: a `ps`
-    failure gives up on the whole sweep, and a pid that's already gone by the time it's signaled
-    is just skipped, neither treated as an error."""
-    try:
-        out = subprocess.run(['ps', '-eo', 'pid,ppid'], capture_output=True, text=True, timeout=3).stdout
-    except Exception:
-        return
-    children = {}
-    for line in out.splitlines()[1:]:
-        parts = line.split()
-        if len(parts) != 2:
-            continue
-        try:
-            pid, ppid = int(parts[0]), int(parts[1])
-        except ValueError:
-            continue
-        children.setdefault(ppid, []).append(pid)
-
-    stack = [root_pid]
-    seen = set()
-    while stack:
-        pid = stack.pop()
-        if pid in seen:
-            continue
-        seen.add(pid)
-        stack.extend(children.get(pid, []))
-
-    for pid in seen:
-        try:
-            os.kill(pid, sig)
-        except OSError:
-            pass
-
-
 def _create_session(rows, cols):
     """Fork a fresh shell and start its dedicated reader thread, returning the new session dict
     (or None if the PTY/shell itself couldn't be created). From here on, _session_reader() --
@@ -771,15 +723,12 @@ def _session_reader(session):
                     proc.wait(timeout=2)
         except Exception:
             pass
-        # Sweep the whole session regardless of how the shell itself exited (forced above, or on
-        # its own) -- a foreground/background job normally outlives the shell that spawned it
-        # otherwise, see _kill_process_tree()'s own comment. Best-effort, so just SIGTERM, a brief
-        # grace period, then SIGKILL for whatever's still around -- not the same wait/escalation
-        # loop as the shell's own terminate()/kill() above, since this only needs to be thorough,
-        # not particularly patient.
-        _kill_process_tree(proc.pid, signal.SIGTERM)
-        time.sleep(0.1)
-        _kill_process_tree(proc.pid, signal.SIGKILL)
+        # Deliberately doesn't chase down anything the shell itself spawned (a backgrounded job
+        # left running past `exit`, say) -- that's normal Unix behavior any terminal has, not
+        # something to fix here. The one case that actually matters -- this whole process dying
+        # (reboot, a manual restart) -- is already handled correctly by systemd's own default
+        # KillMode=control-group, which kills every process in the unit's cgroup regardless of
+        # what this code does.
         with _SESSION_LOCK:
             if _SESSION is session:
                 _SESSION = None
@@ -918,34 +867,10 @@ def _terminal_ws(handler):
         # Only ever detaches this one client -- the session (and the shell inside it) keeps
         # running regardless, which is the entire point of this design. _session_reader() is the
         # only thing that ever actually tears a session down, and only once the shell itself has
-        # genuinely exited.
+        # genuinely exited (or this whole process does, via systemd's own cgroup kill -- see the
+        # module docstring).
         with session['lock']:
             session['writers'].discard(wfile)
-            remaining = len(session['writers'])
-        if not TERM_PERSIST and remaining == 0:
-            # Non-persistent mode: nothing should outlive the one connection that created it.
-            # Clear _SESSION immediately, synchronously, right here -- not left for
-            # _session_reader() to notice and do asynchronously on its own next select() cycle --
-            # so a connection arriving a moment later (e.g. a fast page reload) can never win a
-            # race against the old shell's own teardown and get attached to a session that's
-            # mid-death. That thread still does the actual OS-level work (terminate/kill if
-            # needed, close the fd) once it notices proc.poll() is no longer None; its own "clear
-            # _SESSION" is a no-op by then (already gone), same as any other double-clear guard.
-            with _SESSION_LOCK:
-                if _SESSION is session:
-                    _SESSION = None
-            try:
-                proc = session['proc']
-                if proc.poll() is None:
-                    # Also nudges any foreground/background job (htop, `sleep 300 &`, ...) --
-                    # proc.terminate() alone only ever signals the shell itself, see
-                    # _kill_process_tree()'s own comment. This is still just the nudge, not the
-                    # guarantee: _session_reader() (the comment above) does the authoritative
-                    # terminate/kill/sweep once it notices, this just gets it started promptly.
-                    _kill_process_tree(proc.pid, signal.SIGTERM)
-                    proc.terminate()
-            except Exception:
-                pass
 
 
 def _session_from_cookie(headers):
@@ -1009,7 +934,7 @@ if __name__ == '__main__':
     # replicate that resolution logic on server.py's side of this comparison (see _ping_payload()
     # there) to compute the same hash from its own copy of the same file.
     CONFIG_HASH = hashlib.sha256(json.dumps(
-        {k: cfg.get(k) for k in ('terminal_port', 'session_key_file', 'shell', 'webroot', 'terminal_persist')},
+        {k: cfg.get(k) for k in ('terminal_port', 'session_key_file', 'shell', 'webroot')},
         sort_keys=True, default=str
     ).encode()).hexdigest()[:16]
 
@@ -1022,8 +947,6 @@ if __name__ == '__main__':
     except Exception:
         pass
     SHELL = cfg.get('shell') or _passwd_shell or os.environ.get('SHELL') or '/bin/sh'
-
-    TERM_PERSIST = bool(cfg.get('terminal_persist', False))
 
     WEBROOT   = cfg.get('webroot') or WEBROOT
     # BIND_ADDR deliberately ignores `listen` -- see the module docstring above: this process
