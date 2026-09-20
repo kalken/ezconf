@@ -1035,7 +1035,18 @@ def _recv_until_double_crlf(sock, chunk=4096):
 
 
 def _pipe(src, dst):
-    """One direction of _proxy_terminal()'s byte relay -- runs until src is closed or errors."""
+    """One direction of _proxy_terminal()'s byte relay -- runs until src is closed or errors,
+    then shuts dst down too. Without this, whichever side dies first (e.g. terminal.py itself,
+    restarted via "Restart Terminal") left the *other* direction's blocking recv() with no way to
+    ever learn its peer is gone -- confirmed as a real, reproduced hang, since a browser sitting
+    on an idle WS connection has no reason to send anything that would otherwise surface the dead
+    backend. Deliberately shutdown(SHUT_RDWR), not just close(): closing a socket from a thread
+    other than the one blocked in recv() on it is not reliably enough to unblock that call --
+    confirmed empirically (a plain dst.close() here left the peer thread's recv() hanging
+    indefinitely on macOS, even though the fd was genuinely closed and the TCP connection had
+    already gone to CLOSE_WAIT). shutdown() is the actual POSIX-documented way to force a
+    concurrent blocking call on the same socket to return; close() still runs after to release
+    the fd once nothing is blocked on it anymore."""
     try:
         while True:
             data = src.recv(65536)
@@ -1044,6 +1055,15 @@ def _pipe(src, dst):
             dst.sendall(data)
     except OSError:
         pass
+    finally:
+        try:
+            dst.shutdown(socket.SHUT_RDWR)
+        except OSError:
+            pass
+        try:
+            dst.close()
+        except OSError:
+            pass
 
 
 class StaticHandler(http.server.SimpleHTTPRequestHandler):
