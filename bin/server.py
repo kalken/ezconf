@@ -182,6 +182,9 @@ TERMINAL_ENABLED = False         # True when terminal_port is set
 TERMINAL_PORT    = None          # port the terminal WebSocket service is running on
 TERMINAL_SCRIPT  = None          # path to the terminal.py currently on disk; set by terminal_script in TOML
 TERMINAL_CURRENT_HASH = ''       # hash of TERMINAL_SCRIPT, computed once at startup — see _ping_payload()
+TERMINAL_CONFIG_HASH = ''        # hash of the config values terminal.py itself reads, computed once at
+                                  # startup from this process's own cfg — see _ping_payload() and
+                                  # terminal.py's own CONFIG_HASH (must use the identical key list/formula)
 THEME            = 'nixos'       # ui theme: nixos, dark, light
 EZCONF_MODE      = None          # None or 'install'; baked into index.html on load — shows
                                   # install-mode buttons in their own row and greys out ordinary
@@ -896,18 +899,18 @@ def _compute_file_hash(path):
         return ''
 
 
-def _terminal_running_hash():
-    """Best-effort fetch of the *actually running* terminal.py's own SELF_HASH, via its
-    /terminal/hash status endpoint (loopback only, see terminal.py) -- not the WS 'ready'
+def _terminal_running_status():
+    """Best-effort fetch of the *actually running* terminal.py's own SELF_HASH/CONFIG_HASH, via
+    its /terminal/hash status endpoint (loopback only, see terminal.py) -- not the WS 'ready'
     message, which only ever arrives once a client has the terminal panel open. Included in
     _ping_payload() so initRestartWatcher() can keep the restart notification accurate even
     when the panel is closed (previously: reloading the GUI reset the frontend's in-memory
     _terminalRunningHash to null, and nothing repopulated it unless the panel happened to be
-    open, silently hiding a notification that was still genuinely true). Returns None on any
+    open, silently hiding a notification that was still genuinely true). Returns {} on any
     failure -- terminal.py not up yet, a slow response, TERMINAL_PORT unset -- so a transient
-    miss just leaves this one ping tick's field absent rather than reporting a wrong hash."""
+    miss just leaves this one ping tick's fields absent rather than reporting a wrong hash."""
     if not TERMINAL_PORT:
-        return None
+        return {}
     try:
         conn = http.client.HTTPConnection('127.0.0.1', TERMINAL_PORT, timeout=2)
         try:
@@ -915,12 +918,12 @@ def _terminal_running_hash():
             resp = conn.getresponse()
             data = resp.read()
             if resp.status != 200:
-                return None
-            return json.loads(data).get('hash')
+                return {}
+            return json.loads(data)
         finally:
             conn.close()
     except Exception:
-        return None
+        return {}
 
 
 def _ping_payload():
@@ -928,6 +931,7 @@ def _ping_payload():
     compares against what index.html was actually templated with at load time, to tell a real
     restart (something here differs) apart from a process restart that changed nothing the
     frontend cares about."""
+    _running = _terminal_running_status()
     return {
         'boot_id': BOOT_ID,
         'webroot_hash': WEBROOT_HASH,
@@ -939,7 +943,9 @@ def _ping_payload():
         'nixos_target': NIXOS_TARGET,
         'buttons': STATIC_BUTTONS,
         'terminal_current_hash': TERMINAL_CURRENT_HASH,
-        'terminal_running_hash': _terminal_running_hash(),
+        'terminal_running_hash': _running.get('hash'),
+        'terminal_config_hash': TERMINAL_CONFIG_HASH,
+        'terminal_running_config_hash': _running.get('config_hash'),
     }
 
 
@@ -1730,6 +1736,7 @@ class StaticHandler(http.server.SimpleHTTPRequestHandler):
                     .replace('%%EZCONF_BOOT_ID%%', BOOT_ID)
                     .replace('%%EZCONF_WEBROOT_HASH%%', WEBROOT_HASH)
                     .replace('%%EZCONF_TERMINAL_CURRENT_HASH%%', TERMINAL_CURRENT_HASH)
+                    .replace('%%EZCONF_TERMINAL_CONFIG_HASH%%', TERMINAL_CONFIG_HASH)
                     # Escape "</" so a command/label containing "</script>" can't prematurely close
                     # the <script> block this gets embedded into as a JS array literal.
                     .replace('%%EZCONF_BUTTONS%%', json.dumps(STATIC_BUTTONS).replace('</', '<\\/'))
@@ -1892,6 +1899,12 @@ if __name__ == '__main__':
         TERMINAL_ENABLED = True
     TERMINAL_SCRIPT = cfg.get('terminal_script')
     TERMINAL_CURRENT_HASH = _compute_file_hash(TERMINAL_SCRIPT)
+    # Raw values, not resolved/fallback-applied -- must match terminal.py's own CONFIG_HASH
+    # formula exactly, key for key, since these are compared directly (see _ping_payload()).
+    TERMINAL_CONFIG_HASH = hashlib.sha256(json.dumps(
+        {k: cfg.get(k) for k in ('terminal_port', 'session_key_file', 'shell', 'webroot', 'terminal_persist')},
+        sort_keys=True, default=str
+    ).encode()).hexdigest()[:16]
 
     _key_file = args.session_key_file or cfg.get('session_key_file')
     if _key_file:
