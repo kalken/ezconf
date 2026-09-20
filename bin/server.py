@@ -1908,7 +1908,7 @@ if __name__ == '__main__':
     # Raw values, not resolved/fallback-applied -- must match terminal.py's own CONFIG_HASH
     # formula exactly, key for key, since these are compared directly (see _ping_payload()).
     TERMINAL_CONFIG_HASH = hashlib.sha256(json.dumps(
-        {k: cfg.get(k) for k in ('terminal_port', 'session_key_file', 'shell', 'webroot', 'terminal_persist')},
+        {k: cfg.get(k) for k in ('terminal_port', 'session_key_file', 'shell', 'webroot')},
         sort_keys=True, default=str
     ).encode()).hexdigest()[:16]
 
