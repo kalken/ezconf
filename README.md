@@ -270,13 +270,23 @@ python3 bin/server.py --generate-cert
 
 To reach ezconf from other devices on your network, either set `listen` to a static LAN IP or `0.0.0.0`, or set `interfaces` to the NIC(s) you want reachable and leave `listen` alone — `listen` then defaults to `0.0.0.0` automatically (only when `interfaces` is non-empty; it stays `127.0.0.1` otherwise). Either way, the firewall is opened automatically and a TLS certificate is generated.
 
-`interfaces` is the better fit on a DHCP-configured machine, where the interface *name* is stable but the IP isn't — the firewall rule (and thus actual reachability) is scoped by interface, not by an address that can drift on the next lease renewal:
+`interfaces` is the better fit on a DHCP-configured machine, where the interface *name* is stable but the IP isn't — the firewall rule (and thus actual reachability) is scoped by interface, not by an address that can drift on the next lease renewal. It's enough on its own:
 
 ```nix
 services.ezconf = {
   enable     = true;
   interfaces = [ "enp3s0" ];   # listen defaults to 0.0.0.0 because this is set
-  certNames  = [ "myhost.local" ];  # a DHCP IP isn't worth pinning the cert to; use the hostname
+  auth.allowedUsers = [ "alice" ];
+};
+```
+
+Setting `interfaces` also defaults `trustedHosts` to `[ "*" ]` (disabling the Host-header check that otherwise protects every save/import against DNS-rebinding CSRF) *unless* you give it `certNames` instead, since a DHCP address isn't worth pinning either the cert or the Host check to and there's usually no fixed hostname to give it. If you do have a stable one (mDNS/avahi, a DNS entry, a reservation), set it and you get real protection back along with a cert that actually matches it:
+
+```nix
+services.ezconf = {
+  enable     = true;
+  interfaces = [ "enp3s0" ];
+  certNames  = [ "myhost.local" ];   # covers both the cert SAN and the Host check
   auth.allowedUsers = [ "alice" ];
 };
 ```
@@ -379,7 +389,7 @@ services.ezconf = {
 | `listen` | str or null | `null` | IP address to listen on (default: `127.0.0.1`, or `0.0.0.0` automatically when `interfaces` is set; use `0.0.0.0` explicitly for all interfaces with no `interfaces` restriction) |
 | `openFirewall` | bool | `false` | Open the web service's firewall port; enabled automatically when `listen` is set to a non-localhost address. The terminal service's port is never opened — it only binds `127.0.0.1` and is reached through the web service's own port |
 | `interfaces` | list of str | `[]` | Network interfaces to open firewall ports on (e.g. `[ "eth0" "wg0" ]`); when set, ports are opened only on those interfaces instead of all interfaces |
-| `trustedHosts` | list of str | `[]` | Extra hostnames trusted for CSRF check — required when behind a reverse proxy; `listen` and `certNames` are trusted automatically. `[ "*" ]` disables the check entirely (accepts any Host header) — for cases like an installer ISO where the address can't be known ahead of time |
+| `trustedHosts` | list of str | `[]` (or `[ "*" ]` when `interfaces` is set and `certNames` isn't) | Extra hostnames trusted for CSRF check — required when behind a reverse proxy; `listen` and `certNames` are trusted automatically. `[ "*" ]` disables the check entirely (accepts any Host header) — for cases like an installer ISO, or a DHCP machine with no fixed address to trust ahead of time |
 | `nixosTarget` | str | `"/etc/nixos"` | Flake path passed to `ezconf-mkoptions`; also what system export zips up |
 | `generateAutocomplete` | bool | `true` | Run `ezconf-mkoptions` automatically the first time the service starts (when `/var/lib/ezconf/autocomplete` doesn't exist yet). Set `false` to skip this and rely on the `↻ Autocomplete` button instead — useful if evaluating `nixosTarget` is slow enough to be worth not doing unconditionally on every fresh boot/state wipe |
 | `systemExportExcludeDotfiles` | bool | `true` | Exclude dotfiles/dotdirs from the system export zip |
