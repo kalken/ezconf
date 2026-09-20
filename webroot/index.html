@@ -3754,6 +3754,8 @@ function initRestartWatcher() {
     // panel happens to be open -- silently hiding a notification that was still genuinely true.
     if (typeof data.terminal_current_hash === 'string') _terminalCurrentHash = data.terminal_current_hash;
     if (typeof data.terminal_running_hash === 'string') _terminalRunningHash = data.terminal_running_hash;
+    if (typeof data.terminal_config_hash === 'string') _terminalCurrentConfigHash = data.terminal_config_hash;
+    if (typeof data.terminal_running_config_hash === 'string') _terminalRunningConfigHash = data.terminal_running_config_hash;
     _updateTerminalRestartNotification();
 
     if (!data.boot_id || data.boot_id === _lastSeenBootId) return;
@@ -4590,8 +4592,16 @@ let _termExited = false;
 // see _updateTerminalRestartNotification().
 let _terminalRunningHash = null;
 let _terminalCurrentHash = null;
+// Same idea, but for *config* drift rather than code drift (bin/terminal.py's CONFIG_HASH):
+// SELF_HASH alone doesn't catch e.g. flipping terminalPersist in the NixOS module, since that
+// only changes the generated ezconf.toml, never terminal.py's own file content -- kept as a
+// separate pair (not folded into the hash pair above) so the two kinds of drift stay
+// independently correct even though _terminalNeedsRestart() itself doesn't distinguish why.
+let _terminalRunningConfigHash = null;
+let _terminalCurrentConfigHash = null;
 function _terminalNeedsRestart() {
-  return !!(_terminalRunningHash && _terminalCurrentHash && _terminalRunningHash !== _terminalCurrentHash);
+  return !!(_terminalRunningHash && _terminalCurrentHash && _terminalRunningHash !== _terminalCurrentHash)
+      || !!(_terminalRunningConfigHash && _terminalCurrentConfigHash && _terminalRunningConfigHash !== _terminalCurrentConfigHash);
 }
 function _updateTerminalRestartNotification() {
   document.getElementById('terminal-restart-notification').classList.toggle('hidden', !_terminalNeedsRestart());
@@ -4794,10 +4804,9 @@ function connectTerminalWs() {
       const msg = JSON.parse(e.data);
       if (msg.type === 'ready') {
         _termReady = true;
-        if (typeof msg.hash === 'string') {
-          _terminalRunningHash = msg.hash;
-          _updateTerminalRestartNotification();
-        }
+        if (typeof msg.hash === 'string') _terminalRunningHash = msg.hash;
+        if (typeof msg.config_hash === 'string') _terminalRunningConfigHash = msg.config_hash;
+        _updateTerminalRestartNotification();
         const waiters = _termReadyWaiters;
         _termReadyWaiters = [];
         waiters.forEach(fn => fn());
@@ -5115,6 +5124,7 @@ const HOSTNAME          = '%%EZCONF_HOSTNAME%%'; // default basename for exporte
 const BOOT_ID           = '%%EZCONF_BOOT_ID%%'; // this page's server process — see initRestartWatcher()
 const WEBROOT_HASH      = '%%EZCONF_WEBROOT_HASH%%'; // this page's own frontend files — see initRestartWatcher()
 _terminalCurrentHash    = '%%EZCONF_TERMINAL_CURRENT_HASH%%' || null; // baked in at load, same as WEBROOT_HASH -- see _terminalNeedsRestart()
+_terminalCurrentConfigHash = '%%EZCONF_TERMINAL_CONFIG_HASH%%' || null; // same idea, for config drift -- see _terminalNeedsRestart()
 
 
 async function apiFetch(path, opts = {}) {

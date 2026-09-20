@@ -130,6 +130,15 @@ try:
 except OSError:
     SELF_HASH = ''
 
+# Same idea as SELF_HASH, but for *config* drift rather than code drift: a hash of the raw TOML
+# values (not their resolved/fallback-applied form -- see __main__) for every key this process
+# actually reads (see the module docstring's "Config keys read from TOML" line, the single source
+# of truth for exactly which keys belong here). SELF_HASH alone doesn't catch e.g. flipping
+# terminal_persist in the NixOS module: that only changes the generated ezconf.toml, never this
+# file's own bytes, so the running process's SELF_HASH stays identical either way -- computed
+# once at startup below, in __main__.
+CONFIG_HASH = ''
+
 # Off by default -- set by terminal_persist in TOML. When False, a session behaves exactly as
 # before persistence existed: _terminal_ws()'s own finally (a client disconnecting) nudges the
 # shell to exit immediately rather than leaving it running unattached, so nothing outlives the one
@@ -788,7 +797,7 @@ def _terminal_ws(handler):
     if is_new:
         time.sleep(READY_DELAY)
     try:
-        _ws_send(wfile, json.dumps({'type': 'ready', 'hash': SELF_HASH}).encode(), opcode=0x01)
+        _ws_send(wfile, json.dumps({'type': 'ready', 'hash': SELF_HASH, 'config_hash': CONFIG_HASH}).encode(), opcode=0x01)
     except Exception:
         pass
 
@@ -893,14 +902,14 @@ class TerminalHandler(http.server.BaseHTTPRequestHandler):
                 self.end_headers()
         elif parsed.path == '/terminal/hash':
             # A plain status check -- no PTY session, no WebSocket upgrade -- so server.py's
-            # /api/v1/ping can learn what this *actually running* process's SELF_HASH is without
-            # needing a shell to exist for it. Exists specifically because the WS 'ready' message
-            # (the only other place SELF_HASH is ever sent) only arrives once a client has the
-            # terminal panel open and connected -- see _terminalNeedsRestart() in index.html and
-            # its own comment on why that alone left the restart notification unable to recover
-            # after a page reload if the panel happened to be closed at the time.
+            # /api/v1/ping can learn what this *actually running* process's SELF_HASH/CONFIG_HASH
+            # are without needing a shell to exist for it. Exists specifically because the WS
+            # 'ready' message (the only other place these are ever sent) only arrives once a
+            # client has the terminal panel open and connected -- see _terminalNeedsRestart() in
+            # index.html and its own comment on why that alone left the restart notification
+            # unable to recover after a page reload if the panel happened to be closed at the time.
             if _session_from_cookie(self.headers) == SESSION_KEY:
-                data = json.dumps({'hash': SELF_HASH}).encode()
+                data = json.dumps({'hash': SELF_HASH, 'config_hash': CONFIG_HASH}).encode()
                 self.send_response(200)
                 self.send_header('Content-Type', 'application/json')
                 self.send_header('Content-Length', str(len(data)))
@@ -927,6 +936,16 @@ if __name__ == '__main__':
     args = ap.parse_args()
 
     cfg = load_toml(args.config or 'ezconf.toml')
+
+    # Raw values, not the resolved/fallback-applied ones computed below -- e.g. shell's own
+    # passwd/$SHELL fallback chain can legitimately differ by environment even when the TOML
+    # value itself (often absent) hasn't changed, and hashing the raw value avoids needing to
+    # replicate that resolution logic on server.py's side of this comparison (see _ping_payload()
+    # there) to compute the same hash from its own copy of the same file.
+    CONFIG_HASH = hashlib.sha256(json.dumps(
+        {k: cfg.get(k) for k in ('terminal_port', 'session_key_file', 'shell', 'webroot', 'terminal_persist')},
+        sort_keys=True, default=str
+    ).encode()).hexdigest()[:16]
 
     PORT = args.port or cfg.get('terminal_port') or PORT
 
