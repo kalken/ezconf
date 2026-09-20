@@ -80,8 +80,7 @@ const _DEFAULT_THEME = '%%EZCONF_THEME%%';
     </div>
     <div class="markdown-panels" id="markdown-panels"></div>
     <div class="notification-stack">
-      <div class="reload-notification hidden" id="reload-notification" onclick="location.reload()" data-tooltip="ezconf was updated or restarted -- click to reload">New version installed - click to reload</div>
-      <div class="reload-notification hidden" id="terminal-restart-notification" onclick="restartTerminalService()" data-tooltip="the running terminal service doesn't match what's on disk -- click to restart it">Terminal has changed - click to restart</div>
+      <div class="notification-banner hidden" id="terminal-restart-notification" onclick="restartTerminalService()" data-tooltip="the running terminal service doesn't match what's on disk -- click to restart it">Terminal has changed - click to restart</div>
     </div>
   </div>
 </div>
@@ -3776,9 +3775,11 @@ function initRestartWatcher() {
   }
   function onRestartDetected() {
     _restartDetected = true;
-    // Never reloads on its own -- just surfaces the notification so the user picks the moment,
-    // instead of the page pulling itself out from under them (mid-edit or not).
-    document.getElementById('reload-notification').classList.remove('hidden');
+    // Reload immediately if there's nothing to lose; otherwise _updateDirty() (run after every
+    // edit, undo, and Save) fires it the moment the user gets back to a clean state -- no
+    // separate notification needed either way, unlike the terminal-restart case below, which
+    // stays a manual click since restarting always kills a running shell, clean state or not.
+    if (!isAnyDirty()) location.reload();
   }
   const POLL_INTERVAL_MS = 5000;
   async function poll() {
@@ -3808,6 +3809,9 @@ function _updateDirty() {
   document.querySelectorAll('.term-run-btn[data-save-first]').forEach(b => { b.disabled = dirty; });
   const saveBtn = document.getElementById('save-btn');
   if (saveBtn) saveBtn.disabled = !dirty;
+  // A restart was seen while still dirty (onRestartDetected() couldn't reload immediately then)
+  // -- this is the "finish saving/undoing" half of that, run after every edit/undo/Save.
+  if (_restartDetected && !dirty) location.reload();
 }
 
 function undo() {
@@ -4606,9 +4610,10 @@ function _terminalNeedsRestart() {
 function _updateTerminalRestartNotification() {
   document.getElementById('terminal-restart-notification').classList.toggle('hidden', !_terminalNeedsRestart());
 }
-// Restarting ends every running shell for everyone connected, so this stays something the user
-// triggers themselves from the notification's own onclick, never automatically -- same rule
-// #reload-notification already follows for the page reload it offers.
+// Restarting ends every running shell for everyone connected, so unlike onRestartDetected()'s
+// page reload (automatic once clean, no unsaved edits at risk), this stays something the user
+// triggers themselves from the notification's own onclick, always -- there's no "clean" state
+// that makes killing a running shell safe to do silently.
 function restartTerminalService() {
   const panel = document.getElementById('terminal-panel');
   if (panel.classList.contains('collapsed')) toggleTerminal();
