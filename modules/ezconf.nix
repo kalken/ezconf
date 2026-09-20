@@ -317,16 +317,24 @@ in
       services.ezconf.generateCert  = lib.mkDefault (cfg.https && cfg.cert == null && cfg.key == null);
       services.ezconf.openFirewall  = lib.mkDefault (!builtins.elem cfg.listen [ null "127.0.0.1" "::1" ]);
       services.ezconf.installCerts  = lib.mkDefault (builtins.elem cfg.listen [ null "127.0.0.1" "::1" ]);
-      # _valid_host() (server.py) only ever auto-trusts BIND_ADDR when it's a real address, not
-      # 0.0.0.0 -- so once listen becomes 0.0.0.0 (via the default just above), nothing auto-
-      # populates trusted_hosts, and every POST (login excepted) would 403 until you set
+      # server.py's own _valid_host() auto-trusts BIND_ADDR whenever it's a real address (not
+      # 0.0.0.0/::) -- so once listen becomes 0.0.0.0 (via the default just above), nothing
+      # auto-populates trusted_hosts, and every POST (login excepted) would 403 until you set
       # trustedHosts or certNames yourself. On a DHCP machine there's usually no stable hostname
       # or IP to give it in the first place -- and the address can drift on every lease renewal
       # regardless -- so unless certNames gives us something concrete to trust, fall back to "*"
       # (disabling the Host check entirely) rather than making interfaces alone silently half-work
-      # until you find out the hard way. Explicitly setting trustedHosts or certNames still wins
-      # over this, same mkDefault-yields-to-a-real-assignment behavior as listen above.
-      services.ezconf.trustedHosts  = lib.mkDefault (if cfg.interfaces != [] && cfg.certNames == [] then [ "*" ] else []);
+      # until you find out the hard way. If listen is *also* a real address (set explicitly
+      # alongside interfaces, e.g. to scope the firewall to one NIC while still pinning a fixed
+      # IP), that same server.py auto-trust already covers it -- no need for the wildcard then.
+      # Explicitly setting trustedHosts or certNames still wins over this either way, same
+      # mkDefault-yields-to-a-real-assignment behavior as listen above.
+      services.ezconf.trustedHosts  = lib.mkDefault (
+        if cfg.interfaces != [] && cfg.certNames == []
+           && (cfg.listen == null || builtins.elem cfg.listen [ "0.0.0.0" "::" ])
+        then [ "*" ]
+        else []
+      );
 
       networking.firewall = lib.mkIf cfg.openFirewall (
         # cfg.ports.terminal is deliberately excluded -- terminal.py only ever binds 127.0.0.1
