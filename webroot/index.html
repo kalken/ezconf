@@ -4602,9 +4602,13 @@ function _waitTermReady() {
   return new Promise(resolve => _termReadyWaiters.push(resolve));
 }
 
+// Same origin as the page itself (server.py proxies this through to terminal.py over loopback,
+// see _proxy_terminal() in server.py) -- not a separate host:port, which would be a different
+// origin needing its own certificate-trust decision the browser has no way to prompt for over a
+// raw WebSocket handshake.
 const _TERM_WS_BASE = (() => {
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-  return `${proto}//${location.hostname}:%%EZCONF_TERMINAL_PORT%%/terminal`;
+  return `${proto}//${location.host}/terminal`;
 })();
 
 async function initTerminal() {

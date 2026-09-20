@@ -265,7 +265,7 @@ in
     openFirewall = lib.mkOption {
       type        = lib.types.bool;
       default     = false;
-      description = "Open firewall ports for the web and terminal services. Enabled automatically when listen is set to a non-localhost address.";
+      description = "Open the firewall port for the web service. Enabled automatically when listen is set to a non-localhost address. The terminal service's own port is never opened -- it only ever binds 127.0.0.1 and is reached through the web service's own port (see bin/server.py's terminal proxy), so a browser only ever needs to trust one certificate.";
     };
 
     interface = lib.mkOption {
@@ -282,7 +282,11 @@ in
 
     ports = {
       web      = lib.mkOption { type = lib.types.port; default = 9090; };
-      terminal = lib.mkOption { type = lib.types.port; default = 9091; };
+      terminal = lib.mkOption {
+        type        = lib.types.port;
+        default     = 9091;
+        description = "Internal-only port terminal.py binds on 127.0.0.1. Never reached directly -- the browser always connects through ports.web instead, proxied over loopback (see openFirewall).";
+      };
     };
 
     buttons = lib.mkOption {
@@ -308,7 +312,9 @@ in
       services.ezconf.installCerts  = lib.mkDefault (builtins.elem cfg.listen [ null "127.0.0.1" "::1" ]);
 
       networking.firewall = lib.mkIf cfg.openFirewall (
-        let ports = [ cfg.ports.web ] ++ lib.optional cfg.terminal cfg.ports.terminal;
+        # cfg.ports.terminal is deliberately excluded -- terminal.py only ever binds 127.0.0.1
+        # (see bin/terminal.py), reached through the web service's own port instead.
+        let ports = [ cfg.ports.web ];
         in if cfg.interface != null
            then { interfaces.${cfg.interface}.allowedTCPPorts = ports; }
            else { allowedTCPPorts = ports; }

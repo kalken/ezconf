@@ -85,8 +85,10 @@ Run:
   python3 server.py --generate-cert [DIR]             generate cert only (DIR defaults to .)
 
 Terminal:
-  Run terminal.py separately. Pass --terminal-port (or set terminal_port in TOML) to enable
-  the terminal panel and point the frontend at the right port.
+  Run terminal.py separately. Pass --terminal-port (or set terminal_port in TOML) -- matching
+  what terminal.py itself is configured with -- to enable the panel and proxy /terminal through
+  to it (see StaticHandler._proxy_terminal()). terminal.py always binds 127.0.0.1 regardless of
+  --listen; the browser only ever talks to this process's own port.
 
 Auth:
   --auth auto     (default) pam if available, else custom
@@ -985,6 +987,32 @@ def _read_login_page(error=''):
         return f'<html><body><form method="post" action="/login"><input name="username"><input name="password" type="password"><button>Sign in</button></form><p>{error}</p></body></html>'
 
 
+def _recv_until_double_crlf(sock, chunk=4096):
+    """Read from a raw socket until the HTTP header terminator; returns (header_bytes including
+    the terminator, any already-read bytes past it) -- used by _proxy_terminal() to forward
+    terminal.py's handshake response without needing http.client on either leg."""
+    buf = b''
+    while b'\r\n\r\n' not in buf:
+        data = sock.recv(chunk)
+        if not data:
+            return b'', b''
+        buf += data
+    idx = buf.find(b'\r\n\r\n') + 4
+    return buf[:idx], buf[idx:]
+
+
+def _pipe(src, dst):
+    """One direction of _proxy_terminal()'s byte relay -- runs until src is closed or errors."""
+    try:
+        while True:
+            data = src.recv(65536)
+            if not data:
+                break
+            dst.sendall(data)
+    except OSError:
+        pass
+
+
 class StaticHandler(http.server.SimpleHTTPRequestHandler):
     def translate_path(self, path):
         self.directory = WEBROOT
@@ -1395,6 +1423,9 @@ class StaticHandler(http.server.SimpleHTTPRequestHandler):
             return
         if not check_auth(self.headers):
             self._deny(); return
+        if (parsed.path == '/terminal' and TERMINAL_PORT and
+                self.headers.get('Upgrade', '').lower() == 'websocket'):
+            self._proxy_terminal(); return
         if parsed.path.rstrip('/') in ('', '/index.html'):
             self._serve_index(); return
         if parsed.path == '/api/v1/ping':
@@ -1633,7 +1664,6 @@ class StaticHandler(http.server.SimpleHTTPRequestHandler):
                 content = (open(os.path.join(WEBROOT, 'index.html')).read()
                     .replace('%%EZCONF_TERMINAL_SCRIPTS%%', terminal_scripts)
                     .replace('%%EZCONF_TERMINAL%%', 'true' if TERMINAL_PORT else 'false')
-                    .replace('%%EZCONF_TERMINAL_PORT%%', str(TERMINAL_PORT or WEB_PORT))
                     .replace('%%EZCONF_THEME%%', THEME)
                     .replace('%%EZCONF_MKOPTIONS%%', 'true' if MKOPTIONS_CMD else 'false')
                     .replace('%%EZCONF_BACKUP%%', 'true' if BACKUP_COUNT > 0 else 'false')
@@ -1665,6 +1695,57 @@ class StaticHandler(http.server.SimpleHTTPRequestHandler):
             self.send_error(404)
         except Exception as e:
             self.send_error(500, str(e))
+
+    def _proxy_terminal(self):
+        """Relay a /terminal WebSocket upgrade straight through to terminal.py's own listener on
+        127.0.0.1:TERMINAL_PORT (which only ever binds to loopback -- see terminal.py's own
+        BIND_ADDR), so the browser only ever needs to trust *this* process's certificate. A
+        separate wss://host:TERMINAL_PORT connection straight to terminal.py would be a different
+        origin (port included), needing its own certificate-trust decision the browser has no way
+        to prompt for over a raw WebSocket handshake -- see the comment on TERMINAL_PORT in
+        index.html. Both legs of this relay stay plain HTTP: browser<->server.py is whatever
+        scheme this process itself is running (TLS-wrapped already if HTTPS is on, by the time
+        request handling reaches here), and server.py<->terminal.py never leaves the loopback
+        interface, so there's nothing to encrypt on that leg regardless.
+
+        This never parses WebSocket frames -- it's a pure byte relay, so PTY resize/reattach/
+        persistence/etc. in terminal.py are completely unaffected by going through it."""
+        self.close_connection = True
+        try:
+            backend = socket.create_connection(('127.0.0.1', TERMINAL_PORT), timeout=10)
+        except OSError as e:
+            self.send_error(502, f'terminal backend unreachable: {e}')
+            return
+        try:
+            headers = dict(self.headers.items())
+            headers['Host'] = f'127.0.0.1:{TERMINAL_PORT}'
+            lines = [f'{self.command} {self.path} {self.request_version}']
+            lines += [f'{k}: {v}' for k, v in headers.items()]
+            lines += ['', '']
+            backend.sendall('\r\n'.join(lines).encode('iso-8859-1'))
+            # Deliberately not checking self.rfile for leftover buffered bytes past the request
+            # headers here: a real WS client sends nothing more until it gets the 101 response, so
+            # self.rfile's buffer is genuinely empty at this point -- and io.BufferedReader.peek()
+            # performs a real (blocking) read on the raw stream when its buffer is empty, so
+            # calling it here would stall the whole proxy waiting for client bytes that were never
+            # coming (confirmed: this was tried first and hung every connection).
+            header_bytes, leftover_from_backend = _recv_until_double_crlf(backend)
+            if not header_bytes:
+                self.send_error(502, 'terminal backend closed the connection')
+                return
+            backend.settimeout(None)
+            self.connection.sendall(header_bytes)
+            if leftover_from_backend:
+                self.connection.sendall(leftover_from_backend)
+            t = threading.Thread(target=_pipe, args=(backend, self.connection), daemon=True)
+            t.start()
+            _pipe(self.connection, backend)
+            t.join(timeout=2)
+        finally:
+            try:
+                backend.close()
+            except OSError:
+                pass
 
     def log_message(self, fmt, *args):
         print(f'[web]  {self.address_string()} - {fmt % args}')
@@ -1902,7 +1983,8 @@ if __name__ == '__main__':
     if ALLOWED_USERS:
         print(f'users → {", ".join(sorted(ALLOWED_USERS))}')
     if TERMINAL_PORT:
-        print(f'term  → {scheme}://localhost:{TERMINAL_PORT}')
+        print(f'term  → proxied via {scheme}://localhost:{WEB_PORT}/terminal '
+              f'(backend on 127.0.0.1:{TERMINAL_PORT})')
     else:
         print(f'term  → disabled (run terminal.py and set --terminal-port)')
     web_srv.serve_forever()

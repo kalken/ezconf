@@ -365,7 +365,7 @@ services.ezconf = {
 | `cert` | str or null | `null` | Path to TLS certificate (PEM) |
 | `key` | str or null | `null` | Path to TLS private key (PEM) |
 | `listen` | str or null | `null` | IP address to listen on (default: `127.0.0.1`; use `0.0.0.0` for all interfaces) |
-| `openFirewall` | bool | `false` | Open firewall ports for the web and terminal services; enabled automatically when `listen` is set to a non-localhost address |
+| `openFirewall` | bool | `false` | Open the web service's firewall port; enabled automatically when `listen` is set to a non-localhost address. The terminal service's port is never opened — it only binds `127.0.0.1` and is reached through the web service's own port |
 | `interface` | str or null | `null` | Network interface to open firewall ports on (e.g. `"eth0"`); when set, ports are opened only on that interface instead of all interfaces |
 | `trustedHosts` | list of str | `[]` | Extra hostnames trusted for CSRF check — required when behind a reverse proxy; `listen` and `certNames` are trusted automatically. `[ "*" ]` disables the check entirely (accepts any Host header) — for cases like an installer ISO where the address can't be known ahead of time |
 | `nixosTarget` | str | `"/etc/nixos"` | Flake path passed to `ezconf-mkoptions`; also what system export zips up |
@@ -377,7 +377,7 @@ services.ezconf = {
 | `systemBackupDir` | str | `"/var/lib/ezconf/system-backups"` | Directory to store whole-`nixosTarget` zip backups, made automatically right before a system import or restore overwrites anything |
 | `systemBackupCount` | int | `5` | Number of system backups to keep; `0` hides the feature entirely |
 | `ports.web` | port | `9090` | Web server port |
-| `ports.terminal` | port | `9091` | Terminal WebSocket port |
+| `ports.terminal` | port | `9091` | Terminal WebSocket port. Internal only — the terminal service binds `127.0.0.1` on this port and is never reached directly; the browser always connects through the web service's own port instead, which proxies it through over loopback |
 
 ## 📝 Notes
 
