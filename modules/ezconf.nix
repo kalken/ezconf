@@ -269,9 +269,9 @@ in
     };
 
     interface = lib.mkOption {
-      type        = lib.types.nullOr lib.types.str;
-      default     = null;
-      description = "Network interface to open firewall ports on (e.g. \"eth0\"). When set, ports are opened only on that interface; when unset, ports are opened on all interfaces.";
+      type        = lib.types.listOf lib.types.str;
+      default     = [];
+      description = "Network interfaces to open firewall ports on (e.g. [ \"eth0\" \"wg0\" ]). When set, ports are opened only on those interfaces; when empty (the default), ports are opened on all interfaces.";
     };
 
     trustedHosts = lib.mkOption {
@@ -315,8 +315,8 @@ in
         # cfg.ports.terminal is deliberately excluded -- terminal.py only ever binds 127.0.0.1
         # (see bin/terminal.py), reached through the web service's own port instead.
         let ports = [ cfg.ports.web ];
-        in if cfg.interface != null
-           then { interfaces.${cfg.interface}.allowedTCPPorts = ports; }
+        in if cfg.interface != []
+           then { interfaces = lib.genAttrs cfg.interface (_: { allowedTCPPorts = ports; }); }
            else { allowedTCPPorts = ports; }
       );
 
