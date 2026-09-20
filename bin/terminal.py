@@ -36,6 +36,7 @@ import json
 import os
 import secrets
 import select
+import signal
 import struct
 import subprocess
 import sys
@@ -600,6 +601,50 @@ def _update_alt_screen_state(session, data):
             session['alt_screen'] = False
 
 
+def _kill_process_tree(root_pid, sig):
+    """Send `sig` to root_pid and every one of its descendants (children, grandchildren, ...),
+    not just root_pid itself. A foreground job run interactively (htop, vim, ...) or a
+    backgrounded one (`sleep 300 &`) normally gets its *own* process group under standard shell
+    job control, distinct from the shell's own -- so signaling just the shell (what a plain
+    proc.terminate()/kill() does) leaves it running, orphaned, indefinitely once the shell exits.
+    Confirmed empirically: a `sleep 300 &` job survived proc.terminate() even though the shell
+    that spawned it did exit (its own pgid differed from the job's). Walking the process tree via
+    `ps -eo pid,ppid` rather than matching by session id (the first version of this, since
+    reverted) is deliberate: `ps` is a standard POSIX tool, unlike /proc, which is Linux-only and
+    wouldn't even let this be tested on a non-Linux dev machine. Best-effort throughout: a `ps`
+    failure gives up on the whole sweep, and a pid that's already gone by the time it's signaled
+    is just skipped, neither treated as an error."""
+    try:
+        out = subprocess.run(['ps', '-eo', 'pid,ppid'], capture_output=True, text=True, timeout=3).stdout
+    except Exception:
+        return
+    children = {}
+    for line in out.splitlines()[1:]:
+        parts = line.split()
+        if len(parts) != 2:
+            continue
+        try:
+            pid, ppid = int(parts[0]), int(parts[1])
+        except ValueError:
+            continue
+        children.setdefault(ppid, []).append(pid)
+
+    stack = [root_pid]
+    seen = set()
+    while stack:
+        pid = stack.pop()
+        if pid in seen:
+            continue
+        seen.add(pid)
+        stack.extend(children.get(pid, []))
+
+    for pid in seen:
+        try:
+            os.kill(pid, sig)
+        except OSError:
+            pass
+
+
 def _create_session(rows, cols):
     """Fork a fresh shell and start its dedicated reader thread, returning the new session dict
     (or None if the PTY/shell itself couldn't be created). From here on, _session_reader() --
@@ -706,6 +751,16 @@ def _session_reader(session):
                 _ws_send(wfile, b'', 0x08)
             except Exception:
                 pass
+        # Closed *before* forcing the shell out, not after: killing a session leader that still
+        # has an attached foreground job while it's still holding its controlling terminal open
+        # was confirmed, empirically, to leave the shell stuck and unreapable (proc.wait() timing
+        # out indefinitely) -- closing the pty master first (all clients are already detached and
+        # notified by this point, so there's nothing left worth reading from it) avoided that
+        # reliably in the same repro. No data loss risk: every writer was already cleared above.
+        try:
+            os.close(master_fd)
+        except Exception:
+            pass
         try:
             if proc.poll() is None:
                 proc.terminate()
@@ -716,10 +771,15 @@ def _session_reader(session):
                     proc.wait(timeout=2)
         except Exception:
             pass
-        try:
-            os.close(master_fd)
-        except Exception:
-            pass
+        # Sweep the whole session regardless of how the shell itself exited (forced above, or on
+        # its own) -- a foreground/background job normally outlives the shell that spawned it
+        # otherwise, see _kill_process_tree()'s own comment. Best-effort, so just SIGTERM, a brief
+        # grace period, then SIGKILL for whatever's still around -- not the same wait/escalation
+        # loop as the shell's own terminate()/kill() above, since this only needs to be thorough,
+        # not particularly patient.
+        _kill_process_tree(proc.pid, signal.SIGTERM)
+        time.sleep(0.1)
+        _kill_process_tree(proc.pid, signal.SIGKILL)
         with _SESSION_LOCK:
             if _SESSION is session:
                 _SESSION = None
@@ -877,6 +937,12 @@ def _terminal_ws(handler):
             try:
                 proc = session['proc']
                 if proc.poll() is None:
+                    # Also nudges any foreground/background job (htop, `sleep 300 &`, ...) --
+                    # proc.terminate() alone only ever signals the shell itself, see
+                    # _kill_process_tree()'s own comment. This is still just the nudge, not the
+                    # guarantee: _session_reader() (the comment above) does the authoritative
+                    # terminate/kill/sweep once it notices, this just gets it started promptly.
+                    _kill_process_tree(proc.pid, signal.SIGTERM)
                     proc.terminate()
             except Exception:
                 pass
