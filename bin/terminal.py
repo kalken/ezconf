@@ -6,8 +6,14 @@ Run:
   python3 terminal.py --config /run/ezconf/ezconf.toml
   python3 terminal.py --port 9092 --session-key-file /run/ezconf/session.key
 
-Config keys read from TOML: terminal_port, session_key_file, shell, cert, key, webroot,
-terminal_persist
+Config keys read from TOML: terminal_port, session_key_file, shell, webroot, terminal_persist
+
+Always binds 127.0.0.1 regardless of `listen` in TOML -- the browser never connects here
+directly. server.py proxies /terminal straight through to this process over loopback (see
+_proxy_terminal() there), so the browser only ever needs to trust server.py's own certificate,
+not a second one for a separate wss://host:terminal_port origin. That also means this process
+never needs its own TLS: loopback traffic never leaves the machine, so there's nothing to
+encrypt on this leg regardless of whether server.py itself is running HTTPS.
 
 terminal_persist = true (default false) makes the shell session survive a dropped/closed
 WebSocket connection -- see _SESSION, _create_session(), _session_reader() below. There is only
@@ -30,7 +36,6 @@ import json
 import os
 import secrets
 import select
-import ssl
 import struct
 import subprocess
 import sys
@@ -901,8 +906,6 @@ if __name__ == '__main__':
                     help='port to listen on (default: terminal_port from TOML, or 9092)')
     ap.add_argument('--session-key-file', metavar='FILE', default=None,
                     help='file to load/store the session key (must match server.py)')
-    ap.add_argument('--cert', metavar='FILE', default=None, help='TLS certificate (PEM)')
-    ap.add_argument('--key',  metavar='FILE', default=None, help='TLS private key (PEM)')
     args = ap.parse_args()
 
     cfg = load_toml(args.config or 'ezconf.toml')
@@ -920,7 +923,8 @@ if __name__ == '__main__':
     TERM_PERSIST = bool(cfg.get('terminal_persist', False))
 
     WEBROOT   = cfg.get('webroot') or WEBROOT
-    BIND_ADDR = cfg.get('listen') or BIND_ADDR
+    # BIND_ADDR deliberately ignores `listen` -- see the module docstring above: this process
+    # only ever talks to server.py over loopback, never to a browser directly.
 
     _key_file = args.session_key_file or cfg.get('session_key_file')
     if _key_file:
@@ -937,21 +941,7 @@ if __name__ == '__main__':
         SESSION_KEY = secrets.token_hex(32)
         print('warning: no session_key_file — key not shared with server.py', file=sys.stderr)
 
-    CERT_FILE = args.cert or cfg.get('cert') or 'localhost.pem'
-    KEY_FILE  = args.key  or cfg.get('key')  or 'localhost-key.pem'
-
-    use_tls = os.path.exists(CERT_FILE) and os.path.exists(KEY_FILE)
-    scheme  = 'https' if use_tls else 'http'
-
-    if use_tls:
-        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-        ctx.load_cert_chain(CERT_FILE, KEY_FILE)
-    else:
-        ctx = None
-
     srv = http.server.ThreadingHTTPServer((BIND_ADDR, PORT), TerminalHandler)
-    if ctx:
-        srv.socket = ctx.wrap_socket(srv.socket, server_side=True)
 
-    print(f'terminal → {scheme}://localhost:{PORT}')
+    print(f'terminal → http://{BIND_ADDR}:{PORT} (loopback-only; reached via server.py\'s /terminal proxy)')
     srv.serve_forever()
