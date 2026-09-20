@@ -235,7 +235,7 @@ in
     installCerts = lib.mkOption {
       type        = lib.types.bool;
       default     = true;
-      description = "Install the generated CA certificate into ~/.pki/nssdb (Chrome/Chromium-family browsers) and each detected Firefox profile's own certificate database, for each user in certUsers, so browsers trust it. Only has effect when generateCert = true.";
+      description = "Install the generated CA certificate into ~/.pki/nssdb (Chrome/Chromium-family browsers) and each detected Firefox profile's own certificate database, for each user in certUsers, so browsers trust it. Only has effect when generateCert = true. Defaults to false once listen resolves to a non-localhost address (installing into local browser profiles doesn't help other devices on the network -- see the Download CA certificate link on the login page for those instead).";
     };
 
     certUsers = lib.mkOption {
@@ -259,7 +259,7 @@ in
     listen = lib.mkOption {
       type        = lib.types.nullOr lib.types.str;
       default     = null;
-      description = "IP address to listen on (default: 127.0.0.1). Set to 0.0.0.0 to listen on all interfaces.";
+      description = "IP address to listen on. Defaults to 127.0.0.1, or to 0.0.0.0 automatically when interfaces is set (a real IP is fragile on a DHCP machine; interfaces scopes actual reachability via the firewall instead). Set explicitly to override either default, e.g. to a fixed LAN IP or to 0.0.0.0 for all interfaces with no interfaces restriction.";
     };
 
     openFirewall = lib.mkOption {
@@ -271,13 +271,13 @@ in
     interfaces = lib.mkOption {
       type        = lib.types.listOf lib.types.str;
       default     = [];
-      description = "Network interfaces to open firewall ports on (e.g. [ \"eth0\" \"wg0\" ]), same naming convention as networking.firewall.interfaces. When set, ports are opened only on those interfaces; when empty (the default), ports are opened on all interfaces.";
+      description = "Network interfaces to open firewall ports on (e.g. [ \"eth0\" \"wg0\" ]), same naming convention as networking.firewall.interfaces. When set, ports are opened only on those interfaces; when empty (the default), ports are opened on all interfaces. Setting this also changes the defaults for listen (to 0.0.0.0, so the socket actually accepts what the firewall now lets through) and trustedHosts (to [ \"*\" ], since there's usually no fixed address to trust on the DHCP-configured machines this is meant for) -- see those options' own descriptions.";
     };
 
     trustedHosts = lib.mkOption {
       type        = lib.types.listOf lib.types.str;
       default     = [];
-      description = "Hostnames trusted for CSRF check. Required when ezconf is behind a reverse proxy — add your nginx server_name here. Set to [ \"*\" ] to disable the check entirely (accept any Host header) when the reachable address can't be known ahead of time, e.g. an installer ISO getting a DHCP lease.";
+      description = "Hostnames trusted for CSRF check. Required when ezconf is behind a reverse proxy — add your nginx server_name here. Set to [ \"*\" ] to disable the check entirely (accept any Host header) when the reachable address can't be known ahead of time, e.g. an installer ISO getting a DHCP lease. Defaults to [ \"*\" ] automatically when interfaces is set and neither this nor certNames is -- give certNames a real hostname or IP instead to keep the check meaningful. listen, when it's a real address (not 0.0.0.0/::), is always trusted automatically regardless of this option.";
     };
 
     ports = {
