@@ -307,6 +307,13 @@ in
   };
 
   config = lib.mkIf cfg.enable {
+      # Setting interfaces alone, with listen left at its own default, would otherwise silently do
+      # nothing: the firewall would open the port on that interface, but the socket would still
+      # only be bound to 127.0.0.1, so nothing arriving via that interface could ever reach it.
+      # interfaces is exactly the right signal that LAN reachability is wanted without needing a
+      # specific IP -- the common case is a DHCP-configured machine, where hardcoding listen to a
+      # LAN IP is fragile (interface names are stable across DHCP renewals, addresses aren't).
+      services.ezconf.listen        = lib.mkDefault (if cfg.interfaces != [] then "0.0.0.0" else null);
       services.ezconf.generateCert  = lib.mkDefault (cfg.https && cfg.cert == null && cfg.key == null);
       services.ezconf.openFirewall  = lib.mkDefault (!builtins.elem cfg.listen [ null "127.0.0.1" "::1" ]);
       services.ezconf.installCerts  = lib.mkDefault (builtins.elem cfg.listen [ null "127.0.0.1" "::1" ]);
