@@ -454,8 +454,12 @@ def _login_retry_after(ip):
 
 
 def _record_login_failure(ip):
+    """Returns the attempt count within the current window after recording this one, for the
+    [auth] log line in do_POST -- avoids a second lock-protected read just to report it."""
     with _LOGIN_LOCK:
-        _LOGIN_FAILURES.setdefault(ip, []).append(time.time())
+        attempts = _LOGIN_FAILURES.setdefault(ip, [])
+        attempts.append(time.time())
+        return len(attempts)
 
 
 def _clear_login_failures(ip):
@@ -1050,6 +1054,7 @@ class StaticHandler(http.server.SimpleHTTPRequestHandler):
             ip = self.client_address[0]
             retry_after = _login_retry_after(ip)
             if retry_after:
+                print(f'[auth] {ip} rate-limited, retry in {retry_after}s')
                 self._deny(f'Too many failed attempts. Try again in {retry_after}s.')
                 return
             length = int(self.headers.get('Content-Length', 0))
@@ -1059,12 +1064,14 @@ class StaticHandler(http.server.SimpleHTTPRequestHandler):
             password = params.get('password', '')
             if validate_credentials(username, password):
                 _clear_login_failures(ip)
+                print(f'[auth] login succeeded for {username!r} from {ip}')
                 self.send_response(303)
                 self.send_header('Location', '/')
                 self.send_header('Set-Cookie', f'ezconf_session={_SESSION_KEY}; HttpOnly; SameSite=Strict; Path=/')
                 self.end_headers()
             else:
-                _record_login_failure(ip)
+                count = _record_login_failure(ip)
+                print(f'[auth] login failed for {username!r} from {ip} ({count}/{LOGIN_MAX_ATTEMPTS} attempts)')
                 self._deny('Invalid username or password.')
             return
         if not _valid_host(self.headers):
