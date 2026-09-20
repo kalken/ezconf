@@ -3,11 +3,17 @@
 ezconf server — single listener bound to 127.0.0.1:
   http(s)://localhost:9090  static files + API
     GET  /api/v1/ping             {"boot_id", "webroot_hash", "theme", "terminal_enabled",
-                                   "mkoptions_enabled", "backup_enabled",
-                                   "nixos_target", "buttons"} — polled periodically by the
+                                   "mkoptions_enabled", "backup_enabled", "system_backup_enabled",
+                                   "nixos_target", "buttons", "terminal_current_hash",
+                                   "terminal_running_hash", "terminal_config_hash",
+                                   "terminal_running_config_hash"} — polled periodically by the
                                    frontend's restart/upgrade detection (initRestartWatcher() in
                                    index.html); webroot_hash covers an ezconf package upgrade
-                                   itself (new HTML/CSS/JS), not just a settings change. Was
+                                   itself (new HTML/CSS/JS), not just a settings change. The
+                                   terminal_* fields are two independent code/config drift checks
+                                   for ezconf-terminal.service, which doesn't restart alongside
+                                   this process — see "Terminal-restart notification" in
+                                   CLAUDE.md. Was
                                    previously pushed over a held-open /api/v1/ping-stream SSE
                                    connection instead of polled, for near-instant detection instead
                                    of up-to-one-poll-interval latency — reverted after confirming
