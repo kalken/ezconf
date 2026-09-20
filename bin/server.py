@@ -107,6 +107,7 @@ import datetime
 import email.utils
 import gzip
 import hashlib
+import http.client
 import http.server
 import io
 import ipaddress
@@ -895,6 +896,33 @@ def _compute_file_hash(path):
         return ''
 
 
+def _terminal_running_hash():
+    """Best-effort fetch of the *actually running* terminal.py's own SELF_HASH, via its
+    /terminal/hash status endpoint (loopback only, see terminal.py) -- not the WS 'ready'
+    message, which only ever arrives once a client has the terminal panel open. Included in
+    _ping_payload() so initRestartWatcher() can keep the restart notification accurate even
+    when the panel is closed (previously: reloading the GUI reset the frontend's in-memory
+    _terminalRunningHash to null, and nothing repopulated it unless the panel happened to be
+    open, silently hiding a notification that was still genuinely true). Returns None on any
+    failure -- terminal.py not up yet, a slow response, TERMINAL_PORT unset -- so a transient
+    miss just leaves this one ping tick's field absent rather than reporting a wrong hash."""
+    if not TERMINAL_PORT:
+        return None
+    try:
+        conn = http.client.HTTPConnection('127.0.0.1', TERMINAL_PORT, timeout=2)
+        try:
+            conn.request('GET', '/terminal/hash', headers={'Cookie': f'ezconf_session={_SESSION_KEY}'})
+            resp = conn.getresponse()
+            data = resp.read()
+            if resp.status != 200:
+                return None
+            return json.loads(data).get('hash')
+        finally:
+            conn.close()
+    except Exception:
+        return None
+
+
 def _ping_payload():
     """GET /api/v1/ping's whole response — the fields initRestartWatcher() (index.html) polls and
     compares against what index.html was actually templated with at load time, to tell a real
@@ -911,6 +939,7 @@ def _ping_payload():
         'nixos_target': NIXOS_TARGET,
         'buttons': STATIC_BUTTONS,
         'terminal_current_hash': TERMINAL_CURRENT_HASH,
+        'terminal_running_hash': _terminal_running_hash(),
     }
 
 
