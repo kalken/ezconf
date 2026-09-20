@@ -4283,7 +4283,7 @@ async function exportAll() {
   if (!files.length) { setStatus('No files to export', 3000, 'err'); return; }
   const entries = files.map(name => ({ name, text: JSON.stringify(_exportableConfig(fileConfigs[name]), null, 2) }));
   const blob = await createZip(entries);
-  _triggerDownload(blob, `ezconf-export-${_exportTimestamp()}.zip`);
+  _triggerDownload(blob, `ezconf-export-${_exportTimestamp()}-files.zip`);
   setStatus(`Exported ${entries.length} file(s)`, 3000, 'ok');
 }
 
@@ -4411,7 +4411,7 @@ async function exportFolder(folder) {
   if (!names.length) { setStatus('No files in this folder to export', 3000, 'err'); return; }
   const entries = names.map(name => ({ name, text: JSON.stringify(_exportableConfig(fileConfigs[name]), null, 2) }));
   const blob = await createZip(entries);
-  _triggerDownload(blob, `${_folderLabel(folder)}-${_exportTimestamp()}.zip`);
+  _triggerDownload(blob, `${_folderLabel(folder)}-${_exportTimestamp()}-files.zip`);
   setStatus(`Exported ${entries.length} file(s) from ${_folderLabel(folder)}`, 3000, 'ok');
 }
 
