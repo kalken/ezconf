@@ -891,6 +891,24 @@ class TerminalHandler(http.server.BaseHTTPRequestHandler):
             else:
                 self.send_response(401)
                 self.end_headers()
+        elif parsed.path == '/terminal/hash':
+            # A plain status check -- no PTY session, no WebSocket upgrade -- so server.py's
+            # /api/v1/ping can learn what this *actually running* process's SELF_HASH is without
+            # needing a shell to exist for it. Exists specifically because the WS 'ready' message
+            # (the only other place SELF_HASH is ever sent) only arrives once a client has the
+            # terminal panel open and connected -- see _terminalNeedsRestart() in index.html and
+            # its own comment on why that alone left the restart notification unable to recover
+            # after a page reload if the panel happened to be closed at the time.
+            if _session_from_cookie(self.headers) == SESSION_KEY:
+                data = json.dumps({'hash': SELF_HASH}).encode()
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.send_header('Content-Length', str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+            else:
+                self.send_response(401)
+                self.end_headers()
         else:
             self.send_error(404)
 

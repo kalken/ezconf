@@ -3743,16 +3743,25 @@ let _lastSeenBootId = null; // set to BOOT_ID once it's actually declared — se
 function initRestartWatcher() {
   _lastSeenBootId = BOOT_ID;
   function handlePayload(data) {
-    if (!data || !data.boot_id || data.boot_id === _lastSeenBootId) return;
+    if (!data) return;
+    // Terminal hash tracking runs on *every* successful ping, deliberately not gated behind the
+    // boot_id check below: ezconf-terminal.service doesn't restart alongside ezconf.service
+    // (restartIfChanged = false), so terminal_running_hash can change -- or get fixed via the
+    // "Restart Terminal" notification -- with boot_id never changing at all. This is also what
+    // lets the notification recover correctly after a GUI reload even when the terminal panel is
+    // closed: _terminalRunningHash resets to null on every page load (see its own comment) and
+    // used to only get repopulated by the WS 'ready' message, which never arrives unless the
+    // panel happens to be open -- silently hiding a notification that was still genuinely true.
+    if (typeof data.terminal_current_hash === 'string') _terminalCurrentHash = data.terminal_current_hash;
+    if (typeof data.terminal_running_hash === 'string') _terminalRunningHash = data.terminal_running_hash;
+    _updateTerminalRestartNotification();
+
+    if (!data.boot_id || data.boot_id === _lastSeenBootId) return;
     _lastSeenBootId = data.boot_id;
     if (Array.isArray(data.buttons) && JSON.stringify(data.buttons) !== JSON.stringify(STATIC_BUTTONS)) {
       STATIC_BUTTONS.length = 0;
       STATIC_BUTTONS.push(...data.buttons);
       renderButtons();
-    }
-    if (typeof data.terminal_current_hash === 'string') {
-      _terminalCurrentHash = data.terminal_current_hash;
-      _updateTerminalRestartNotification();
     }
     const reloadNeeded = data.webroot_hash !== WEBROOT_HASH
       || data.theme !== THEME
@@ -4569,10 +4578,16 @@ let _termReadyWaiters = [];
 let _termExited = false;
 
 // The content hash of whatever ezconf-terminal.service process is actually answering right now
-// (from its own 'ready' message — see bin/terminal.py's SELF_HASH), refreshed on every connect/
-// reconnect. Compared against _terminalCurrentHash (from /api/v1/ping, see initRestartWatcher())
-// to tell whether the running terminal service is stale relative to what's on disk — drives
-// #terminal-restart-notification, see _updateTerminalRestartNotification().
+// (bin/terminal.py's SELF_HASH). Two independent sources keep this fresh: the WS 'ready'
+// message on every terminal connect/reconnect (instant, but only happens while the panel is
+// open), and /api/v1/ping's terminal_running_hash field (server.py's own loopback GET to
+// terminal.py's /terminal/hash, polled every tick regardless of panel state — see
+// initRestartWatcher()). The ping path exists specifically because this variable resets to null
+// on every page load, and used to only be repopulated by the WS message — silently hiding a
+// still-true notification after a GUI reload if the panel happened to be closed at the time.
+// Compared against _terminalCurrentHash (also from /api/v1/ping) to tell whether the running
+// terminal service is stale relative to what's on disk — drives #terminal-restart-notification,
+// see _updateTerminalRestartNotification().
 let _terminalRunningHash = null;
 let _terminalCurrentHash = null;
 function _terminalNeedsRestart() {
