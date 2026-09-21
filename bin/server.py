@@ -55,8 +55,10 @@ ezconf server — single listener bound to 127.0.0.1:
                                    system_export_exclude in TOML; see
                                    _iter_system_export_files())
     POST /api/v1/system-import    writes a zip's files (body) into NIXOS_TARGET, overwriting any
-                                   existing file of the same name; never deletes anything not in
-                                   the zip; skips dotfile/dotdir entries and rejects path
+                                   existing file of the same name, and deletes any in-scope file
+                                   (see _iter_system_export_files()) the zip doesn't mention, so
+                                   the tree ends up matching the zip's state rather than just
+                                   merging into it; skips dotfile/dotdir entries and rejects path
                                    traversal (see _is_disallowed_import_entry()). Backs up the
                                    current tree first via backup_system() (a no-op when system
                                    backups are disabled) — every import is a destructive
@@ -67,12 +69,10 @@ ezconf server — single listener bound to 127.0.0.1:
                                    automatically, by system-import/system-backup/restore, right
                                    before either overwrites something
     POST /api/v1/system-backup/restore  applies a backup zip already in SYSTEM_BACKUP_DIR straight
-                                   to NIXOS_TARGET, by ?name=<filename> — same write logic and
-                                   auto-backup-first safety net as system-import, but additionally
-                                   deletes any in-scope file the backup doesn't mention, so the
-                                   tree actually reverts to the backup's exact state (see
-                                   _restore_system_zip()) rather than just merging into it like
-                                   system-import intentionally does
+                                   to NIXOS_TARGET, by ?name=<filename> — identical write/delete
+                                   logic and auto-backup-first safety net as system-import (see
+                                   _restore_system_zip()), differing only in where the zip bytes
+                                   come from (a file already on disk, not a fresh upload)
 
 Every *.json file in CONFIG_DIR (except custom-options.json) is a
 separately editable/saveable "tab" in the UI, merged together only at
@@ -800,10 +800,11 @@ class _InvalidImportEntry(Exception):
 
 def _apply_system_zip(zf):
     """Write every real (non-dotfile, non-traversal) entry of an open zipfile.ZipFile into
-    NIXOS_TARGET, overwriting same-named files, deleting nothing. Shared by /api/v1/system-import
-    (a freshly uploaded zip) and /api/v1/system-backup/restore (a zip already sitting in
-    SYSTEM_BACKUP_DIR) -- both are "apply this zip's contents to NIXOS_TARGET," differing only in
-    where the zip bytes come from. Returns (written, skipped) relative-path lists."""
+    NIXOS_TARGET, overwriting same-named files, deleting nothing on its own -- the plain-write half
+    of _restore_system_zip(), which both /api/v1/system-import and /api/v1/system-backup/restore
+    use (the latter via the former) to actually apply a zip's contents, differing only in where the
+    zip bytes come from and whether anything gets deleted on top of this. Returns (written,
+    skipped) relative-path lists."""
     plan = []
     skipped = []
     for info in zf.infolist():
@@ -834,11 +835,17 @@ def _restore_system_zip(zf):
     """Like _apply_system_zip(), but also deletes every in-scope file (per
     _iter_system_export_files()'s own selection — symlinks, dotfiles/dotdirs, and
     system_export_exclude basenames are never in scope to begin with, so this can't touch those
-    either way) that the backup doesn't mention, so the tree actually reverts to the backup's
-    state instead of just merging into it -- restoring is a stronger guarantee than importing.
-    Only used by /api/v1/system-backup/restore: system-import (an arbitrary uploaded zip, not
-    necessarily built with the same file selection a backup always has) intentionally stays a
-    non-destructive merge, per its own docstring above. Returns (written, skipped, removed)."""
+    either way) that the zip doesn't mention, so the tree actually ends up matching the zip's
+    state instead of just merging into it. Used by both /api/v1/system-backup/restore (a zip
+    already sitting in SYSTEM_BACKUP_DIR) and /api/v1/system-import (a freshly uploaded one) --
+    import used to stay a non-destructive merge (_apply_system_zip() alone) on the reasoning that
+    an arbitrary uploaded zip isn't necessarily built with a full export's own file selection, e.g.
+    someone uploading just one file to patch a single thing in. Reverted: the surprising case
+    turned out to be the opposite one -- importing your own System Export zip (a full snapshot,
+    same file selection a backup has) and having it *not* replace the tree the way restoring the
+    exact same kind of zip does. Both auto-backup the current tree first (see backup_system()) for
+    the same reason either way: this is a genuinely destructive overwrite. Returns (written,
+    skipped, removed)."""
     written, skipped = _apply_system_zip(zf)
     written_set = set(written)
     removed = []
@@ -1393,9 +1400,14 @@ class StaticHandler(http.server.SimpleHTTPRequestHandler):
                 # system backups are disabled (SYSTEM_BACKUP_COUNT = 0), same as backup_config()
                 # silently no-ops when BACKUP_COUNT = 0.
                 backup_system()
+                # Uses _restore_system_zip(), same as system-backup/restore below -- an import
+                # deletes any in-scope file the zip doesn't mention too, so the tree actually
+                # matches what was imported rather than just merging into whatever was already
+                # there. See _restore_system_zip()'s own docstring for why this used to be the
+                # non-destructive _apply_system_zip() instead, and why that was reverted.
                 with zipfile.ZipFile(io.BytesIO(body)) as zf:
-                    written, skipped = _apply_system_zip(zf)
-                resp = json.dumps({'ok': True, 'written': written, 'skipped': skipped}).encode()
+                    written, skipped, removed = _restore_system_zip(zf)
+                resp = json.dumps({'ok': True, 'written': written, 'skipped': skipped, 'removed': removed}).encode()
                 self.send_response(200)
                 self.send_header('Content-Type', 'application/json')
                 self.send_header('Content-Length', str(len(resp)))
