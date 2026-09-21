@@ -4311,21 +4311,19 @@ function exportSystem() {
 }
 
 // Restores a backup already sitting in SYSTEM_BACKUP_DIR straight to NIXOS_TARGET, in one click --
-// POST /api/v1/system-backup/restore, which shares the same auto-backup-of-the-current-tree-first
-// safety net as system-import, but is stronger than a plain import: it also deletes anything not
-// in the backup (see _restore_system_zip() in server.py), so the tree actually ends up matching
-// the backup exactly rather than just having the backup's files merged into whatever was already
-// there. Confirmed the same way importSystem() is (via initSystemImportButton()) since it's an
-// equally irreversible direct-disk write -- arguably more so, given the deletions -- and reloads
-// on success under the same "don't clobber unsaved edits" rule everything else that changes
-// NIXOS_TARGET on disk follows.
+// POST /api/v1/system-backup/restore, which shares the exact same write/delete logic and
+// auto-backup-of-the-current-tree-first safety net as system-import (see _restore_system_zip() in
+// server.py) -- they differ only in where the zip bytes come from (a file already on disk here,
+// a fresh upload there). Confirmed the same way importSystem() is (via initSystemImportButton())
+// since it's an equally irreversible direct-disk write, and reloads on success under the same
+// "don't clobber unsaved edits" rule everything else that changes NIXOS_TARGET on disk follows.
 async function restoreSystemBackup(name) {
   if (!confirm(
     `Restore ${name} into ${NIXOS_TARGET}?\n\n` +
     `This writes directly to disk immediately — there is no Save step and no undo (the current ` +
     `state is itself backed up first, so this is recoverable from there, but not from within ezconf). ` +
-    `Unlike importing a zip, restoring also DELETES anything not in the backup, so the tree matches ` +
-    `exactly what was backed up.`
+    `Existing files with the same name are overwritten, and anything not in the backup is DELETED, ` +
+    `so the tree ends up matching exactly what was backed up.`
   )) return;
   try {
     const res = await apiFetch('/system-backup/restore?name=' + encodeURIComponent(name), { method: 'POST' });
@@ -4391,8 +4389,10 @@ function initSystemImportButton() {
     if (!file) return;
     if (!confirm(
       `Import ${file.name} into ${NIXOS_TARGET}?\n\n` +
-      `This writes directly to disk immediately — there is no Save step and no undo. ` +
-      `Existing files with the same name are overwritten; anything not in the zip is left alone.`
+      `This writes directly to disk immediately — there is no Save step and no undo (the current ` +
+      `state is itself backed up first, so this is recoverable from there, but not from within ezconf). ` +
+      `Existing files with the same name are overwritten, and anything not in the zip is DELETED, ` +
+      `so the tree ends up matching exactly what was imported.`
     )) return;
     try {
       const res = await apiFetch('/system-import', {
@@ -4403,6 +4403,7 @@ function initSystemImportButton() {
       const data = await res.json().catch(() => ({}));
       if (!res.ok) { setStatus('Import failed: ' + (data.error || res.status), 5000, 'err'); return; }
       const parts = [`Imported ${data.written.length} file(s) into ${NIXOS_TARGET}`];
+      if (data.removed && data.removed.length) parts.push(`removed ${data.removed.length}`);
       if (data.skipped && data.skipped.length) parts.push(`skipped ${data.skipped.length}`);
       // This writes straight into NIXOS_TARGET on disk, which CONFIG_DIR lives under — the
       // in-memory files/fileConfigs state has no way to know its tab list or content might now
