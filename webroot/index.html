@@ -85,6 +85,22 @@ const _DEFAULT_THEME = '%%EZCONF_THEME%%';
   </div>
 </div>
 
+<!-- Docked the same way .terminal-panel below is (bottom-anchored flex item, height-animated
+     open/collapse) -- a direct button's command isn't a PTY session though, just captured
+     stdout/stderr text, so this is a plain single-row-header layout with none of the terminal
+     panel's install-mode-second-row/absolute-positioning machinery. See runDirectButton()/
+     _pollDirectCommand() in the script below. -->
+<div class="direct-output-panel collapsed" id="direct-output-panel">
+  <div class="direct-output-header" id="direct-output-header">
+    <span class="direct-output-title" id="direct-output-title"></span>
+    <span class="direct-output-status" id="direct-output-status"></span>
+    <div class="direct-output-actions">
+      <button class="btn" id="direct-output-close" data-tooltip="Close" onclick="closeDirectOutputPanel()"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+    </div>
+  </div>
+  <pre class="direct-output-body" id="direct-output-body"></pre>
+</div>
+
 <div class="terminal-panel collapsed" id="terminal-panel">
   <div class="terminal-body">
     <div id="term-output"></div>
@@ -94,6 +110,7 @@ const _DEFAULT_THEME = '%%EZCONF_THEME%%';
     <div class="terminal-header">
       <div class="terminal-cmd-btns" id="terminal-cmd-btns"></div>
       <div class="terminal-header-actions">
+        <button class="btn" id="term-restart-btn" data-tooltip="Restart terminal service (ends the running shell for everyone connected)" onclick="restartTerminalDirect()"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg></button>
         <button class="btn" data-tooltip="Quarter screen" onclick="setTerminalSize('quarter')"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><rect x="3" y="16" width="18" height="5" fill="currentColor" stroke="none"/></svg></button>
         <button class="btn" data-tooltip="Half screen" onclick="setTerminalSize('half')"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><rect x="3" y="12" width="18" height="9" fill="currentColor" stroke="none"/></svg></button>
         <button class="btn" data-tooltip="Full screen" onclick="setTerminalSize('full')"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><rect x="4" y="4" width="16" height="16" rx="1" fill="currentColor" stroke="none"/></svg></button>
@@ -4638,6 +4655,30 @@ function restartTerminalService() {
   });
 }
 
+// Always-visible button next to the size buttons, independent of restartTerminalService() above:
+// that one types the command into the running shell (needs the panel open and a live shell to
+// type into), this one hits the server directly, which shells out to systemctl itself -- works
+// even if the shell is wedged or the panel's never been opened. Linux-only (systemctl); server.py
+// returns 501 anywhere else, which just surfaces as a normal error status here.
+async function restartTerminalDirect() {
+  const btn = document.getElementById('term-restart-btn');
+  if (btn.disabled) return;
+  btn.disabled = true;
+  try {
+    const res = await apiFetch('/terminal/restart', { method: 'POST' });
+    const data = await res.json().catch(() => ({}));
+    if (res.ok) {
+      setStatus('Terminal service restarted', 3000, 'ok');
+    } else {
+      setStatus('Restart failed: ' + (data.error || res.status), 5000, 'err');
+    }
+  } catch (e) {
+    setStatus('Restart failed: ' + e.message, 4000, 'err');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
 function _waitTermReady() {
   if (_termReady) return Promise.resolve();
   return new Promise(resolve => _termReadyWaiters.push(resolve));
@@ -4977,6 +5018,15 @@ function setTerminalSize(size) {
 function _unwrapButtonField(v) {
   return isDisabled(v) ? undefined : v;
 }
+// Buttons run direct (independent OS process, see runDirectButton()) by default -- terminal =
+// true opts a button back into typing the command into the terminal shell instead, for a command
+// that specifically needs it (an interactive prompt, wanting to see it run inline alongside other
+// terminal work, clear_first). That's the exceptional case now, so it's the one worth calling out
+// in the hover tooltip -- a direct button's own command already shows in its own output panel
+// once run, same as a terminal button's shows in the terminal.
+function _buttonTooltip(btn) {
+  return btn.command + (btn.terminal ? ' (runs in the terminal)' : '');
+}
 function _normalizeButton(b) {
   return {
     label: _unwrapButtonField(b.label),
@@ -4985,6 +5035,7 @@ function _normalizeButton(b) {
     clear_first: _unwrapButtonField(b.clear_first),
     menu: _unwrapButtonField(b.menu),
     mode: _unwrapButtonField(b.mode),
+    terminal: _unwrapButtonField(b.terminal),
   };
 }
 function getAllButtons() {
@@ -5047,7 +5098,7 @@ function _renderButtonRow(container, entries, buttons, dirty, disabledTitle) {
     const b = document.createElement('button');
     b.className = 'btn term-run-btn';
     b.textContent = btn.label || '(no label)';
-    _wireHoverTooltip(b, disabledTitle || btn.command);
+    _wireHoverTooltip(b, disabledTitle || _buttonTooltip(btn));
     if (btn.save_first) {
       b.dataset.saveFirst = '1';
       b.disabled = dirty;
@@ -5068,7 +5119,7 @@ function _buildButtonMenuItems(entries, dirty) {
     if (path.length === 0) {
       items.push({
         label: btn.label || '(no label)',
-        title: btn.command,
+        title: _buttonTooltip(btn),
         disabled: !!btn.save_first && dirty,
         onclick: () => runButton(idx),
       });
@@ -5751,9 +5802,163 @@ async function _toggleFolderDisabled(name, disable) {
   setStatus((disable ? 'Disabled folder ' : 'Enabled folder ') + target + (onDisk ? ' — Save to apply on disk' : ''), 2500, 'ok');
 }
 
+// direct buttons (see _normalizeButton()) skip the terminal entirely -- POSTs the command to
+// server.py, which launches it as its own systemd transient unit (detached from ezconf.service's
+// own cgroup) and returns immediately, then polls for output/completion rather than waiting on
+// one response, since the command itself (nixos-rebuild switch being the motivating case) can
+// restart ezconf.service mid-run and take the original connection down with it. Rendered into
+// #direct-output-panel, a bottom-docked panel styled and animated the same way as the terminal
+// panel -- there's no live byte stream to attach to (systemd-run's stdout goes to a log file, not
+// a socket this page can read), so "streaming" here means re-fetching and repainting the whole
+// captured log on a short poll interval rather than a true push.
+let _directCommandPolling = false;
+// Persisted the same way as the terminal panel's own ezconf-terminal-open/-size (see
+// setTerminalSize()) -- "open" is whether the panel should show at all on the next page load
+// (collapsed if not, regardless of whether a command's actually still running -- see
+// _restoreDirectOutputPanel(), which reopens it unconditionally when one is), "minimized" is
+// which of its two visible sub-states (full body vs. just the title row) to restore it to.
+function _persistDirectOutputOpen(open) {
+  try { localStorage.setItem('ezconf-direct-output-open', open ? 'true' : 'false'); } catch (e) {}
+}
+function _persistDirectOutputMinimized(minimized) {
+  try { localStorage.setItem('ezconf-direct-output-minimized', minimized ? 'true' : 'false'); } catch (e) {}
+}
+function _setDirectOutputStatus(data) {
+  const status = document.getElementById('direct-output-status');
+  if (data.exit_code === null) {
+    status.textContent = 'Running…';
+    status.dataset.type = '';
+  } else {
+    const ok = data.exit_code === 0;
+    status.textContent = ok ? 'Exited 0' : ('Exited ' + data.exit_code);
+    status.dataset.type = ok ? 'ok' : 'err';
+  }
+}
+function openDirectOutputPanel(title) {
+  document.getElementById('direct-output-title').textContent = title;
+  document.getElementById('direct-output-body').textContent = '';
+  _setDirectOutputStatus({ exit_code: null });
+  document.getElementById('direct-output-panel').classList.remove('collapsed', 'minimized');
+  _persistDirectOutputOpen(true);
+  _persistDirectOutputMinimized(false);
+}
+function closeDirectOutputPanel() {
+  document.getElementById('direct-output-panel').classList.add('collapsed');
+  _persistDirectOutputOpen(false);
+}
+// Opens full (openDirectOutputPanel() above) -- clicking the header row (title/status, anywhere
+// but the close button) toggles between that and just the header itself, same idea as a minimized
+// window. Deliberately only explicit clicks, not an outside-click auto-minimize: losing focus
+// elsewhere on the page silently dropping the panel down with no action taken on the panel itself
+// would make it too easy to think a run's output had vanished rather than just being collapsed
+// one row up. Wired once here, not per-open/close, since the panel is static markup that's always
+// in the DOM (unlike e.g. a context menu, which only exists while open) -- this just checks its
+// current classes on every click rather than being added/removed alongside them.
+document.getElementById('direct-output-header').addEventListener('click', (e) => {
+  // .direct-output-actions, not just the close button itself -- .btn's own padding gives it a
+  // reasonably large hit target already, but excluding the whole wrapper (not just the exact
+  // button element) is still what keeps a slight miss on it from also toggling minimized state
+  // as an unwanted side effect of trying to close.
+  if (e.target.closest('.direct-output-actions')) return;
+  const panel = document.getElementById('direct-output-panel');
+  const minimized = panel.classList.toggle('minimized');
+  _persistDirectOutputMinimized(minimized);
+});
+async function runDirectButton(btn) {
+  if (_directCommandPolling) { setStatus('A direct command is already running', 3000, 'err'); return; }
+  try {
+    const res = await apiFetch('/command/run', {
+      method: 'POST',
+      body: JSON.stringify({ command: btn.command }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      setStatus((btn.label || 'Command') + ' failed to start: ' + (data.error || res.status), 5000, 'err');
+      return;
+    }
+  } catch (e) {
+    setStatus('Failed to start ' + (btn.label || 'command') + ': ' + e.message, 5000, 'err');
+    return;
+  }
+  openDirectOutputPanel(btn.label || 'Command');
+  _pollDirectCommand(btn.label || 'Command');
+}
+
+// Also called once at init() (see below) to resume watching a command that was still running
+// when the page loaded -- e.g. a reload triggered by the restart-detection watcher partway
+// through a nixos-rebuild switch that a direct button kicked off before the reload happened.
+function _pollDirectCommand(label) {
+  if (_directCommandPolling) return;
+  _directCommandPolling = true;
+  const body = document.getElementById('direct-output-body');
+  const status = document.getElementById('direct-output-status');
+  const tick = async () => {
+    let data;
+    try {
+      const res = await apiFetch('/command/status');
+      data = await res.json();
+    } catch (e) {
+      // ezconf.service itself may be mid-restart (the whole reason this polls instead of
+      // waiting on one response) -- keep trying rather than treating a single failed fetch as
+      // the command having failed.
+      setTimeout(tick, 1000);
+      return;
+    }
+    // Only auto-scroll if already at (or near) the bottom -- otherwise every tick would yank
+    // the view back down out from under someone deliberately scrolled up mid-run to read
+    // something earlier in a long rebuild's output.
+    const nearBottom = body.scrollHeight - body.scrollTop - body.clientHeight < 40;
+    body.textContent = data.output || '';
+    if (nearBottom) body.scrollTop = body.scrollHeight;
+    if (data.running) { setTimeout(tick, 1000); return; }
+    _directCommandPolling = false;
+    if (data.exit_code === null && !data.output) return; // nothing has ever run
+    _setDirectOutputStatus(data);
+    const ok = data.exit_code === 0;
+    setStatus(label + (ok ? ' finished' : ' failed (exit ' + data.exit_code + ')'), 4000, ok ? 'ok' : 'err');
+  };
+  tick();
+}
+
+// Called once at init() -- restores the panel across a reload. Resumes polling (unconditionally,
+// regardless of any stored open/minimized preference below) if a direct command was still running
+// when the page loaded, e.g. a reload the restart-detection watcher triggered partway through a
+// nixos-rebuild switch a direct button had kicked off just before that reload happened -- a
+// command actively in flight surfaces itself either way. Otherwise, if the user had left the
+// panel open (not collapsed) before the reload, reopens it showing the last finished result
+// instead of resetting to the markup's own default-collapsed state, same idea as the terminal
+// panel's own ezconf-terminal-open persistence (see setTerminalSize()).
+async function _restoreDirectOutputPanel() {
+  let data;
+  try {
+    const res = await apiFetch('/command/status');
+    data = await res.json();
+  } catch (e) { return; }
+  if (data.running) {
+    openDirectOutputPanel('Command');
+    _pollDirectCommand('Command');
+    return;
+  }
+  if (data.exit_code === null && !data.output) return; // nothing has ever run this boot
+  let wasOpen = false;
+  try { wasOpen = localStorage.getItem('ezconf-direct-output-open') === 'true'; } catch (e) {}
+  if (!wasOpen) return;
+  document.getElementById('direct-output-title').textContent = 'Command';
+  const body = document.getElementById('direct-output-body');
+  body.textContent = data.output || '';
+  body.scrollTop = body.scrollHeight;
+  _setDirectOutputStatus(data);
+  const panel = document.getElementById('direct-output-panel');
+  panel.classList.remove('collapsed');
+  let wasMinimized = false;
+  try { wasMinimized = localStorage.getItem('ezconf-direct-output-minimized') === 'true'; } catch (e) {}
+  panel.classList.toggle('minimized', wasMinimized);
+}
+
 function runButton(idx) {
   const btn = getAllButtons()[idx];
   if (!btn) return;
+  if (!btn.terminal) { runDirectButton(btn); return; }
   const panel = document.getElementById('terminal-panel');
   if (panel.classList.contains('collapsed')) toggleTerminal();
   initTerminal().then(() => {
@@ -6097,6 +6302,7 @@ async function loadSiblingFiles() {
   initRestartWatcher();
   initMarkdownMenu();
   initVersion();
+  if (TERMINAL_ENABLED) _restoreDirectOutputPanel();
   document.getElementById('flat-mode-btn').classList.toggle('active', flatMode);
   const treeVisible = localStorage.getItem('ezconf-tree-visible') === 'true';
   document.getElementById('sidebar').classList.toggle('hidden', !treeVisible);
