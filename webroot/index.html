@@ -292,13 +292,23 @@ function renameKeyAtPath(path, newKey) {
 }
 
 // Inline-renames the key at `path`: swaps its label for a live <input>, same pattern as
-// _startTabRename/_startFolderRename. Works for both a section header (.section-header) and a
-// field/array-field row (.field-key) — the selector below covers whichever one `path` is.
+// _startTabRename/_startFolderRename. Works for a section header (.section-header) and a
+// field/array-field row (.field-key) in tree/nested mode, and for a top-level or nested group
+// header (.flat-group/.flat-sublevel, via makeFlatGroupHeader()/makeFlatSubHeader()) in flat mode
+// -- those use their own .flat-group-label/.flat-sublevel-label spans instead of a shared
+// .tt-anchor, since they're built by flat-mode-specific code, not renderSection(). Previously only
+// the first two were matched, so Rename silently did nothing on a flat-mode group/sublevel (the
+// menu item still appeared -- see _commonMenuItems() -- but this function's own `if (!anchor)
+// return` guard swallowed it with no error).
 function _startKeyRename(path) {
   const pathKey = path.join('.');
   const el = document.querySelector('[data-path="' + CSS.escape(pathKey) + '"]');
   if (!el) return;
-  const anchor = el.querySelector(':scope > .section-header .tt-anchor, :scope > .field-key .tt-anchor');
+  const anchor = el.querySelector(
+    ':scope > .section-header .tt-anchor, :scope > .field-key .tt-anchor, ' +
+    ':scope > .flat-group-content > .flat-group-header > .flat-group-label, ' +
+    ':scope > .flat-sublevel-content > .flat-sublevel-header > .flat-sublevel-label'
+  );
   if (!anchor) return;
   const oldKey = path[path.length - 1];
   const input = document.createElement('input');
@@ -5755,7 +5765,11 @@ function runButton(idx) {
     // silently swallows it instead of running the command.
     _waitTermReady().then(() => {
       if (_termWs) _termWs.send('\x15'); // clear whatever's half-typed at the prompt, always
-      if (btn.clear_first) {
+      // Defaults to true (matching buttons.*.clear_first's own Nix-side default) for a button
+      // declared in a *.json file with no clear_first key at all -- a deploy-time (TOML) button
+      // always carries an explicit true/false by the time it gets here (see modules/ezconf.nix),
+      // so this fallback only ever engages for the live, pre-rebuild JSON case.
+      if (btn.clear_first !== false) {
         if (_term) _term.clear();
         if (_termWs) _termWs.send('clear\r');
       }
