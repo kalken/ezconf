@@ -904,6 +904,57 @@ textarea { resize: vertical; min-height: unset; line-height: 1.5; }
   z-index: 1;
 }
 
+/* ── Direct command output panel ── */
+/* Same bottom-docked, height-animated open/collapse as .terminal-panel below -- see the markup
+   comment in index.html for why this is a much simpler single-row-header layout. */
+.direct-output-panel {
+  background: var(--bg2);
+  border-top: 1px solid var(--border2);
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  height: 25vh;
+  transition: height .18s ease;
+}
+.direct-output-panel.collapsed { height: 0 !important; border-top: none; }
+/* Clicking the header row (while the panel is open) toggles it down to just this header instead
+   of hiding it outright -- see the header click handler near openDirectOutputPanel() in the
+   script. .direct-output-body's flex:1 against a fixed-height parent already squeezes it to zero
+   on its own; the explicit rule below is just to skip it rendering (and scrolling) at all while
+   there's no room for it, rather than relying on the flex math alone. */
+.direct-output-panel.minimized { height: 33px; }
+.direct-output-panel.minimized .direct-output-body { display: none; }
+.direct-output-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  height: 33px;
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+}
+.direct-output-title { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.direct-output-status { font-size: 12px; color: var(--text3); white-space: nowrap; }
+.direct-output-status[data-type=ok]  { color: var(--green); }
+.direct-output-status[data-type=err] { color: var(--red); }
+.direct-output-actions { display: flex; gap: 6px; margin-left: auto; }
+.direct-output-body {
+  flex: 1;
+  overflow: auto;
+  margin: 0;
+  padding: 8px 12px;
+  /* Same background as the real terminal's own output area (#term-output), not .direct-output-
+     panel's --bg2 header color -- this is captured shell-command output too, so it reads as
+     "terminal-like" content even though it isn't rendered through xterm.js. */
+  background: var(--term-bg);
+  font-family: var(--font);
+  font-size: 12px;
+  color: var(--text2);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 /* ── Terminal Panel ── */
 .terminal-panel {
   background: var(--bg2);
