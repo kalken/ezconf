@@ -199,7 +199,7 @@ services.ezconf = {
 };
 ```
 
-`save_first = true` disables the button while there are unsaved changes. `clear_first = true` clears the terminal screen right before the command runs (default `false` — it runs in whatever's already there). The terminal service has `restartIfChanged = false`, so a rebuild that only changes the `ezconf-terminal` package itself doesn't restart the running process — whatever's running in the terminal at the time keeps going straight through that.
+`save_first = true` disables the button while there are unsaved changes. `clear_first` clears the terminal screen right before the command runs, and defaults to `true` — set it to `false` to instead run the command in whatever's already there. The terminal service has `restartIfChanged = false`, so a rebuild that only changes the `ezconf-terminal` package itself doesn't restart the running process — whatever's running in the terminal at the time keeps going straight through that.
 
 Closing the browser tab (or losing the connection, reloading the page, or logging out) doesn't kill the shell — reopening the terminal reattaches to the same one (replaying its recent output) rather than starting fresh, so something long-running survives an accidentally-closed tab or a step-away-and-come-back. There's only ever one such shell, shared by *everyone* who connects — not one per browser — so anyone with access sees and can type into the exact same terminal, always; that's consistent with the rest of ezconf, which has no separate identity per person either (one shared login for everyone with access). It survives a page reload and a logout/login cycle, but not a reboot or a manual restart of `ezconf-terminal.service` itself — nothing can make a shell survive the process that owns it actually dying, and anything the shell itself spawned dies right along with it (systemd's own default cgroup-based cleanup on that restart, not anything ezconf does).
 
@@ -208,8 +208,6 @@ Buttons set here (in your NixOS configuration, deploy-time) always show, regardl
 You can *also* set `services.ezconf.buttons` directly inside a config file — it's a regular NixOS option like any other, editable live in the app, and combines with (rather than replaces) whatever's set above. A button defined this way shows the same way: always, regardless of which tab is active.
 
 These two aren't really separate: if `services.ezconf.buttons` lives inside `configDir`, it *is* the option set above — a `.json` file there gets merged straight into it, so after you save and `nixos-rebuild`, the exact same buttons start arriving from the NixOS config too. Ezconf notices and shows each one once, not twice.
-
-By default a button runs its command in whatever's already in the terminal. Set `clear_first = true` to clear the screen (and scroll back) right before it runs.
 
 Give several buttons the same `menu = "Name"` to group them into one dropdown instead of each getting its own slot in the bar:
 
