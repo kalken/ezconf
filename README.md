@@ -44,7 +44,7 @@ Then enable the service in your NixOS configuration (e.g. `configuration.nix`), 
     enable = true;
     auth.allowedUsers = [ "alice" ];
     buttons = [
-      { label = "Rebuild"; command = "nixos-rebuild switch --flake /etc/nixos"; save_first = true; }
+      { label = "Rebuild"; command = "nixos-rebuild switch --flake /etc/nixos"; save_first = true; direct = true; }
     ];
   };
 }
@@ -192,24 +192,18 @@ services.ezconf = {
   enable   = true;
   terminal = true;
   buttons  = [
-    { label = "Rebuild"; command = "nixos-rebuild switch --flake /etc/nixos"; save_first = true; }
+    { label = "Rebuild"; command = "nixos-rebuild switch --flake /etc/nixos"; save_first = true; direct = true; }
     { label = "Update";  command = "nix flake update /etc/nixos"; }
     { label = "Check";   command = "nix flake check /etc/nixos"; }
   ];
 };
 ```
 
-`save_first = true` disables the button while there are unsaved changes.
+`save_first = true` disables the button while there are unsaved changes. `clear_first` clears the terminal screen right before the command runs, and defaults to `true` — set it to `false` to instead run the command in whatever's already there.
 
-Every button runs "direct" by default — as its own independent OS process, streaming its output live into a panel that pops up from the bottom of the page, separate from the terminal panel — rather than typing the command into the terminal's shell. This matters because a command like `nixos-rebuild switch`/`test` can restart `ezconf-terminal.service` itself partway through (Linux/systemd restarts changed units automatically on a rebuild); typing it into that same shell would kill the command along with the shell it's running in, mid-command. Running direct sidesteps that entirely — it's detached from every one of ezconf's own systemd units, so it survives either one restarting, and you don't need the terminal panel open, or even be looking at it, to watch it run. Requires Linux/systemd.
+By default, a button's command is typed straight into the terminal's own shell. `direct = true` runs it instead as its own independent OS process, streaming its output live into a panel that pops up from the bottom of the page, separate from the terminal panel — use it for a command that might restart ezconf's own services partway through, like `nixos-rebuild switch`/`test`. A command that restarts `ezconf-terminal.service` (Linux/systemd restarts changed units automatically on a rebuild) would otherwise kill the very shell it's running in, mid-command, if typed into it. A direct command instead runs detached from every one of ezconf's own systemd units, survives either one restarting, and doesn't need the terminal panel open, or even being looked at, to watch it run. Requires Linux/systemd; `clear_first` has no effect on a direct button, which has no terminal screen to clear.
 
-Set `terminal = true` on a button to opt it back into the old typed-into-the-terminal behavior — for a command that specifically needs the terminal (an interactive prompt, or wanting it to run inline alongside other terminal work) and is known not to restart either of ezconf's own services:
-
-```nix
-{ label = "Disk usage"; command = "ncdu /"; terminal = true; }
-```
-
-`clear_first` clears the terminal screen right before a `terminal = true` button's command runs, and defaults to `true` — set it to `false` to instead run the command in whatever's already there; it has no effect on a direct button, which has no terminal screen to clear. The terminal service has `restartIfChanged = false`, so a rebuild that only changes the `ezconf-terminal` package itself doesn't restart the running process — whatever's running in the terminal at the time keeps going straight through that.
+The terminal service has `restartIfChanged = false`, so a rebuild that only changes the `ezconf-terminal` package itself doesn't restart the running process — whatever's running in the terminal at the time keeps going straight through that.
 
 Closing the browser tab (or losing the connection, reloading the page, or logging out) doesn't kill the shell — reopening the terminal reattaches to the same one (replaying its recent output) rather than starting fresh, so something long-running survives an accidentally-closed tab or a step-away-and-come-back. There's only ever one such shell, shared by *everyone* who connects — not one per browser — so anyone with access sees and can type into the exact same terminal, always; that's consistent with the rest of ezconf, which has no separate identity per person either (one shared login for everyone with access). It survives a page reload and a logout/login cycle, but not a reboot or a manual restart of `ezconf-terminal.service` itself — nothing can make a shell survive the process that owns it actually dying, and anything the shell itself spawned dies right along with it (systemd's own default cgroup-based cleanup on that restart, not anything ezconf does).
 
@@ -223,13 +217,13 @@ Give several buttons the same `menu = "Name"` to group them into one dropdown in
 
 ```nix
 buttons = [
-  { label = "Rebuild"; command = "nixos-rebuild switch --flake /etc/nixos"; save_first = true; menu = "Deploy"; }
+  { label = "Rebuild"; command = "nixos-rebuild switch --flake /etc/nixos"; save_first = true; direct = true; menu = "Deploy"; }
   { label = "Boot";    command = "nixos-rebuild boot --flake /etc/nixos";   save_first = true; menu = "Deploy"; }
-  { label = "Test";    command = "nixos-rebuild test --flake /etc/nixos";   save_first = true; menu = "Deploy"; }
+  { label = "Test";    command = "nixos-rebuild test --flake /etc/nixos";   save_first = true; direct = true; menu = "Deploy"; }
 ];
 ```
 
-That shows a single "Deploy" button; clicking it opens a dropdown of "Rebuild"/"Boot"/"Test". Each item still honors its own `save_first`/`clear_first`/`terminal` independently — all three run direct here (the default), which is fine for all of them: `Rebuild` and `Test` both activate the new configuration on the running system, so direct is what keeps them from being able to kill their own execution mid-command, while `Boot` only sets the next-boot default without touching anything currently running, so direct isn't strictly necessary for it but doesn't hurt either.
+That shows a single "Deploy" button; clicking it opens a dropdown of "Rebuild"/"Boot"/"Test". Each item still honors its own `save_first`/`clear_first`/`direct` independently — `Rebuild` and `Test` both activate the new configuration on the running system (so they get `direct = true`), while `Boot` only sets the next-boot default without touching anything currently running, so it's safe to leave typed into the terminal like any other button.
 
 Use `/` in `menu` to nest a submenu inside that dropdown, e.g. `menu = "Disk/Advanced";` adds an "Advanced" item to the "Disk" dropdown that opens a further flyout — handy for burying rarely-used or destructive commands (like a partition wipe) a click deeper than the everyday ones.
 
@@ -238,7 +232,7 @@ Set `mode = "install"` on a button, and set `mode = "install"` (or `services.ezc
 ```nix
 mode = "install"; # deploy-time only — no in-GUI toggle
 buttons = [
-  { label = "Rebuild"; command = "nixos-rebuild switch --flake /etc/nixos"; save_first = true; }
+  { label = "Rebuild"; command = "nixos-rebuild switch --flake /etc/nixos"; save_first = true; direct = true; }
   { label = "Wipe disk and reinstall"; command = "disko-install --flake /etc/nixos"; mode = "install"; }
 ];
 ```
@@ -246,6 +240,8 @@ buttons = [
 With the top-level `mode` set this way, "Wipe disk and reinstall" shows up in its own row, and every ordinary button (like "Rebuild") is shown too but greyed out. This is baked into the page at load — there's no in-GUI toggle, since it's meant for a dedicated install image, not something to flip on an already-running instance.
 
 Running that "Rebuild" button (or `nixos-rebuild switch` from anywhere) restarts `ezconf.service` itself, not just the terminal session — the page you're looking at is still running the old code. Ezconf notices on its own — but most rebuilds don't actually change anything about ezconf's own settings, so most of the time nothing visible happens at all (or, if `buttons` did change, they just quietly update in place). A real reload only happens if something that genuinely can't be applied live changed too: theme, terminal/autocomplete/backup availability, the target flake path, or — this is also how it picks up an ezconf version upgrade itself, not just a settings change — the actual frontend code (HTML/CSS/JS). Even then, it reloads immediately if you have nothing unsaved, or once you save/undo back to clean if you do, rather than reload out from under you.
+
+A `direct = true` button like the "Rebuild" one above doesn't rely on any of that to show you the result: clicking it opens its own output panel right away and streams the command's output into it live as it runs, ending with its exit code, whether or not the page happened to reload in between.
 
 ## 🔒 HTTPS
 
