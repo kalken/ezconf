@@ -267,12 +267,14 @@ body {
 /* Positioned via JS (_updateTermRestartPopup(), reusing _positionMenuAboveAnchor() -- see there
    for why "above" rather than a fixed corner: the terminal button bar it's anchored to sits at
    the bottom of the page, where a plain downward/corner placement would open detached from the
-   button or off-screen), flush above #terminal-panel's own top edge (not #term-restart-btn's --
-   the button sits at a fixed height regardless of the panel's quarter/half/full/collapsed size,
-   only the panel's top edge actually moves with it), whenever the running ezconf-terminal.service
-   is stale relative to what's on disk. Same visual language the old top-right notification banner
-   used, just relocated to sit near the button that now does the actual restarting, instead of a
-   separate corner element with its own click handler. */
+   button or off-screen) flush above #term-restart-btn's own top edge, whenever the running
+   ezconf-terminal.service is stale relative to what's on disk. Anchored to the button (whose
+   screen position is constant regardless of the panel's quarter/half/full/collapsed size, not the
+   panel's own top edge, which moves with it) so the popup itself never jumps around when the
+   panel resizes -- an earlier version anchored to the panel's top instead, and reverted for
+   exactly that reason. Same visual language the old top-right notification banner used, just
+   relocated to sit near the button that now does the actual restarting, instead of a separate
+   corner element with its own click handler. */
 .term-restart-popup {
   position: fixed;
   /* Deliberately higher than every other z-index in the app (context menus, modals, tooltips,
