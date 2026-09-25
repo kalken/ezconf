@@ -3725,10 +3725,34 @@ function _tryRestoreHistoryFromStorage() {
   }
 }
 
+// A real save/reload can't be undone (see globalHistory's own comment above) — its effect on
+// what counts as "matches disk" is true regardless of where the undo stack currently points, not
+// just going forward from here. Without this, an older snapshot's `fileSaved[name]` stays frozen
+// at whatever was true when that snapshot was taken; landing back on it via undo after a *later*
+// real save has since changed the file compares the restored content against that stale belief
+// instead of the actual current disk content, which can wrongly show the Save button as disabled
+// (content coincidentally matches the stale belief but not real disk) or enabled (the reverse).
+// Only patches entries that already track this file (`hasOwnProperty`) — one that predates the
+// file's creation legitimately has nothing to correct.
+function _syncFileSavedToHistory(name, value) {
+  let changed = false;
+  for (const snap of globalHistory) {
+    if (Object.prototype.hasOwnProperty.call(snap.fileSaved, name)) {
+      snap.fileSaved[name] = value;
+      snap._key = _snapshotCompareKey(snap); // keep the dedup key consistent with the patched value
+      changed = true;
+    }
+  }
+  if (changed) _schedulePersistHistory();
+}
+
 // Marks the active file's current in-memory state as matching disk. Call this only right
 // after fileConfigs[activeFile] has actually been written or reloaded from the server.
 function markSaved() {
-  if (activeFile) fileSaved[activeFile] = JSON.stringify(fileConfigs[activeFile]);
+  if (activeFile) {
+    fileSaved[activeFile] = JSON.stringify(fileConfigs[activeFile]);
+    _syncFileSavedToHistory(activeFile, fileSaved[activeFile]);
+  }
   _updateDirty();
 }
 
@@ -3879,6 +3903,7 @@ async function reloadFile(name) {
     const fresh = normalizeConfig(await r.json());
     fileConfigs[file] = fresh;
     fileSaved[file] = JSON.stringify(fresh);
+    _syncFileSavedToHistory(file, fileSaved[file]);
     if (file === activeFile) config = fresh;
     renderAll();
     setStatus('Reloaded ' + file, 2000, 'ok');
@@ -5947,6 +5972,7 @@ async function saveToServer() {
     const fresh = normalizeConfig(await fetch(_cfgPathFor(f) + '&_=' + Date.now()).then(r => r.json()));
     fileConfigs[f] = fresh;
     fileSaved[f] = JSON.stringify(fresh);
+    _syncFileSavedToHistory(f, fileSaved[f]);
     if (f === activeFile) config = fresh;
     const slash = f.indexOf('/');
     if (slash !== -1) folderExists.add(f.slice(0, slash));
@@ -6052,6 +6078,7 @@ async function loadSiblingFiles() {
       if (results[i].status === 'fulfilled') {
         fileConfigs[f] = normalizeConfig(results[i].value);
         fileSaved[f] = JSON.stringify(fileConfigs[f]);
+        _syncFileSavedToHistory(f, fileSaved[f]);
       } else {
         cfgOk = false;
       }
