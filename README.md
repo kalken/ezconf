@@ -199,17 +199,7 @@ services.ezconf = {
 };
 ```
 
-`save_first = true` disables the button while there are unsaved changes.
-
-Every button runs "direct" by default — as its own independent OS process, streaming its output live into a panel that pops up from the bottom of the page, separate from the terminal panel — rather than typing the command into the terminal's shell. This matters because a command like `nixos-rebuild switch`/`test` can restart `ezconf-terminal.service` itself partway through (Linux/systemd restarts changed units automatically on a rebuild); typing it into that same shell would kill the command along with the shell it's running in, mid-command. Running direct sidesteps that entirely — it's detached from every one of ezconf's own systemd units, so it survives either one restarting, and you don't need the terminal panel open, or even be looking at it, to watch it run. Requires Linux/systemd.
-
-Set `terminal = true` on a button to opt it back into the old typed-into-the-terminal behavior — for a command that specifically needs the terminal (an interactive prompt, or wanting it to run inline alongside other terminal work) and is known not to restart either of ezconf's own services:
-
-```nix
-{ label = "Disk usage"; command = "ncdu /"; terminal = true; }
-```
-
-`clear_first` clears the terminal screen right before a `terminal = true` button's command runs, and defaults to `true` — set it to `false` to instead run the command in whatever's already there; it has no effect on a direct button, which has no terminal screen to clear. The terminal service has `restartIfChanged = false`, so a rebuild that only changes the `ezconf-terminal` package itself doesn't restart the running process — whatever's running in the terminal at the time keeps going straight through that.
+`save_first = true` disables the button while there are unsaved changes. `clear_first` clears the terminal screen right before the command runs, and defaults to `true` — set it to `false` to instead run the command in whatever's already there. The terminal service has `restartIfChanged = false`, so a rebuild that only changes the `ezconf-terminal` package itself doesn't restart the running process — whatever's running in the terminal at the time keeps going straight through that.
 
 Closing the browser tab (or losing the connection, reloading the page, or logging out) doesn't kill the shell — reopening the terminal reattaches to the same one (replaying its recent output) rather than starting fresh, so something long-running survives an accidentally-closed tab or a step-away-and-come-back. There's only ever one such shell, shared by *everyone* who connects — not one per browser — so anyone with access sees and can type into the exact same terminal, always; that's consistent with the rest of ezconf, which has no separate identity per person either (one shared login for everyone with access). It survives a page reload and a logout/login cycle, but not a reboot or a manual restart of `ezconf-terminal.service` itself — nothing can make a shell survive the process that owns it actually dying, and anything the shell itself spawned dies right along with it (systemd's own default cgroup-based cleanup on that restart, not anything ezconf does).
 
@@ -229,7 +219,7 @@ buttons = [
 ];
 ```
 
-That shows a single "Deploy" button; clicking it opens a dropdown of "Rebuild"/"Boot"/"Test". Each item still honors its own `save_first`/`clear_first`/`terminal` independently — all three run direct here (the default), which is fine for all of them: `Rebuild` and `Test` both activate the new configuration on the running system, so direct is what keeps them from being able to kill their own execution mid-command, while `Boot` only sets the next-boot default without touching anything currently running, so direct isn't strictly necessary for it but doesn't hurt either.
+That shows a single "Deploy" button; clicking it opens a dropdown of "Rebuild"/"Boot"/"Test". Each item still honors its own `save_first`/`clear_first` independently.
 
 Use `/` in `menu` to nest a submenu inside that dropdown, e.g. `menu = "Disk/Advanced";` adds an "Advanced" item to the "Disk" dropdown that opens a further flyout — handy for burying rarely-used or destructive commands (like a partition wipe) a click deeper than the everyday ones.
 
@@ -412,7 +402,7 @@ services.ezconf = {
 
 - `configDir` is created automatically with a `default.nix` that applies whatever `*.json` files end up there — it starts with none; create your first one from the editor (right-click the tab bar, or the empty editor area, for "New file"). Add `./ezconf` to your `nixosSystem` modules list in `flake.nix` to wire it in.
 - Autocomplete data is generated on first service start into `/var/lib/ezconf/autocomplete/` (set `generateAutocomplete = false` to skip this) and can be refreshed from the UI.
-- The terminal service has `restartIfChanged = false` — it forks the shell directly as its own child, so restarting it (e.g. `systemctl restart ezconf-terminal` to pick up a package update) kills whatever's running inside it. A rebuild never does this automatically; restart it yourself when you need to pick up a change. A **"Terminal needs a restart"** notification appears in the top-right corner (alongside the usual reload notification, if that's showing too) whenever the running terminal service is actually out of date — click it to restart, same one-command effect as above. There's also a plain restart icon next to the terminal panel's own size buttons for restarting it on demand any time, whether or not that notification is showing.
+- The terminal service has `restartIfChanged = false` — it forks the shell directly as its own child, so restarting it (e.g. `systemctl restart ezconf-terminal` to pick up a package update) kills whatever's running inside it. A rebuild never does this automatically; restart it yourself when you need to pick up a change. A **"Terminal needs a restart"** notification appears in the top-right corner (alongside the usual reload notification, if that's showing too) whenever the running terminal service is actually out of date — click it to restart, same one-command effect as above.
 - `auth.password` is stored in the Nix store (world-readable). Use `auth.passwordFile` for anything real.
 - PAM mode defaults `allowedUsers` to the user running the service if the list is empty.
 - The editor always requires authentication — there is no unauthenticated mode.

@@ -73,23 +73,6 @@ ezconf server — single listener bound to 127.0.0.1:
                                    logic and auto-backup-first safety net as system-import (see
                                    _restore_system_zip()), differing only in where the zip bytes
                                    come from (a file already on disk, not a fresh upload)
-    POST /api/v1/terminal/restart  runs `systemctl restart ezconf-terminal.service` directly from
-                                   this process, independent of the terminal's own shell (unlike
-                                   restartTerminalService() in the frontend, which types the
-                                   command into the running PTY and so only works while a shell is
-                                   actually up and connected). Linux/systemd only (501 elsewhere)
-    POST /api/v1/command/run      starts a button's command (every button, unless its own
-                                   terminal field opts it into the terminal instead) as its own
-                                   systemd transient unit, detached from this process's cgroup so
-                                   it survives ezconf.service itself being restarted mid-command —
-                                   e.g. by the very `nixos-rebuild switch` the command runs. Only
-                                   one direct command at a time; 409 if one's already running.
-                                   Linux/systemd only (501 elsewhere)
-    GET  /api/v1/command/status   {"running", "exit_code", "output"} for the most recently started
-                                   direct command — reads the log/exit-code files directly rather
-                                   than asking systemd about the transient unit, which --collect
-                                   garbage-collects shortly after it exits (a poll landing a few
-                                   seconds late could otherwise find nothing there at all)
 
 Every *.json file in CONFIG_DIR (except custom-options.json) is a
 separately editable/saveable "tab" in the UI, merged together only at
@@ -122,11 +105,8 @@ Config file (ezconf.toml):
   file, default_file, webroot, auth, terminal_port, session_key_file, cert, key, username,
   password, allowed_users, mkoptions, nixos_target, ports.web, backup_dir, backup_count,
   system_backup_dir, system_backup_count,
-  buttons (list of [[buttons]] tables: label, command, save_first, clear_first, terminal, static —
-  shown in the terminal panel alongside any services.ezconf.buttons defined in a config file;
-  every button runs as an independent OS process via /api/v1/command/run by default —
-  terminal = true opts it back into typing the command into the terminal shell instead — see that
-  endpoint's docstring above)
+  buttons (list of [[buttons]] tables: label, command, save_first, clear_first, static —
+  shown in the terminal panel alongside any services.ezconf.buttons defined in a config file)
 """
 import argparse
 import datetime
@@ -141,13 +121,11 @@ import json
 import os
 import re
 import secrets
-import shlex
 import shutil
 import socket
 import ssl
 import subprocess
 import sys
-import tempfile
 import threading
 import time
 import zipfile
@@ -233,17 +211,6 @@ SYSTEM_BACKUP_COUNT = 5          # number of system backups to keep; 0 disables 
 STATIC_BUTTONS   = []            # terminal panel buttons from [[buttons]] in TOML (deploy-time,
                                   # not tied to any config file/tab); see services.ezconf.buttons
                                   # in modules/ezconf.nix, which is what generates this TOML
-# Output/exit-code files for the most recently (or currently) started "direct" button command --
-# see /api/v1/command/run|status. Deliberately plain files under the system temp dir rather than
-# in-process state: the whole point of a direct command is surviving this process being restarted
-# mid-run (e.g. by the nixos-rebuild switch it's itself running), so status has to be readable by
-# whichever process answers the *next* poll, not necessarily the one that started the command.
-_DIRECT_CMD_UNIT = 'ezconf-direct-cmd'
-_DIRECT_CMD_LOG  = os.path.join(tempfile.gettempdir(), 'ezconf-direct-cmd.log')
-_DIRECT_CMD_RC   = os.path.join(tempfile.gettempdir(), 'ezconf-direct-cmd.rc')
-DIRECT_CMD_SHELL = '/bin/sh'     # shell a direct command's command runs under; resolved at
-                                  # startup the same way terminal.py resolves its own SHELL (see
-                                  # there) -- set below once cfg is available
 SYSTEM_EXPORT_EXCLUDE_DOTFILES = True                      # blanket dotfile/dotdir skip in
                                                             # _iter_system_export_files(); set by
                                                             # system_export_exclude_dotfiles in TOML
@@ -513,10 +480,8 @@ def _clear_login_failures(ip):
 _ANSI_RE = re.compile(r'\x1b\[[0-9;]*m')
 
 def _strip_ansi(s):
-    """Both generate-nixos-data.py (autocomplete/update) and a direct button's command (nix/
-    nixos-rebuild, chiefly) color their output for terminal use; both responses end up in a plain
-    HTML <pre> (the mkoptions-output modal / #direct-output-body), which would otherwise show the
-    raw escape codes."""
+    """generate-nixos-data.py colors its stderr output for terminal use; the autocomplete/update
+    response is displayed in a plain HTML <pre>, which would otherwise show the raw escape codes."""
     return _ANSI_RE.sub('', s)
 
 
@@ -528,31 +493,6 @@ def _is_empty_json_array(path):
             return json.load(f) == []
     except (OSError, json.JSONDecodeError):
         return False
-
-
-def _direct_command_status():
-    """Backs /api/v1/command/status. Deliberately reads _DIRECT_CMD_LOG/_DIRECT_CMD_RC straight
-    off disk rather than asking systemd about _DIRECT_CMD_UNIT -- systemd-run's --collect GCs the
-    transient unit shortly after it exits, so a poll landing even a few seconds late could find
-    nothing there at all despite the command having genuinely run to completion. The log file is
-    the only thing that has to exist for "a command has been started at some point"; the rc file
-    existing on top of that is what actually means "finished", regardless of which process (this
-    one, or a fresh one after ezconf.service itself got restarted mid-command) answers the poll."""
-    if not os.path.exists(_DIRECT_CMD_LOG):
-        return {'running': False, 'exit_code': None, 'output': ''}
-    try:
-        with open(_DIRECT_CMD_LOG, 'r', errors='replace') as f:
-            output = _strip_ansi(f.read())
-    except OSError:
-        output = ''
-    if not os.path.exists(_DIRECT_CMD_RC):
-        return {'running': True, 'exit_code': None, 'output': output}
-    try:
-        with open(_DIRECT_CMD_RC) as f:
-            exit_code = int(f.read().strip())
-    except (OSError, ValueError):
-        exit_code = None
-    return {'running': False, 'exit_code': exit_code, 'output': output}
 
 
 def _flatten_stem(rel):
@@ -1450,136 +1390,6 @@ class StaticHandler(http.server.SimpleHTTPRequestHandler):
                 self.wfile.write(resp)
             except Exception as e:
                 self.send_error(500, str(e))
-        elif parsed.path == '/api/v1/terminal/restart':
-            # Independent of the terminal's own shell -- unlike restartTerminalService() in the
-            # frontend (which types the command into the running PTY, so it only works while a
-            # shell is actually up and connected), this runs systemctl directly from server.py's
-            # own process. systemctl only exists on Linux, so this is a no-op everywhere else.
-            if not TERMINAL_PORT:
-                resp = b'{"error":"terminal not enabled"}'
-                self.send_response(501)
-                self.send_header('Content-Type', 'application/json')
-                self.send_header('Content-Length', str(len(resp)))
-                self.end_headers()
-                self.wfile.write(resp)
-                return
-            if not sys.platform.startswith('linux'):
-                resp = b'{"error":"systemctl restart is only available on Linux"}'
-                self.send_response(501)
-                self.send_header('Content-Type', 'application/json')
-                self.send_header('Content-Length', str(len(resp)))
-                self.end_headers()
-                self.wfile.write(resp)
-                return
-            try:
-                result = subprocess.run(
-                    ['systemctl', 'restart', 'ezconf-terminal.service'],
-                    capture_output=True, text=True, timeout=30,
-                )
-                if result.returncode == 0:
-                    resp = b'{"ok":true}'
-                    self.send_response(200)
-                else:
-                    output = (result.stdout + result.stderr).strip() or 'unknown error'
-                    resp = json.dumps({'error': output}).encode()
-                    self.send_response(500)
-                self.send_header('Content-Type', 'application/json')
-                self.send_header('Content-Length', str(len(resp)))
-                self.end_headers()
-                self.wfile.write(resp)
-            except subprocess.TimeoutExpired:
-                resp = b'{"error":"timed out after 30s"}'
-                self.send_response(504)
-                self.send_header('Content-Type', 'application/json')
-                self.send_header('Content-Length', str(len(resp)))
-                self.end_headers()
-                self.wfile.write(resp)
-            except Exception as e:
-                self.send_error(500, str(e))
-        elif parsed.path == '/api/v1/command/run':
-            # Runs a button's command outside the terminal entirely -- the default, unless its own
-            # terminal field opts it in instead (see _direct_command_status() above). systemd-run
-            # starts the command as its own transient unit, detached from this process's cgroup,
-            # and returns as soon as that unit exists (it does not itself wait for the command to
-            # finish) -- so a command that restarts ezconf.service mid-run (nixos-rebuild switch
-            # being the whole reason this exists) never has a chance to take this request/response
-            # down with it.
-            if not sys.platform.startswith('linux'):
-                resp = b'{"error":"direct commands require systemd (Linux only)"}'
-                self.send_response(501)
-                self.send_header('Content-Type', 'application/json')
-                self.send_header('Content-Length', str(len(resp)))
-                self.end_headers()
-                self.wfile.write(resp)
-                return
-            status = _direct_command_status()
-            if status['running']:
-                resp = b'{"error":"a direct command is already running"}'
-                self.send_response(409)
-                self.send_header('Content-Type', 'application/json')
-                self.send_header('Content-Length', str(len(resp)))
-                self.end_headers()
-                self.wfile.write(resp)
-                return
-            try:
-                length = int(self.headers.get('Content-Length', 0))
-                body = json.loads(self.rfile.read(length))
-                command = body.get('command', '')
-                if not command:
-                    resp = b'{"error":"missing command"}'
-                    self.send_response(400)
-                    self.send_header('Content-Type', 'application/json')
-                    self.send_header('Content-Length', str(len(resp)))
-                    self.end_headers()
-                    self.wfile.write(resp)
-                    return
-                # Fresh files for this run -- _direct_command_status() tells "running" apart from
-                # "finished" purely by whether the rc file exists yet, so a stale one from a
-                # previous run has to be gone before the new unit starts, not after.
-                for f in (_DIRECT_CMD_LOG, _DIRECT_CMD_RC):
-                    try:
-                        os.remove(f)
-                    except OSError:
-                        pass
-                open(_DIRECT_CMD_LOG, 'w').close()
-                # The actual command runs under DIRECT_CMD_SHELL (-l: a login shell, so it sources
-                # /etc/profile -- on NixOS that's exactly where /run/current-system/sw/bin, where
-                # nixos-rebuild and everything else in environment.systemPackages actually lives,
-                # gets added to PATH; without it the command runs in systemd's own bare default
-                # PATH and things like "nixos-rebuild" aren't found at all. terminal.py forks its
-                # shell the same way ([SHELL, '-l']) for the identical reason -- see there) --
-                # matching the configured shell here, not just terminal.py's interactive session,
-                # is what makes a button behave the same whether it's direct or terminal = true;
-                # someone whose shell is fish, say, can write a button command in fish syntax
-                # either way. The outer wrapper that captures the exit code stays plain /bin/sh
-                # regardless, though, so that part -- $? -- doesn't depend on which shell the
-                # inner command actually ran under (fish's equivalent is $status, not $?).
-                inner = f'{shlex.quote(DIRECT_CMD_SHELL)} -l -c {shlex.quote(command)}'
-                wrapped = f'{inner}; echo $? > {shlex.quote(_DIRECT_CMD_RC)}'
-                # The command's own exit code is captured into _DIRECT_CMD_RC by the wrapper shell
-                # itself, not read back from systemd afterward -- same reasoning as
-                # _direct_command_status() not querying systemd: --collect can GC the unit before
-                # anything gets around to asking it.
-                result = subprocess.run(
-                    ['systemd-run', f'--unit={_DIRECT_CMD_UNIT}', '--collect',
-                     f'--property=StandardOutput=append:{_DIRECT_CMD_LOG}',
-                     f'--property=StandardError=append:{_DIRECT_CMD_LOG}',
-                     '--', '/bin/sh', '-c', wrapped],
-                    capture_output=True, text=True, timeout=15,
-                )
-                if result.returncode != 0:
-                    output = (result.stdout + result.stderr).strip() or 'unknown error'
-                    resp = json.dumps({'error': output}).encode()
-                    self.send_response(500)
-                else:
-                    resp = b'{"ok":true}'
-                    self.send_response(202)
-                self.send_header('Content-Type', 'application/json')
-                self.send_header('Content-Length', str(len(resp)))
-                self.end_headers()
-                self.wfile.write(resp)
-            except Exception as e:
-                self.send_error(500, str(e))
         elif parsed.path == '/api/v1/system-import':
             try:
                 length = int(self.headers.get('Content-Length', 0))
@@ -1705,14 +1515,6 @@ class StaticHandler(http.server.SimpleHTTPRequestHandler):
             # longer valid) never reaches this handler at all — check_auth()/_deny() above
             # already reject it with 401 before this branch runs, same as any other endpoint.
             data = json.dumps(_ping_payload()).encode()
-            self.send_response(200)
-            self.send_header('Content-Type', 'application/json')
-            self.send_header('Content-Length', str(len(data)))
-            self.end_headers()
-            self.wfile.write(data)
-            return
-        if parsed.path == '/api/v1/command/status':
-            data = json.dumps(_direct_command_status()).encode()
             self.send_response(200)
             self.send_header('Content-Type', 'application/json')
             self.send_header('Content-Length', str(len(data)))
@@ -2121,18 +1923,6 @@ if __name__ == '__main__':
         {k: cfg.get(k) for k in ('terminal_port', 'session_key_file', 'shell', 'webroot')},
         sort_keys=True, default=str
     ).encode()).hexdigest()[:16]
-    # Identical formula to terminal.py's own SHELL resolution (same cfg, same machine, same user)
-    # so a button's command behaves the same whether it runs direct or terminal = true -- e.g.
-    # someone whose configured shell is fish, writing commands in fish syntax, would otherwise
-    # have gotten different results (and likely a syntax error) from the exact same button
-    # depending on that one field, since /bin/sh doesn't understand fish syntax.
-    _passwd_shell = ''
-    try:
-        import pwd as _pwd
-        _passwd_shell = _pwd.getpwuid(os.getuid()).pw_shell or ''
-    except Exception:
-        pass
-    DIRECT_CMD_SHELL = cfg.get('shell') or _passwd_shell or os.environ.get('SHELL') or '/bin/sh'
 
     _key_file = args.session_key_file or cfg.get('session_key_file')
     if _key_file:
