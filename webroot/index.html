@@ -83,12 +83,14 @@ const _DEFAULT_THEME = '%%EZCONF_THEME%%';
 </div>
 
 <!-- Positioned via JS (_updateTermRestartPopup(), reusing _positionMenuAboveAnchor()) right above
-     #terminal-panel's own top edge whenever the running ezconf-terminal.service is stale relative
-     to what's on disk -- see _terminalNeedsRestart(). Not a fixed CSS position: the panel's top
-     edge moves with its current quarter/half/full/collapsed size, so this has to be computed
-     fresh each time (anchoring to #term-restart-btn instead would be wrong -- that button sits at
-     a fixed height regardless of panel size, since .terminal-header-group is pinned to the
-     panel's bottom edge, not its top). -->
+     #term-restart-btn whenever the running ezconf-terminal.service is stale relative to what's on
+     disk -- see _terminalNeedsRestart(). Not a fixed CSS position, computed fresh each time it's
+     shown, but anchored to the button rather than #terminal-panel's own top edge deliberately: the
+     button's screen position is constant regardless of the panel's quarter/half/full/collapsed
+     size (.terminal-header-group is pinned to the panel's bottom edge, not its top, and the
+     panel's own bottom edge never moves either), while the panel's top edge does move with size --
+     anchoring there instead was tried and reverted, since it made the popup visibly jump position
+     every time the panel resized. -->
 <div class="term-restart-popup hidden" id="term-restart-popup" onclick="restartTerminal()">Terminal has changed - click to restart</div>
 
 <div class="terminal-panel collapsed" id="terminal-panel">
@@ -4636,16 +4638,15 @@ function _updateTermRestartPopup() {
   const popup = document.getElementById('term-restart-popup');
   if (!_terminalNeedsRestart()) { popup.classList.add('hidden'); return; }
   popup.classList.remove('hidden');
-  // Anchored to the panel's own top edge (not the button's) for Y -- .terminal-header-group is
-  // pinned to the panel's bottom via position: absolute; bottom: 0 (see "Terminal panel" below),
-  // so the button itself sits at essentially the same screen height regardless of quarter/half/
-  // full/collapsed sizing; only the panel's top edge actually moves with size. Anchoring to the
-  // button would leave the popup floating over the panel's own content at "full" height instead
-  // of sitting above the whole thing. X still comes from the button, so it stays horizontally
-  // near it rather than centered over the entire panel width.
-  const btnRect = document.getElementById('term-restart-btn').getBoundingClientRect();
-  const panelRect = document.getElementById('terminal-panel').getBoundingClientRect();
-  _positionMenuAboveAnchor(popup, { left: btnRect.left, top: panelRect.top, bottom: btnRect.bottom });
+  // Anchored to #term-restart-btn itself, i.e. the terminal bar's own (always 33px) row -- NOT
+  // the panel's own top edge, which moves with quarter/half/full/collapsed sizing. The bar's
+  // screen position is constant regardless of panel size: .terminal-header-group is pinned to the
+  // panel's bottom via position: absolute; bottom: 0 (see "Terminal panel" below), and the panel's
+  // own bottom edge never moves either (it's a normal flex item sitting right above the
+  // statusbar -- growing its height only pushes its *top* edge up into .layout above it). Tried
+  // anchoring to the panel's top instead and reverted: that meant the popup jumped position every
+  // time the panel resized, which read as worse than a single, always-stable spot.
+  _positionMenuAboveAnchor(popup, document.getElementById('term-restart-btn').getBoundingClientRect());
 }
 // The one restart mechanism now -- runs systemctl directly from server.py's own process (see
 // POST /api/v1/terminal/restart there) rather than typing the command into the terminal's own
@@ -4948,14 +4949,6 @@ function toggleTerminal() {
     btn.dataset.tooltip = 'Show';
     _persistTerminalOpen(false);
   }
-  // #term-restart-popup (if currently showing) is anchored to the panel's own top edge, which
-  // this just moved -- without this it stays wherever it last was until the next ping/WS tick
-  // happens to land, which could be seconds away (observed in practice: it visibly "jumped" to
-  // its correct position only once a restart's own WS 'ready' message arrived, well after the
-  // resize that actually should have triggered it). Deferred 200ms, same as the ResizeObserver
-  // debounce driving fit() elsewhere, so this measures the settled height, not a mid-transition
-  // (180ms) one.
-  setTimeout(_updateTermRestartPopup, 200);
 }
 
 function setTerminalSize(size) {
@@ -4983,9 +4976,6 @@ function setTerminalSize(size) {
       _term.focus();
     }
   });
-  // See the identical call at the end of toggleTerminal() -- #term-restart-popup, if showing, is
-  // anchored to the panel's own top edge, which this just moved.
-  setTimeout(_updateTermRestartPopup, 200);
 }
 
 // STATIC_BUTTONS (from ezconf.toml's [[buttons]] — see server.py/modules/ezconf.nix) is deploy-
