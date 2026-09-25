@@ -4647,6 +4647,11 @@ function _updateTermRestartPopup() {
   // anchoring to the panel's top instead and reverted: that meant the popup jumped position every
   // time the panel resized, which read as worse than a single, always-stable spot.
   _positionMenuAboveAnchor(popup, document.getElementById('term-restart-btn').getBoundingClientRect());
+  // _positionMenuAboveAnchor() sits the popup flush against the button's own top edge (zero gap)
+  // -- exactly right for a stacked menu reading as one continuous piece with the button it opened
+  // from, but this isn't a menu the button opens; it's a separate, standalone notice that should
+  // read as clearly its own thing sitting above the bar, not touching it.
+  popup.style.top = (parseFloat(popup.style.top) - 8) + 'px';
 }
 // The one restart mechanism now -- runs systemctl directly from server.py's own process (see
 // POST /api/v1/terminal/restart there) rather than typing the command into the terminal's own
