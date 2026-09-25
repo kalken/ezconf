@@ -2010,12 +2010,15 @@ function makeFlatColHandle() {
 }
 
 // Elements that must keep normal click/focus/text-selection behavior instead of starting a
-// drag — everything else on the row (background, key label, whitespace) is a drag surface now
-// that there's no dedicated handle icon.
+// drag — relevant mainly for `handle` being the whole row (no dedicated key element to restrict
+// to, e.g. an anonymous array item), where the row's value inputs/buttons still need to work.
 const _DRAG_EXCLUDE_SELECTOR =
   'input, textarea, select, button, a, [contenteditable], .toggle, .custom-select-btn, .custom-select-dropdown, .autocomplete-wrap';
 
-function makeDraggable(el, key, parentPath) {
+// `handle` restricts where a drag can start (the key label/header — so clicking or selecting
+// text in the row's *value* doesn't also start a reorder); defaults to the whole row `el` for
+// callers with no distinct key element (e.g. an anonymous array item).
+function makeDraggable(el, key, parentPath, handle) {
   const parentKey = parentPath.join('\x00');
   el.dataset.dragKey = key;
   el.dataset.dragParent = parentKey;
@@ -2024,7 +2027,7 @@ function makeDraggable(el, key, parentPath) {
   // file tab to move them there.
   const canMoveToFile = !/^\d+$/.test(key);
 
-  el.addEventListener('mousedown', e => {
+  (handle || el).addEventListener('mousedown', e => {
     if (e.button !== 0) return;
     if (e.target.closest(_DRAG_EXCLUDE_SELECTOR)) return;
     e.preventDefault();
@@ -2432,7 +2435,8 @@ function renderFlatLeaves(container, obj, path, depth) {
 
       const content = document.createElement('div');
       content.className = 'flat-sublevel-content';
-      content.appendChild(makeFlatSubHeader(k, childPath, depth));
+      const subHeader = makeFlatSubHeader(k, childPath, depth);
+      content.appendChild(subHeader);
       renderFlatLeaves(content, v, childPath, depth + 1);
       sub.appendChild(content);
       // Mirrors renderSection's binding on the whole section (not just the header) so
@@ -2447,7 +2451,7 @@ function renderFlatLeaves(container, obj, path, depth) {
         showContextMenu(e, [...items, ..._commonMenuItems(childPath)]);
       };
       container.appendChild(sub);
-      makeDraggable(sub, k, path);
+      makeDraggable(sub, k, path, subHeader);
     } else if (Array.isArray(v)) {
       renderFlatArray(container, v, childPath, depth + 1);
     } else {
@@ -2506,7 +2510,8 @@ function renderFlat(container, obj, path) {
 
       const content = document.createElement('div');
       content.className = 'flat-group-content';
-      content.appendChild(makeFlatGroupHeader(k, childPath));
+      const groupHeader = makeFlatGroupHeader(k, childPath);
+      content.appendChild(groupHeader);
       renderFlatLeaves(content, v, childPath, 0);
       group.appendChild(content);
       group.oncontextmenu = e => {
@@ -2517,21 +2522,22 @@ function renderFlat(container, obj, path) {
         showContextMenu(e, [...items, ..._commonMenuItems(childPath)]);
       };
       container.appendChild(group);
-      makeDraggable(group, k, path);
+      makeDraggable(group, k, path, groupHeader);
     } else if (Array.isArray(v)) {
       const hasObjects = v.some(item => item !== null && typeof item === 'object' && !Array.isArray(item) && !isExprPkg(item));
       if (hasObjects) {
         const group = document.createElement('div');
         group.className = 'flat-group';
         group.dataset.path = childPath.join('.');
-  
+
         const content = document.createElement('div');
         content.className = 'flat-group-content';
-        content.appendChild(makeFlatGroupHeader(k, childPath));
+        const groupHeader = makeFlatGroupHeader(k, childPath);
+        content.appendChild(groupHeader);
         renderFlatArray(content, v, childPath, 0);
         group.appendChild(content);
         container.appendChild(group);
-        makeDraggable(group, k, path);
+        makeDraggable(group, k, path, groupHeader);
       } else {
         renderArrayField(container, k, v, childPath);
       }
@@ -2978,7 +2984,7 @@ function renderSection(container, key, obj, path) {
   body.className = 'section-body';
   renderObj(body, obj, path);
   section.appendChild(body);
-  makeDraggable(section, key, path.slice(0, -1));
+  makeDraggable(section, key, path.slice(0, -1), header);
   container.appendChild(section);
 }
 
@@ -3047,7 +3053,7 @@ function renderArrayField(container, key, arr, path) {
   row.appendChild(keyEl);
   if (flatMode) row.appendChild(makeFlatColHandle());
   row.appendChild(valEl);
-  makeDraggable(row, path[path.length - 1], path.slice(0, -1));
+  makeDraggable(row, path[path.length - 1], path.slice(0, -1), keyEl);
   container.appendChild(row);
 }
 
@@ -3337,7 +3343,7 @@ function renderField(container, key, val, path) {
   row.appendChild(keyEl);
   if (flatMode) row.appendChild(makeFlatColHandle());
   row.appendChild(valEl);
-  makeDraggable(row, path[path.length - 1], path.slice(0, -1));
+  makeDraggable(row, path[path.length - 1], path.slice(0, -1), keyEl);
   container.appendChild(row);
 }
 
