@@ -4647,7 +4647,7 @@ function _updateTermRestartPopup() {
   // its *top* edge up into .layout above it). window.innerHeight - top, not top itself, since
   // bottom-anchoring the popup means its own height never has to be measured here at all.
   const barTop = document.querySelector('.terminal-header-group').getBoundingClientRect().top;
-  popup.style.bottom = (window.innerHeight - barTop + 8) + 'px';
+  popup.style.bottom = (window.innerHeight - barTop + 1) + 'px';
 }
 // The one restart mechanism now -- runs systemctl directly from server.py's own process (see
 // POST /api/v1/terminal/restart there) rather than typing the command into the terminal's own
