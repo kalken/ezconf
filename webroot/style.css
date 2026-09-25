@@ -264,28 +264,19 @@ body {
 /* ── Main ── */
 .main { flex: 1; display: flex; flex-direction: column; overflow: hidden; position: relative; }
 
-/* Floats over .editor-area (position: absolute, .main is its positioning context) in the top
-   right corner -- same convention as .sidebar/.markdown-panels below, just anchored to the
-   opposite corner. Currently only ever holds #terminal-restart-notification (a page reload
-   itself is automatic now, no banner -- see onRestartDetected()), but stays a flex column with a
-   gap rather than positioning that one element directly, in case a future banner joins it. */
-.notification-stack {
-  position: absolute;
-  top: 12px;
-  right: 12px;
+/* Positioned via JS (_updateTermRestartPopup(), reusing _positionMenuAboveAnchor() -- see there
+   for why "above" rather than a fixed corner: the terminal button bar it's anchored to sits at
+   the bottom of the page, where a plain downward/corner placement would open detached from the
+   button or off-screen) flush against #term-restart-btn's own top edge, whenever the running
+   ezconf-terminal.service is stale relative to what's on disk. Same visual language the old
+   top-right notification banner used, just relocated to sit with the button that now does the
+   actual restarting, instead of a separate corner element with its own click handler. */
+.term-restart-popup {
+  position: fixed;
   /* Deliberately higher than every other z-index in the app (context menus, modals, tooltips,
-     the drag ghost, ...) -- a restart is more important than whatever's on screen, so this
-     should never end up hidden behind something else that happens to be open at the time. */
+     the drag ghost, ...) -- a restart-needed indicator is more important than whatever's on
+     screen, so this should never end up hidden behind something else open at the time. */
   z-index: 99999;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 8px;
-}
-/* Shared banner styling -- currently only #terminal-restart-notification, shown by
-   _updateTerminalRestartNotification() and always a manual click (see restartTerminalService()'s
-   own comment on why that one in particular never happens automatically). */
-.notification-banner {
   background: var(--bg2);
   border: 1px solid var(--accent2);
   border-radius: var(--radius);
@@ -296,7 +287,8 @@ body {
   cursor: pointer;
   transition: background .15s;
 }
-.notification-banner:hover { background: var(--bg3); }
+.term-restart-popup:hover { background: var(--bg3); }
+.term-restart-popup.hidden { display: none; }
 
 /* Only ever houses the always-hidden add-input/button below — a home for showAddOptionMenu() to
    detach them from and restore them to (right-click "Add option..."/"Add sub option..." is the
