@@ -6,7 +6,7 @@ Run:
   python3 terminal.py --config /run/ezconf/ezconf.toml
   python3 terminal.py --port 9092 --session-key-file /run/ezconf/session.key
 
-Config keys read from TOML: terminal_port, session_key_file, shell, webroot
+Config keys read from TOML: terminal_port, session_key_file, shell
 
 Always binds 127.0.0.1 regardless of `listen` in TOML -- the browser never connects here
 directly. server.py proxies /terminal straight through to this process over loopback (see
@@ -117,7 +117,6 @@ def load_toml(path):
 SHELL        = '/bin/sh'
 SESSION_KEY  = ''
 PORT         = 9091
-WEBROOT      = '.'
 BIND_ADDR    = '127.0.0.1'
 
 READY_DELAY  = 0.3  # see the 'ready' comment in _terminal_ws() below
@@ -932,9 +931,14 @@ if __name__ == '__main__':
     # passwd/$SHELL fallback chain can legitimately differ by environment even when the TOML
     # value itself (often absent) hasn't changed, and hashing the raw value avoids needing to
     # replicate that resolution logic on server.py's side of this comparison (see _ping_payload()
-    # there) to compute the same hash from its own copy of the same file.
+    # there) to compute the same hash from its own copy of the same file. Deliberately excludes
+    # `webroot`, even though it's a key this process's own TOML technically carries: it defaults
+    # to the ezconf package's own Nix store path, which changes on every rebuild that touches
+    # *any* file under webroot/ (a pure frontend tooltip tweak included) — including it here
+    # flagged a terminal restart as needed on nearly every upgrade, regardless of whether
+    # anything that actually affects terminal.py's behavior had changed.
     CONFIG_HASH = hashlib.sha256(json.dumps(
-        {k: cfg.get(k) for k in ('terminal_port', 'session_key_file', 'shell', 'webroot')},
+        {k: cfg.get(k) for k in ('terminal_port', 'session_key_file', 'shell')},
         sort_keys=True, default=str
     ).encode()).hexdigest()[:16]
 
@@ -948,7 +952,6 @@ if __name__ == '__main__':
         pass
     SHELL = cfg.get('shell') or _passwd_shell or os.environ.get('SHELL') or '/bin/sh'
 
-    WEBROOT   = cfg.get('webroot') or WEBROOT
     # BIND_ADDR deliberately ignores `listen` -- see the module docstring above: this process
     # only ever talks to server.py over loopback, never to a browser directly.
 
