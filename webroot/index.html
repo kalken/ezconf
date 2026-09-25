@@ -2040,6 +2040,15 @@ function makeDraggable(el, key, parentPath, handle) {
     // Create ghost
     dragGhost = el.cloneNode(true);
     dragGhost.className += ' drag-ghost';
+    if (flatMode) {
+      // .flat-mode .field-key's key/value split (--flat-key-width, default 50%) only applies
+      // to a descendant of #editor-area.flat-mode — the ghost, appended straight to <body>, has
+      // no such ancestor, so without this it silently falls back to plain .field-key's
+      // content-width flex-basis, visibly closing up the gap before the value column.
+      dragGhost.classList.add('flat-mode');
+      const kw = document.getElementById('editor-area').style.getPropertyValue('--flat-key-width');
+      if (kw) dragGhost.style.setProperty('--flat-key-width', kw);
+    }
     dragGhost.style.width = rect.width + 'px';
     dragGhost.style.left = rect.left + 'px';
     dragGhost.style.top = rect.top + 'px';
