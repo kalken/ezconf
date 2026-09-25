@@ -79,11 +79,14 @@ const _DEFAULT_THEME = '%%EZCONF_THEME%%';
       <div class="tree" id="tree-root"></div>
     </div>
     <div class="markdown-panels" id="markdown-panels"></div>
-    <div class="notification-stack">
-      <div class="notification-banner hidden" id="terminal-restart-notification" onclick="restartTerminalService()" data-tooltip="the running terminal service doesn't match what's on disk -- click to restart it">Terminal has changed - click to restart</div>
-    </div>
   </div>
 </div>
+
+<!-- Positioned via JS (_updateTermRestartPopup(), reusing _positionMenuAboveAnchor()) right above
+     #term-restart-btn whenever the running ezconf-terminal.service is stale relative to what's on
+     disk -- see _terminalNeedsRestart(). Not a fixed CSS position: the button's own X/Y on screen
+     depends on the terminal panel's current size, so this has to be computed fresh each time. -->
+<div class="term-restart-popup hidden" id="term-restart-popup" onclick="restartTerminal()">Terminal has changed - click to restart</div>
 
 <div class="terminal-panel collapsed" id="terminal-panel">
   <div class="terminal-body">
@@ -94,6 +97,7 @@ const _DEFAULT_THEME = '%%EZCONF_THEME%%';
     <div class="terminal-header">
       <div class="terminal-cmd-btns" id="terminal-cmd-btns"></div>
       <div class="terminal-header-actions">
+        <button class="btn" id="term-restart-btn" data-tooltip="Restart terminal service (ends the running shell for everyone connected)" onclick="restartTerminal()"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg></button>
         <button class="btn" data-tooltip="Quarter screen" onclick="setTerminalSize('quarter')"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><rect x="3" y="16" width="18" height="5" fill="currentColor" stroke="none"/></svg></button>
         <button class="btn" data-tooltip="Half screen" onclick="setTerminalSize('half')"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><rect x="3" y="12" width="18" height="9" fill="currentColor" stroke="none"/></svg></button>
         <button class="btn" data-tooltip="Full screen" onclick="setTerminalSize('full')"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><rect x="4" y="4" width="16" height="16" rx="1" fill="currentColor" stroke="none"/></svg></button>
@@ -3755,17 +3759,17 @@ function initRestartWatcher() {
     if (!data) return;
     // Terminal hash tracking runs on *every* successful ping, deliberately not gated behind the
     // boot_id check below: ezconf-terminal.service doesn't restart alongside ezconf.service
-    // (restartIfChanged = false), so terminal_running_hash can change -- or get fixed via the
-    // "Restart Terminal" notification -- with boot_id never changing at all. This is also what
-    // lets the notification recover correctly after a GUI reload even when the terminal panel is
+    // (restartIfChanged = false), so terminal_running_hash can change -- or get fixed via
+    // #term-restart-popup/#term-restart-btn -- with boot_id never changing at all. This is also
+    // what lets the popup recover correctly after a GUI reload even when the terminal panel is
     // closed: _terminalRunningHash resets to null on every page load (see its own comment) and
     // used to only get repopulated by the WS 'ready' message, which never arrives unless the
-    // panel happens to be open -- silently hiding a notification that was still genuinely true.
+    // panel happens to be open -- silently hiding a popup that was still genuinely true.
     if (typeof data.terminal_current_hash === 'string') _terminalCurrentHash = data.terminal_current_hash;
     if (typeof data.terminal_running_hash === 'string') _terminalRunningHash = data.terminal_running_hash;
     if (typeof data.terminal_config_hash === 'string') _terminalCurrentConfigHash = data.terminal_config_hash;
     if (typeof data.terminal_running_config_hash === 'string') _terminalRunningConfigHash = data.terminal_running_config_hash;
-    _updateTerminalRestartNotification();
+    _updateTermRestartPopup();
 
     if (!data.boot_id || data.boot_id === _lastSeenBootId) return;
     _lastSeenBootId = data.boot_id;
@@ -4601,10 +4605,14 @@ let _termExited = false;
 // terminal.py's /terminal/hash, polled every tick regardless of panel state — see
 // initRestartWatcher()). The ping path exists specifically because this variable resets to null
 // on every page load, and used to only be repopulated by the WS message — silently hiding a
-// still-true notification after a GUI reload if the panel happened to be closed at the time.
+// still-true popup after a GUI reload if the panel happened to be closed at the time.
 // Compared against _terminalCurrentHash (also from /api/v1/ping) to tell whether the running
-// terminal service is stale relative to what's on disk — drives #terminal-restart-notification,
-// see _updateTerminalRestartNotification().
+// terminal service is stale relative to what's on disk — drives #term-restart-popup, see
+// _updateTermRestartPopup(). This is a pure, non-sticky comparison re-evaluated on every call, not
+// "shown once, stays shown" — it clears itself the moment the two hashes agree again, regardless
+// of *how* that happened (this button, typed manually into the terminal, or a restart triggered
+// entirely outside ezconf, e.g. `systemctl restart` over SSH — this can't tell the difference and
+// doesn't need to).
 let _terminalRunningHash = null;
 let _terminalCurrentHash = null;
 // Same idea, but for *config* drift rather than code drift (bin/terminal.py's CONFIG_HASH):
@@ -4618,24 +4626,40 @@ function _terminalNeedsRestart() {
   return !!(_terminalRunningHash && _terminalCurrentHash && _terminalRunningHash !== _terminalCurrentHash)
       || !!(_terminalRunningConfigHash && _terminalCurrentConfigHash && _terminalRunningConfigHash !== _terminalCurrentConfigHash);
 }
-function _updateTerminalRestartNotification() {
-  document.getElementById('terminal-restart-notification').classList.toggle('hidden', !_terminalNeedsRestart());
+// Positioned fresh every time it's shown, flush against #term-restart-btn's own top edge --
+// _positionMenuAboveAnchor() (see above) reads the popup's real, laid-out size, so .hidden has to
+// come off *before* calling it, not after.
+function _updateTermRestartPopup() {
+  const popup = document.getElementById('term-restart-popup');
+  if (!_terminalNeedsRestart()) { popup.classList.add('hidden'); return; }
+  popup.classList.remove('hidden');
+  _positionMenuAboveAnchor(popup, document.getElementById('term-restart-btn').getBoundingClientRect());
 }
-// Restarting ends every running shell for everyone connected, so unlike onRestartDetected()'s
-// page reload (automatic once clean, no unsaved edits at risk), this stays something the user
-// triggers themselves from the notification's own onclick, always -- there's no "clean" state
-// that makes killing a running shell safe to do silently.
-function restartTerminalService() {
-  const panel = document.getElementById('terminal-panel');
-  if (panel.classList.contains('collapsed')) toggleTerminal();
-  initTerminal().then(() => {
-    if (!_term) return;
-    if (!_termWs || _termWs.readyState === WebSocket.CLOSED) connectTerminalWs();
-    _waitTermReady().then(() => {
-      if (_termWs) _termWs.send('\x15'); // clear whatever's half-typed at the prompt, always
-      if (_termWs) _termWs.send('systemctl restart ezconf-terminal.service\r');
-    });
-  });
+// The one restart mechanism now -- runs systemctl directly from server.py's own process (see
+// POST /api/v1/terminal/restart there) rather than typing the command into the terminal's own
+// shell, so it works even if that shell is wedged or the panel's never been opened. Restarting
+// ends every running shell for everyone connected; there's no "clean" state that makes that safe
+// to do silently, so this stays a manual click always, whether triggered from the plain button or
+// from #term-restart-popup sitting above it. The popup itself doesn't need to be told this ran --
+// it clears on its own, via the same reactive hash comparison, once the next ping/WS 'ready'
+// after the real restart reports matching hashes.
+async function restartTerminal() {
+  const btn = document.getElementById('term-restart-btn');
+  if (btn.disabled) return;
+  btn.disabled = true;
+  try {
+    const res = await apiFetch('/terminal/restart', { method: 'POST' });
+    const data = await res.json().catch(() => ({}));
+    if (res.ok) {
+      setStatus('Terminal service restarted', 3000, 'ok');
+    } else {
+      setStatus('Restart failed: ' + (data.error || res.status), 5000, 'err');
+    }
+  } catch (e) {
+    setStatus('Restart failed: ' + e.message, 4000, 'err');
+  } finally {
+    btn.disabled = false;
+  }
 }
 
 function _waitTermReady() {
@@ -4822,7 +4846,7 @@ function connectTerminalWs() {
         _termReady = true;
         if (typeof msg.hash === 'string') _terminalRunningHash = msg.hash;
         if (typeof msg.config_hash === 'string') _terminalRunningConfigHash = msg.config_hash;
-        _updateTerminalRestartNotification();
+        _updateTermRestartPopup();
         const waiters = _termReadyWaiters;
         _termReadyWaiters = [];
         waiters.forEach(fn => fn());

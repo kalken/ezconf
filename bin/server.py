@@ -73,6 +73,11 @@ ezconf server — single listener bound to 127.0.0.1:
                                    logic and auto-backup-first safety net as system-import (see
                                    _restore_system_zip()), differing only in where the zip bytes
                                    come from (a file already on disk, not a fresh upload)
+    POST /api/v1/terminal/restart  runs `systemctl restart ezconf-terminal.service` directly from
+                                   this process — the single restart mechanism #term-restart-btn
+                                   (index.html) uses, independent of the terminal's own shell, so
+                                   it works even if the shell is wedged or the panel's never been
+                                   opened. Linux/systemd only (501 elsewhere)
 
 Every *.json file in CONFIG_DIR (except custom-options.json) is a
 separately editable/saveable "tab" in the UI, merged together only at
@@ -1383,6 +1388,51 @@ class StaticHandler(http.server.SimpleHTTPRequestHandler):
                 self.wfile.write(resp)
             except subprocess.TimeoutExpired:
                 resp = b'{"error":"timed out after 600s"}'
+                self.send_response(504)
+                self.send_header('Content-Type', 'application/json')
+                self.send_header('Content-Length', str(len(resp)))
+                self.end_headers()
+                self.wfile.write(resp)
+            except Exception as e:
+                self.send_error(500, str(e))
+        elif parsed.path == '/api/v1/terminal/restart':
+            # Runs systemctl directly from server.py's own process, independent of the terminal's
+            # own shell -- so this still works even if the running shell is wedged, or the panel's
+            # never been opened. systemctl only exists on Linux, so this is a no-op elsewhere.
+            if not TERMINAL_PORT:
+                resp = b'{"error":"terminal not enabled"}'
+                self.send_response(501)
+                self.send_header('Content-Type', 'application/json')
+                self.send_header('Content-Length', str(len(resp)))
+                self.end_headers()
+                self.wfile.write(resp)
+                return
+            if not sys.platform.startswith('linux'):
+                resp = b'{"error":"systemctl restart is only available on Linux"}'
+                self.send_response(501)
+                self.send_header('Content-Type', 'application/json')
+                self.send_header('Content-Length', str(len(resp)))
+                self.end_headers()
+                self.wfile.write(resp)
+                return
+            try:
+                result = subprocess.run(
+                    ['systemctl', 'restart', 'ezconf-terminal.service'],
+                    capture_output=True, text=True, timeout=30,
+                )
+                if result.returncode == 0:
+                    resp = b'{"ok":true}'
+                    self.send_response(200)
+                else:
+                    output = (result.stdout + result.stderr).strip() or 'unknown error'
+                    resp = json.dumps({'error': output}).encode()
+                    self.send_response(500)
+                self.send_header('Content-Type', 'application/json')
+                self.send_header('Content-Length', str(len(resp)))
+                self.end_headers()
+                self.wfile.write(resp)
+            except subprocess.TimeoutExpired:
+                resp = b'{"error":"timed out after 30s"}'
                 self.send_response(504)
                 self.send_header('Content-Type', 'application/json')
                 self.send_header('Content-Length', str(len(resp)))
