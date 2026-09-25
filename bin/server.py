@@ -1969,8 +1969,9 @@ if __name__ == '__main__':
     TERMINAL_CURRENT_HASH = _compute_file_hash(TERMINAL_SCRIPT)
     # Raw values, not resolved/fallback-applied -- must match terminal.py's own CONFIG_HASH
     # formula exactly, key for key, since these are compared directly (see _ping_payload()).
+    # Deliberately excludes `webroot` -- see the matching comment in terminal.py's __main__.
     TERMINAL_CONFIG_HASH = hashlib.sha256(json.dumps(
-        {k: cfg.get(k) for k in ('terminal_port', 'session_key_file', 'shell', 'webroot')},
+        {k: cfg.get(k) for k in ('terminal_port', 'session_key_file', 'shell')},
         sort_keys=True, default=str
     ).encode()).hexdigest()[:16]
 
