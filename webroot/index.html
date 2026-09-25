@@ -5018,11 +5018,14 @@ function setTerminalSize(size) {
 function _unwrapButtonField(v) {
   return isDisabled(v) ? undefined : v;
 }
-// A direct button's command never shows in the terminal at all (see runDirectButton()) -- the
-// hover tooltip is the only place its own command is visible before running it, so it's worth
-// calling out there that it won't behave like every other button in the row.
+// Buttons run direct (independent OS process, see runDirectButton()) by default -- terminal =
+// true opts a button back into typing the command into the terminal shell instead, for a command
+// that specifically needs it (an interactive prompt, wanting to see it run inline alongside other
+// terminal work, clear_first). That's the exceptional case now, so it's the one worth calling out
+// in the hover tooltip -- a direct button's own command already shows in its own output panel
+// once run, same as a terminal button's shows in the terminal.
 function _buttonTooltip(btn) {
-  return btn.command + (btn.direct ? ' (runs directly, not in the terminal)' : '');
+  return btn.command + (btn.terminal ? ' (runs in the terminal)' : '');
 }
 function _normalizeButton(b) {
   return {
@@ -5032,7 +5035,7 @@ function _normalizeButton(b) {
     clear_first: _unwrapButtonField(b.clear_first),
     menu: _unwrapButtonField(b.menu),
     mode: _unwrapButtonField(b.mode),
-    direct: _unwrapButtonField(b.direct),
+    terminal: _unwrapButtonField(b.terminal),
   };
 }
 function getAllButtons() {
@@ -5955,7 +5958,7 @@ async function _restoreDirectOutputPanel() {
 function runButton(idx) {
   const btn = getAllButtons()[idx];
   if (!btn) return;
-  if (btn.direct) { runDirectButton(btn); return; }
+  if (!btn.terminal) { runDirectButton(btn); return; }
   const panel = document.getElementById('terminal-panel');
   if (panel.classList.contains('collapsed')) toggleTerminal();
   initTerminal().then(() => {

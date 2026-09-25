@@ -78,12 +78,13 @@ ezconf server — single listener bound to 127.0.0.1:
                                    restartTerminalService() in the frontend, which types the
                                    command into the running PTY and so only works while a shell is
                                    actually up and connected). Linux/systemd only (501 elsewhere)
-    POST /api/v1/command/run      starts a "direct" button's command (see the buttons' own direct
-                                   field) as its own systemd transient unit, detached from this
-                                   process's cgroup so it survives ezconf.service itself being
-                                   restarted mid-command — e.g. by the very `nixos-rebuild switch`
-                                   the command runs. Only one direct command at a time; 409 if one's
-                                   already running. Linux/systemd only (501 elsewhere)
+    POST /api/v1/command/run      starts a button's command (every button, unless its own
+                                   terminal field opts it into the terminal instead) as its own
+                                   systemd transient unit, detached from this process's cgroup so
+                                   it survives ezconf.service itself being restarted mid-command —
+                                   e.g. by the very `nixos-rebuild switch` the command runs. Only
+                                   one direct command at a time; 409 if one's already running.
+                                   Linux/systemd only (501 elsewhere)
     GET  /api/v1/command/status   {"running", "exit_code", "output"} for the most recently started
                                    direct command — reads the log/exit-code files directly rather
                                    than asking systemd about the transient unit, which --collect
@@ -121,10 +122,11 @@ Config file (ezconf.toml):
   file, default_file, webroot, auth, terminal_port, session_key_file, cert, key, username,
   password, allowed_users, mkoptions, nixos_target, ports.web, backup_dir, backup_count,
   system_backup_dir, system_backup_count,
-  buttons (list of [[buttons]] tables: label, command, save_first, clear_first, direct, static —
+  buttons (list of [[buttons]] tables: label, command, save_first, clear_first, terminal, static —
   shown in the terminal panel alongside any services.ezconf.buttons defined in a config file;
-  direct = true runs the command as an independent OS process via /api/v1/command/run instead of
-  typing it into the terminal shell — see that endpoint's docstring above)
+  every button runs as an independent OS process via /api/v1/command/run by default —
+  terminal = true opts it back into typing the command into the terminal shell instead — see that
+  endpoint's docstring above)
 """
 import argparse
 import datetime
@@ -1495,9 +1497,9 @@ class StaticHandler(http.server.SimpleHTTPRequestHandler):
             except Exception as e:
                 self.send_error(500, str(e))
         elif parsed.path == '/api/v1/command/run':
-            # Runs a "direct" button's command outside the terminal entirely -- see the buttons'
-            # own direct field and _direct_command_status() above. systemd-run starts the command
-            # as its own transient unit, detached from this process's cgroup,
+            # Runs a button's command outside the terminal entirely -- the default, unless its own
+            # terminal field opts it in instead (see _direct_command_status() above). systemd-run
+            # starts the command as its own transient unit, detached from this process's cgroup,
             # and returns as soon as that unit exists (it does not itself wait for the command to
             # finish) -- so a command that restarts ezconf.service mid-run (nixos-rebuild switch
             # being the whole reason this exists) never has a chance to take this request/response
@@ -1547,10 +1549,10 @@ class StaticHandler(http.server.SimpleHTTPRequestHandler):
                 # PATH and things like "nixos-rebuild" aren't found at all. terminal.py forks its
                 # shell the same way ([SHELL, '-l']) for the identical reason -- see there) --
                 # matching the configured shell here, not just terminal.py's interactive session,
-                # is what makes a button behave the same whether it's direct or typed into the
-                # terminal; someone whose shell is fish, say, can write a button command in fish
-                # syntax either way. The outer wrapper that captures the exit code stays plain
-                # /bin/sh regardless, though, so that part -- $? -- doesn't depend on which shell the
+                # is what makes a button behave the same whether it's direct or terminal = true;
+                # someone whose shell is fish, say, can write a button command in fish syntax
+                # either way. The outer wrapper that captures the exit code stays plain /bin/sh
+                # regardless, though, so that part -- $? -- doesn't depend on which shell the
                 # inner command actually ran under (fish's equivalent is $status, not $?).
                 inner = f'{shlex.quote(DIRECT_CMD_SHELL)} -l -c {shlex.quote(command)}'
                 wrapped = f'{inner}; echo $? > {shlex.quote(_DIRECT_CMD_RC)}'
@@ -2120,10 +2122,10 @@ if __name__ == '__main__':
         sort_keys=True, default=str
     ).encode()).hexdigest()[:16]
     # Identical formula to terminal.py's own SHELL resolution (same cfg, same machine, same user)
-    # so a button's command behaves the same whether it runs direct or typed into the terminal --
-    # e.g. someone whose configured shell is fish, writing commands in fish syntax, would
-    # otherwise have gotten different results (and likely a syntax error) from the exact same
-    # button depending on that one field, since /bin/sh doesn't understand fish syntax.
+    # so a button's command behaves the same whether it runs direct or terminal = true -- e.g.
+    # someone whose configured shell is fish, writing commands in fish syntax, would otherwise
+    # have gotten different results (and likely a syntax error) from the exact same button
+    # depending on that one field, since /bin/sh doesn't understand fish syntax.
     _passwd_shell = ''
     try:
         import pwd as _pwd
