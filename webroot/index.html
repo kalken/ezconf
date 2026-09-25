@@ -4948,6 +4948,14 @@ function toggleTerminal() {
     btn.dataset.tooltip = 'Show';
     _persistTerminalOpen(false);
   }
+  // #term-restart-popup (if currently showing) is anchored to the panel's own top edge, which
+  // this just moved -- without this it stays wherever it last was until the next ping/WS tick
+  // happens to land, which could be seconds away (observed in practice: it visibly "jumped" to
+  // its correct position only once a restart's own WS 'ready' message arrived, well after the
+  // resize that actually should have triggered it). Deferred 200ms, same as the ResizeObserver
+  // debounce driving fit() elsewhere, so this measures the settled height, not a mid-transition
+  // (180ms) one.
+  setTimeout(_updateTermRestartPopup, 200);
 }
 
 function setTerminalSize(size) {
@@ -4975,6 +4983,9 @@ function setTerminalSize(size) {
       _term.focus();
     }
   });
+  // See the identical call at the end of toggleTerminal() -- #term-restart-popup, if showing, is
+  // anchored to the panel's own top edge, which this just moved.
+  setTimeout(_updateTermRestartPopup, 200);
 }
 
 // STATIC_BUTTONS (from ezconf.toml's [[buttons]] — see server.py/modules/ezconf.nix) is deploy-
