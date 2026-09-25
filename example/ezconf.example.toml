@@ -46,9 +46,9 @@ file = "example/configuration.json"
 # Whether "Export system" skips dotfiles/dotdirs (.git, .ssh, age/sops keys, etc.) (default: true)
 # system_export_exclude_dotfiles = true
 
-# Basenames "Export system" always skips, anywhere in the tree (default: just
-# hardware-configuration.nix, since it's machine-specific and shouldn't be bundled into a config
-# meant to be reused elsewhere)
+# Basenames "Export system" always skips, anywhere in the tree (default: none). E.g.
+# hardware-configuration.nix, if it's machine-specific and you don't want it bundled into a
+# config meant to be reused elsewhere.
 # system_export_exclude = ["hardware-configuration.nix"]
 
 # Directory to serve /autocomplete/ from (overrides WEBROOT/autocomplete/)

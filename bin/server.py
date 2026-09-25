@@ -50,10 +50,9 @@ ezconf server — single listener bound to 127.0.0.1:
     POST /api/v1/folder/enable    re-enables a subfolder disabled via folder/disable
     GET  /api/v1/system-export    zips up the whole NIXOS_TARGET tree (not just CONFIG_DIR) —
                                    flake.nix, flake.lock, etc. — skipping symlinks always, plus
-                                   dotfiles/dotdirs and hardware-configuration.nix by default
-                                   (configurable via system_export_exclude_dotfiles/
-                                   system_export_exclude in TOML; see
-                                   _iter_system_export_files())
+                                   dotfiles/dotdirs by default (configurable via
+                                   system_export_exclude_dotfiles/system_export_exclude in TOML;
+                                   see _iter_system_export_files())
     POST /api/v1/system-import    writes a zip's files (body) into NIXOS_TARGET, overwriting any
                                    existing file of the same name, and deletes any in-scope file
                                    (see _iter_system_export_files()) the zip doesn't mention, so
@@ -219,7 +218,7 @@ STATIC_BUTTONS   = []            # terminal panel buttons from [[buttons]] in TO
 SYSTEM_EXPORT_EXCLUDE_DOTFILES = True                      # blanket dotfile/dotdir skip in
                                                             # _iter_system_export_files(); set by
                                                             # system_export_exclude_dotfiles in TOML
-SYSTEM_EXPORT_EXCLUDE = {'hardware-configuration.nix'}     # extra basenames skipped by
+SYSTEM_EXPORT_EXCLUDE = set()                              # extra basenames skipped by
                                                             # _iter_system_export_files(); set by
                                                             # system_export_exclude in TOML
 
@@ -746,13 +745,8 @@ def _iter_system_export_files(root):
     "result-*" symlinks (pointing into /nix/store — not config, and potentially huge or a broken
     link after a gc) and keeps this a plain tree walk with no cycle risk.
 
-    Also skips any basename in SYSTEM_EXPORT_EXCLUDE (default {'hardware-configuration.nix'},
-    set by system_export_exclude in TOML), anywhere in the tree. hardware-configuration.nix is
-    machine-specific (partition UUIDs, detected kernel modules, etc.), so bundling it into an
-    export meant to be reused elsewhere (a template, another machine) would be actively wrong by
-    default; the receiving machine's own hardware-configuration.nix is left alone regardless,
-    which is exactly what leaving it out of the zip achieves on the /api/v1/system-import side
-    too, with no extra logic needed there.
+    Also skips any basename in SYSTEM_EXPORT_EXCLUDE (default empty, set by system_export_exclude
+    in TOML), anywhere in the tree.
     """
     root = os.path.realpath(root)
     for dirpath, dirnames, filenames in os.walk(root):

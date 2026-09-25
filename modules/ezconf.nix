@@ -134,8 +134,8 @@ in
 
     systemExportExclude = lib.mkOption {
       type        = lib.types.listOf lib.types.str;
-      default     = [ "hardware-configuration.nix" ];
-      description = "Basenames to exclude from the \"Export system\" zip, anywhere in the tree. Defaults to hardware-configuration.nix, since it's machine-specific and shouldn't be bundled into a config meant to be reused elsewhere.";
+      default     = [ ];
+      description = "Basenames to exclude from the \"Export system\" zip, anywhere in the tree. E.g. hardware-configuration.nix, which is machine-specific and might not be wanted in a config meant to be reused elsewhere.";
     };
 
     backupDir = lib.mkOption {
