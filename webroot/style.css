@@ -274,9 +274,13 @@ body {
 .term-restart-popup {
   position: fixed;
   right: 12px;
-  /* Deliberately higher than every other z-index in the app (context menus, modals, tooltips,
-     the drag ghost, ...) -- a restart-needed indicator is more important than whatever's on
-     screen, so this should never end up hidden behind something else open at the time. */
+  /* Deliberately higher than every other z-index in the app (context menus, modals, the drag
+     ghost, ...) -- a restart-needed indicator is more important than whatever's on screen, so
+     this should never end up hidden behind something else open at the time. The one deliberate
+     exception is .hover-tooltip (see there): #term-restart-btn sits right below this popup, so
+     hovering it to read what the button actually does would otherwise show the tooltip right
+     where the popup already is, with the popup (being on top) making it unreadable -- exactly
+     the case a tooltip exists to prevent. */
   z-index: 99999;
   background: var(--bg2);
   border: 1px solid var(--accent2);
@@ -419,7 +423,10 @@ body {
    example HTML .tooltip's default sizing was built for — the 260px min-width above would pad
    most of them with a lot of empty space. Wrapping (white-space/word-break/max-width) stays
    inherited from .tooltip, for the rare long command that needs it. */
-.hover-tooltip { min-width: 0; padding: 5px 8px; z-index: 1100; }
+/* z-index above .term-restart-popup's 99999, not just the ordinary tooltip base's 1000 -- a
+   tooltip only ever shows because the user is actively hovering to read it, which should never
+   be obscured by a passive notification, #term-restart-btn's own most of all (see there). */
+.hover-tooltip { min-width: 0; padding: 5px 8px; z-index: 100000; }
 /* Tooltip visibility: .tt-anchor wraps just the rendered title text so the hover target is the
    text itself, not the whole reserved-width key column (which is wider than short titles). It's
    JS-driven (_wireTooltipAnchor toggles .tt-visible) rather than plain :hover because .tt-anchor
