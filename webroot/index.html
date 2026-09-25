@@ -83,9 +83,12 @@ const _DEFAULT_THEME = '%%EZCONF_THEME%%';
 </div>
 
 <!-- Positioned via JS (_updateTermRestartPopup(), reusing _positionMenuAboveAnchor()) right above
-     #term-restart-btn whenever the running ezconf-terminal.service is stale relative to what's on
-     disk -- see _terminalNeedsRestart(). Not a fixed CSS position: the button's own X/Y on screen
-     depends on the terminal panel's current size, so this has to be computed fresh each time. -->
+     #terminal-panel's own top edge whenever the running ezconf-terminal.service is stale relative
+     to what's on disk -- see _terminalNeedsRestart(). Not a fixed CSS position: the panel's top
+     edge moves with its current quarter/half/full/collapsed size, so this has to be computed
+     fresh each time (anchoring to #term-restart-btn instead would be wrong -- that button sits at
+     a fixed height regardless of panel size, since .terminal-header-group is pinned to the
+     panel's bottom edge, not its top). -->
 <div class="term-restart-popup hidden" id="term-restart-popup" onclick="restartTerminal()">Terminal has changed - click to restart</div>
 
 <div class="terminal-panel collapsed" id="terminal-panel">
@@ -4633,7 +4636,16 @@ function _updateTermRestartPopup() {
   const popup = document.getElementById('term-restart-popup');
   if (!_terminalNeedsRestart()) { popup.classList.add('hidden'); return; }
   popup.classList.remove('hidden');
-  _positionMenuAboveAnchor(popup, document.getElementById('term-restart-btn').getBoundingClientRect());
+  // Anchored to the panel's own top edge (not the button's) for Y -- .terminal-header-group is
+  // pinned to the panel's bottom via position: absolute; bottom: 0 (see "Terminal panel" below),
+  // so the button itself sits at essentially the same screen height regardless of quarter/half/
+  // full/collapsed sizing; only the panel's top edge actually moves with size. Anchoring to the
+  // button would leave the popup floating over the panel's own content at "full" height instead
+  // of sitting above the whole thing. X still comes from the button, so it stays horizontally
+  // near it rather than centered over the entire panel width.
+  const btnRect = document.getElementById('term-restart-btn').getBoundingClientRect();
+  const panelRect = document.getElementById('terminal-panel').getBoundingClientRect();
+  _positionMenuAboveAnchor(popup, { left: btnRect.left, top: panelRect.top, bottom: btnRect.bottom });
 }
 // The one restart mechanism now -- runs systemctl directly from server.py's own process (see
 // POST /api/v1/terminal/restart there) rather than typing the command into the terminal's own
