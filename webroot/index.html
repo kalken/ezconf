@@ -3577,7 +3577,11 @@ function renderEnumArray(container, arr, path, enumOpts) {
       if (v === val) row.classList.add('flash-added');
       items.appendChild(row);
     });
-    inp.value = ''; acList.classList.add('hidden'); inp.focus();
+    inp.value = '';
+    inp.focus();
+    // inp.focus() above is a no-op (and fires no 'focus' event) when inp already had focus,
+    // which it always does here — so refresh the list explicitly rather than relying on that.
+    showValueAC();
     _pushHistory();
     _updateDirty();
   }
