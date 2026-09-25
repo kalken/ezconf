@@ -82,13 +82,13 @@ const _DEFAULT_THEME = '%%EZCONF_THEME%%';
   </div>
 </div>
 
-<!-- Positioned via JS (_updateTermRestartPopup(), reusing _positionMenuAboveAnchor()) right above
-     #term-restart-btn whenever the running ezconf-terminal.service is stale relative to what's on
-     disk -- see _terminalNeedsRestart(). Not a fixed CSS position, computed fresh each time it's
-     shown, but anchored to the button rather than #terminal-panel's own top edge deliberately: the
-     button's screen position is constant regardless of the panel's quarter/half/full/collapsed
-     size (.terminal-header-group is pinned to the panel's bottom edge, not its top, and the
-     panel's own bottom edge never moves either), while the panel's top edge does move with size --
+<!-- Right corner of the screen (right: 12px, fixed in CSS), right above wherever the terminal bar
+     currently starts (bottom set fresh via JS, _updateTermRestartPopup()) whenever the running
+     ezconf-terminal.service is stale relative to what's on disk -- see _terminalNeedsRestart().
+     Anchored to #terminal-header-group's own top edge, not any specific button -- that edge is a
+     constant screen position regardless of the panel's quarter/half/full/collapsed size
+     (.terminal-header-group is pinned to the panel's bottom edge, not its top, and the panel's own
+     bottom edge never moves either), while the panel's own top edge does move with size --
      anchoring there instead was tried and reverted, since it made the popup visibly jump position
      every time the panel resized. -->
 <div class="term-restart-popup hidden" id="term-restart-popup" onclick="restartTerminal()">Terminal has changed - click to restart</div>
@@ -4631,27 +4631,23 @@ function _terminalNeedsRestart() {
   return !!(_terminalRunningHash && _terminalCurrentHash && _terminalRunningHash !== _terminalCurrentHash)
       || !!(_terminalRunningConfigHash && _terminalCurrentConfigHash && _terminalRunningConfigHash !== _terminalCurrentConfigHash);
 }
-// Positioned fresh every time it's shown, flush against #term-restart-btn's own top edge --
-// _positionMenuAboveAnchor() (see above) reads the popup's real, laid-out size, so .hidden has to
-// come off *before* calling it, not after.
+// Positioned fresh every time it's shown -- see the markup comment above #term-restart-popup for
+// why this is anchored to the terminal bar's own top edge rather than any specific button.
 function _updateTermRestartPopup() {
   const popup = document.getElementById('term-restart-popup');
   if (!_terminalNeedsRestart()) { popup.classList.add('hidden'); return; }
   popup.classList.remove('hidden');
-  // Anchored to #term-restart-btn itself, i.e. the terminal bar's own (always 33px) row -- NOT
-  // the panel's own top edge, which moves with quarter/half/full/collapsed sizing. The bar's
-  // screen position is constant regardless of panel size: .terminal-header-group is pinned to the
-  // panel's bottom via position: absolute; bottom: 0 (see "Terminal panel" below), and the panel's
-  // own bottom edge never moves either (it's a normal flex item sitting right above the
-  // statusbar -- growing its height only pushes its *top* edge up into .layout above it). Tried
-  // anchoring to the panel's top instead and reverted: that meant the popup jumped position every
-  // time the panel resized, which read as worse than a single, always-stable spot.
-  _positionMenuAboveAnchor(popup, document.getElementById('term-restart-btn').getBoundingClientRect());
-  // _positionMenuAboveAnchor() sits the popup flush against the button's own top edge (zero gap)
-  // -- exactly right for a stacked menu reading as one continuous piece with the button it opened
-  // from, but this isn't a menu the button opens; it's a separate, standalone notice that should
-  // read as clearly its own thing sitting above the bar, not touching it.
-  popup.style.top = (parseFloat(popup.style.top) - 8) + 'px';
+  // Right corner of the screen (fixed in CSS -- see .term-restart-popup) rather than anchored to
+  // any one button, so it isn't tied to that button's own width/label/icon at all -- just
+  // #terminal-header-group's own top edge (both rows, in install mode, not just the first),
+  // which is a constant screen position regardless of the panel's quarter/half/full/collapsed
+  // size: .terminal-header-group is pinned to the panel's bottom via position: absolute;
+  // bottom: 0 (see "Terminal panel" below), and the panel's own bottom edge never moves either
+  // (it's a normal flex item sitting right above the statusbar -- growing its height only pushes
+  // its *top* edge up into .layout above it). window.innerHeight - top, not top itself, since
+  // bottom-anchoring the popup means its own height never has to be measured here at all.
+  const barTop = document.querySelector('.terminal-header-group').getBoundingClientRect().top;
+  popup.style.bottom = (window.innerHeight - barTop + 8) + 'px';
 }
 // The one restart mechanism now -- runs systemctl directly from server.py's own process (see
 // POST /api/v1/terminal/restart there) rather than typing the command into the terminal's own
