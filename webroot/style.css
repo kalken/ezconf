@@ -264,19 +264,16 @@ body {
 /* ── Main ── */
 .main { flex: 1; display: flex; flex-direction: column; overflow: hidden; position: relative; }
 
-/* Positioned via JS (_updateTermRestartPopup(), reusing _positionMenuAboveAnchor() -- see there
-   for why "above" rather than a fixed corner: the terminal button bar it's anchored to sits at
-   the bottom of the page, where a plain downward/corner placement would open detached from the
-   button or off-screen) flush above #term-restart-btn's own top edge, whenever the running
-   ezconf-terminal.service is stale relative to what's on disk. Anchored to the button (whose
-   screen position is constant regardless of the panel's quarter/half/full/collapsed size, not the
-   panel's own top edge, which moves with it) so the popup itself never jumps around when the
-   panel resizes -- an earlier version anchored to the panel's top instead, and reverted for
-   exactly that reason. Same visual language the old top-right notification banner used, just
-   relocated to sit near the button that now does the actual restarting, instead of a separate
-   corner element with its own click handler. */
+/* Right corner of the screen -- same top-right convention the old notification banner used --
+   right above wherever the terminal bar currently starts, rather than anchored to any specific
+   button. `right` is the only fixed coordinate here; `bottom` is set fresh via JS
+   (_updateTermRestartPopup()) from #terminal-header-group's own top edge, whenever the running
+   ezconf-terminal.service is stale relative to what's on disk. That edge is a constant screen
+   position regardless of the panel's quarter/half/full/collapsed size (only the panel's own top
+   edge moves with it), so the popup itself never jumps around when the panel resizes. */
 .term-restart-popup {
   position: fixed;
+  right: 12px;
   /* Deliberately higher than every other z-index in the app (context menus, modals, tooltips,
      the drag ghost, ...) -- a restart-needed indicator is more important than whatever's on
      screen, so this should never end up hidden behind something else open at the time. */
