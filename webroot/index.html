@@ -216,19 +216,16 @@ function _applyInitialTheme() {
   );
 }
 
-// VERSION lives right next to index.html/style.css in WEBROOT (written there by the Nix
-// derivation, see modules/ezconf-packages.nix) — no backend involvement needed at all, it's
-// already served like any other static file. A 404 (no Nix build, e.g. running
-// `python3 server.py` straight from a git checkout) is the normal local-dev case, hence the
-// 'dev' fallback. Fetched once at load, not polled — it can only change via a process restart,
-// which the existing restart-detection/reload logic already handles.
-async function initVersion() {
-  let v = 'dev';
-  try {
-    const res = await fetch('VERSION', { cache: 'no-cache' });
-    if (res.ok) v = (await res.text()).trim() || 'dev';
-  } catch (e) { /* stays 'dev' */ }
-  document.getElementById('status-version').textContent = v;
+// CURRENT_VERSION is baked into the page server-side (see server.py's EZCONF_VERSION/
+// _read_version()), same convention as WEBROOT_HASH/BOOT_ID — no separate fetch needed. Used to be
+// its own async fetch of the VERSION static file, reasoned to need nothing from
+// initRestartWatcher() since "it can only change via a process restart, which the existing
+// restart-detection/reload logic already handles" — false in practice: a backend-only upgrade
+// (e.g. bin/generate-nixos-data.py, bin/server.py) never touches index.html/style.css/the theme
+// files, so WEBROOT_HASH stays identical and no reload was ever triggered, leaving this stuck on
+// the old value until something else forced a reload. See initRestartWatcher() for the fix.
+function initVersion() {
+  document.getElementById('status-version').textContent = CURRENT_VERSION;
 }
 
 // ── State ─────────────────────────────────────────────────────────────────────
@@ -3773,12 +3770,16 @@ let _restartDetected = false;
 // baked into index.html at load time, and each is compared against what this page actually has.
 // STATIC_BUTTONS is small enough to just patch in place and re-render — no visible reload for
 // what's easily the most common thing to actually change. Everything else — theme,
-// terminal/mkoptions/backup availability, nixos_target, and webroot_hash (a content hash of
+// terminal/mkoptions/backup availability, nixos_target, webroot_hash (a content hash of
 // index.html/style.css/the theme files, so an actual ezconf package upgrade — new HTML/CSS/JS,
-// not just a settings change — is caught too, since that can't be detected any other way) —
-// genuinely can't be applied without reloading, so only *those* changing still triggers one — and
-// even then, never out from under unsaved edits: if something's dirty when that's first seen, it
-// just says so and waits — _updateDirty() (run after every edit, undo, and Save) is what actually
+// not just a settings change — is caught too, since that can't be detected any other way), and
+// version (VERSION's own content, i.e. self.shortRev — added after a backend-only upgrade, e.g.
+// bin/generate-nixos-data.py, went unnoticed: it changes webroot_hash not at all, since none of
+// index.html/style.css/the theme files were touched, so the page kept working fine but its own
+// statusbar version string silently went stale with nothing else prompting a reload) — genuinely
+// can't be applied without reloading, so only *those* changing still triggers one — and even
+// then, never out from under unsaved edits: if something's dirty when that's first seen, it just
+// says so and waits — _updateDirty() (run after every edit, undo, and Save) is what actually
 // fires the reload, the moment the user gets back to a clean state.
 //
 // This used to be a held-open GET /api/v1/ping-stream SSE connection instead — near-instant
@@ -3827,6 +3828,7 @@ function initRestartWatcher() {
       renderButtons();
     }
     const reloadNeeded = data.webroot_hash !== WEBROOT_HASH
+      || data.version !== CURRENT_VERSION
       || data.theme !== THEME
       || !!data.terminal_enabled !== TERMINAL_ENABLED
       || !!data.mkoptions_enabled !== MKOPTIONS_ENABLED
@@ -5221,6 +5223,7 @@ const NIXOS_TARGET      = '%%EZCONF_NIXOS_TARGET%%'; // flake path GET /api/v1/s
 const HOSTNAME          = '%%EZCONF_HOSTNAME%%'; // default basename for exported zips — see exportAll()
 const BOOT_ID           = '%%EZCONF_BOOT_ID%%'; // this page's server process — see initRestartWatcher()
 const WEBROOT_HASH      = '%%EZCONF_WEBROOT_HASH%%'; // this page's own frontend files — see initRestartWatcher()
+const CURRENT_VERSION   = '%%EZCONF_VERSION%%'; // VERSION file content baked in at load — see initRestartWatcher()
 _terminalCurrentHash    = '%%EZCONF_TERMINAL_CURRENT_HASH%%' || null; // baked in at load, same as WEBROOT_HASH -- see _terminalNeedsRestart()
 _terminalCurrentConfigHash = '%%EZCONF_TERMINAL_CONFIG_HASH%%' || null; // same idea, for config drift -- see _terminalNeedsRestart()
 

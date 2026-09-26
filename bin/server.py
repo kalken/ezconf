@@ -2,9 +2,10 @@
 """
 ezconf server — single listener bound to 127.0.0.1:
   http(s)://localhost:9090  static files + API
-    GET  /api/v1/ping             {"boot_id", "webroot_hash", "theme", "terminal_enabled",
-                                   "mkoptions_enabled", "backup_enabled", "system_backup_enabled",
-                                   "nixos_target", "buttons", "terminal_current_hash",
+    GET  /api/v1/ping             {"boot_id", "webroot_hash", "version", "theme",
+                                   "terminal_enabled", "mkoptions_enabled", "backup_enabled",
+                                   "system_backup_enabled", "nixos_target", "buttons",
+                                   "terminal_current_hash",
                                    "terminal_running_hash", "terminal_config_hash",
                                    "terminal_running_config_hash"} — polled periodically by the
                                    frontend's restart/upgrade detection (initRestartWatcher() in
@@ -252,6 +253,18 @@ BOOT_ID = secrets.token_hex(8)
 # — a restart alone doesn't necessarily mean anything the frontend serves actually changed, but a
 # real upgrade always does, and unlike a settings change there's no way to apply it live at all.
 WEBROOT_HASH = ''
+# The VERSION file's content (see _read_version(), computed once alongside WEBROOT_HASH) — a
+# package upgrade that only touches backend files (bin/server.py, bin/generate-nixos-data.py) has
+# no reason to change WEBROOT_HASH at all (index.html/style.css/theme files are untouched), so it
+# was landing silently: the running page kept working correctly, but the statusbar's own version
+# string went stale until something else forced a reload. self.shortRev changes on every real
+# commit regardless of which files it touched, so comparing this catches that case without
+# reintroducing the thing WEBROOT_HASH was built to avoid (reloading on every bare BOOT_ID change,
+# e.g. a crash-loop restart with no underlying package change at all) — VERSION only differs
+# when a genuine upgrade happened. Falls back to 'dev' the same as the frontend's own prior
+# fetch-based check did, for the same reason: a dirty/uncommitted git tree (self.shortRev or
+# "dev") or a plain `python3 server.py` checkout with no VERSION file at all.
+EZCONF_VERSION = 'dev'
 # Lazily-populated cache of (raw_bytes, gzip_bytes) for static frontend files served via
 # _serve_static_gzip()/_serve_index() — keyed by absolute path. Safe to compute once and reuse
 # for the life of the process: these files don't change while it's running (a real change only
@@ -898,6 +911,17 @@ def _compute_webroot_hash():
     return h.hexdigest()[:16]
 
 
+def _read_version():
+    """EZCONF_VERSION — content of WEBROOT/VERSION, written by the Nix derivation (see
+    modules/ezconf-packages.nix). Missing (a plain git checkout, no Nix build) or empty falls back
+    to 'dev', same convention the frontend's own version display already used."""
+    try:
+        with open(os.path.join(WEBROOT, 'VERSION')) as f:
+            return f.read().strip() or 'dev'
+    except OSError:
+        return 'dev'
+
+
 def _compute_file_hash(path):
     """Same truncated-sha256 convention as _compute_webroot_hash(), for a single file — used for
     TERMINAL_CURRENT_HASH (see there). Returns '' if path is unset or unreadable, same as an
@@ -947,6 +971,7 @@ def _ping_payload():
     return {
         'boot_id': BOOT_ID,
         'webroot_hash': WEBROOT_HASH,
+        'version': EZCONF_VERSION,
         'theme': THEME,
         'terminal_enabled': bool(TERMINAL_PORT),
         'mkoptions_enabled': bool(MKOPTIONS_CMD),
@@ -1797,6 +1822,7 @@ class StaticHandler(http.server.SimpleHTTPRequestHandler):
                     .replace('%%EZCONF_HOSTNAME%%', HOSTNAME.replace('\\', '\\\\').replace("'", "\\'"))
                     .replace('%%EZCONF_BOOT_ID%%', BOOT_ID)
                     .replace('%%EZCONF_WEBROOT_HASH%%', WEBROOT_HASH)
+                    .replace('%%EZCONF_VERSION%%', EZCONF_VERSION)
                     .replace('%%EZCONF_TERMINAL_CURRENT_HASH%%', TERMINAL_CURRENT_HASH)
                     .replace('%%EZCONF_TERMINAL_CONFIG_HASH%%', TERMINAL_CONFIG_HASH)
                     # Escape "</" so a command/label containing "</script>" can't prematurely close
@@ -2084,6 +2110,7 @@ if __name__ == '__main__':
                             else int(cfg.get('system_backup_count', 5)))
 
     WEBROOT_HASH = _compute_webroot_hash()
+    EZCONF_VERSION = _read_version()
 
     use_tls = os.path.exists(CERT_FILE) and os.path.exists(KEY_FILE)
     scheme = 'https' if use_tls else 'http'
