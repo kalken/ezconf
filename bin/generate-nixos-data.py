@@ -172,6 +172,70 @@ def generate_kernels(flake_ref):
     info(f"  {len(result)} kernels")
 
 
+# --- home-manager options ---
+
+def generate_home_options(target, host):
+    """Home-manager options for whichever host is being generated, with no flake changes and no
+    username required. `home-manager.users.<name>` (the nested-NixOS-module form) can't be walked
+    generically by lib.optionAttrSetToDocList: its submodule type needs a concrete instance name
+    to build (home-manager wires `home.username = mkDefault name;` etc. off it), so the generic
+    doc-list probe has nothing to hand it. Rather than require a real homeConfigurations.<user>
+    output (which forces picking one specific username up front, purely to satisfy that probe),
+    this builds a *throwaway* home-manager evaluation directly — home-manager.lib.homeManagerConfiguration
+    with an empty module list, reusing the host's own already-built `pkgs` (so no separate system
+    string needs guessing) — and reads *its* .options. An option's description/type/default never
+    depend on which username it'll eventually be set under, so a placeholder instance name is
+    exactly as accurate as a real one for this purpose, and this needs nothing from the consuming
+    flake beyond a `home-manager` input (the standard input name — this doesn't try alternate
+    names). Every path comes back home-manager-root-relative (e.g. "home.packages"); rewritten to
+    home-manager.users.<name>.home.packages using the same literal `<name>` wildcard segment the
+    frontend already matches generically (WILDCARDS in index.html — the same mechanism behind
+    e.g. users.users.<name>), so it applies to whatever real username ends up in a config.
+    A flake with no `home-manager` input at all (the common case) is a silent, expected no-op —
+    resolved with one cheap `or null` inside the same expression, not a separate probe, so the
+    common case costs nothing beyond one more attribute lookup already-evaluated `target` has to
+    do anyway."""
+    expr = f"""
+let
+    target = builtins.getFlake "path:{target}";
+    cfg = target.nixosConfigurations.{host};
+    hmInput = target.inputs.home-manager or null;
+in if hmInput == null then [] else
+let
+    homeCfg = hmInput.lib.homeManagerConfiguration {{
+        pkgs = cfg.pkgs;
+        modules = [ ];
+    }};
+    opts = homeCfg.options;
+    lib = target.inputs.nixpkgs.lib;
+    unwrapValue = v:
+        if builtins.isAttrs v && builtins.elem (v._type or "") [ "literalExpression" "literalMD" "literalDocBook" ]
+        then v.text
+        else v;
+    safeGet = f: opt:
+        let v = unwrapValue (f opt);
+            result = builtins.tryEval (builtins.deepSeq v v);
+        in if result.success then result.value else null;
+    rawList = builtins.filter (opt: !(opt.internal or false)) (lib.optionAttrSetToDocList opts);
+in map (opt: {{
+    path = "home-manager.users.<name>." + opt.name;
+    description = safeGet (o: o.description or null) opt;
+    type = safeGet (o: o.type or null) opt;
+    default = safeGet (o: o.default or null) opt;
+    example = safeGet (o: o.example or null) opt;
+    required = safeGet (o: !(o ? default) && !(o.internal or false) && (o.visible or true) && !(o.readOnly or false)) opt;
+}}) rawList
+"""
+    result = nix_eval(["--impure", "--expr", expr])
+    if result is None:
+        warn("failed to evaluate home-manager options — skipping (rerun with -v for details, "
+             "e.g. a home-manager input incompatible with this nixpkgs version would fail here)")
+        return []
+    if result:
+        info(f"  {len(result)} home-manager options (home-manager.users.<name>.*)")
+    return result
+
+
 # --- options ---
 
 def generate_options(target, host):
@@ -209,6 +273,9 @@ in map (opt: {{
         warn("failed to evaluate options — options.json will be empty (rerun with -v for details, "
              "e.g. a missing hardware-configuration.nix import would fail here)")
         result = []
+
+    result += generate_home_options(target, host)
+
     # Clear required on options whose description says they are alternatives to another option.
     # NixOS has no formal "mutually exclusive" metadata; the only signal is prose like
     # "Can be used instead of <foo>" or "Use this instead of <bar>".
