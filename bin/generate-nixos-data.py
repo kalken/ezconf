@@ -202,12 +202,23 @@ let
     hmInput = target.inputs.home-manager or null;
 in if hmInput == null then [] else
 let
+    lib = target.inputs.nixpkgs.lib;
     homeCfg = hmInput.lib.homeManagerConfiguration {{
         pkgs = cfg.pkgs;
-        modules = [ ];
+        # A throwaway identity, not a real user: home-manager's own base modules (e.g.
+        # misc/nixpkgs.nix) force config.home.stateVersion while resolving _module.args.pkgs for
+        # every bundled module, including ones nothing enables — needed just to merge the option
+        # *declarations* at all, before any per-option safeGet below even runs. None of these
+        # three have a default (home-manager requires them explicitly, by design), so an empty
+        # modules list can't get past that. An option's description/type/default never depends on
+        # any of these three values, so their exact content doesn't matter, only that they exist.
+        modules = [ {{
+            home.username = "ezconf";
+            home.homeDirectory = "/home/ezconf";
+            home.stateVersion = lib.trivial.release;
+        }} ];
     }};
     opts = homeCfg.options;
-    lib = target.inputs.nixpkgs.lib;
     unwrapValue = v:
         if builtins.isAttrs v && builtins.elem (v._type or "") [ "literalExpression" "literalMD" "literalDocBook" ]
         then v.text
