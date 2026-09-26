@@ -324,6 +324,8 @@ services.ezconf = {
 
 The editor loads NixOS option, package, and kernel data from `autocomplete_dir` if set in the config, otherwise `autocomplete/` under the webroot. The NixOS module sets `autocomplete_dir` to `/var/lib/ezconf/autocomplete/` and generates the data on first start, unless `generateAutocomplete = false`. To regenerate from the UI, the `↻ Autocomplete` button appears automatically when `mkoptions` is configured (the module sets this up) — this is also how to populate it the first time if `generateAutocomplete` was turned off. If the run fails, or completes with warnings (e.g. an option that failed to evaluate and was skipped), the full output is shown in a popup — no need for the terminal panel to see what went wrong.
 
+If your flake has a `home-manager` input, `home-manager.users.<name>.*` options get autocomplete too — automatically, with nothing else to configure.
+
 For standalone use:
 
 ```sh

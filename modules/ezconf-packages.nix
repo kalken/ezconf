@@ -6,7 +6,7 @@ rec {
     pname             = "ezconf";
     inherit version;
     src              = ../.;
-    nativeBuildInputs = [ pkgs.makeWrapper ];
+    nativeBuildInputs = [ pkgs.makeWrapper pkgs.librsvg ];
     meta = {
       description = "Web-based NixOS configuration editor";
       license     = pkgs.lib.licenses.mit;
@@ -17,6 +17,20 @@ rec {
       cp -r webroot $out/share/ezconf
       install -Dm644 bin/server.py -t $out/share/ezconf/
       echo -n "${version}" > $out/share/ezconf/VERSION
+      # Same convention as VERSION: written straight into WEBROOT at build time, served as plain
+      # static files with no server.py involvement, and just as absent (browser 404s, no icon
+      # shown) on a plain `python3 server.py` git checkout with no Nix build. index.html/
+      # login.html's own <link rel="icon">/<link rel="manifest"> point at these exact filenames.
+      # PNG, not SVG: a real report had the ordinary tab icon show correctly then go blank a few
+      # seconds later with a raw SVG <link rel="icon"> present, a known Chromium inconsistency.
+      # 192 + 512 specifically: those are the two sizes Chromium's own PWA installability criteria
+      # check for in manifest.json's icons array (see webroot/manifest.json).
+      ${pkgs.librsvg}/bin/rsvg-convert -w 192 -h 192 \
+        ${pkgs.nixos-icons}/share/icons/hicolor/scalable/apps/nix-snowflake.svg \
+        -o $out/share/ezconf/favicon.png
+      ${pkgs.librsvg}/bin/rsvg-convert -w 512 -h 512 \
+        ${pkgs.nixos-icons}/share/icons/hicolor/scalable/apps/nix-snowflake.svg \
+        -o $out/share/ezconf/favicon-512.png
       makeWrapper ${python}/bin/python3 $out/bin/ezconf \
         --add-flags "$out/share/ezconf/server.py" \
         --add-flags "--webroot $out/share/ezconf"
