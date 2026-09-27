@@ -341,14 +341,14 @@ in
 
     browserPackage = lib.mkOption {
       type        = lib.types.package;
-      default     = pkgs.chromium;
+      default     = pkgs.brave;
       description = "Package providing the browser binary (see binaryName) used to open url. Must be Chromium-based -- Firefox has no equivalent app-mode flag.";
     };
 
     binaryName = lib.mkOption {
       type        = lib.types.str;
-      default     = "chromium";
-      description = "Binary name inside browserPackage to run, e.g. \"google-chrome-stable\" or \"brave\" for those packages instead.";
+      default     = "brave";
+      description = "Binary name inside browserPackage to run, e.g. \"chromium\" or \"google-chrome-stable\" for those packages instead.";
     };
   };
 
