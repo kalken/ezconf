@@ -10,68 +10,54 @@ let
 
   # One start-menu shortcut per entry in programs.ezconf.instances (plus an implicit "default"
   # entry for programs.ezconf.url when programs.ezconf.enable is set -- see instances' own
-  # description), shaped the same way NixOS's own `nixos-help`
-  # (nixos/modules/misc/documentation.nix) is: a plain writeShellScriptBin producing a real
-  # terminal command, with the desktop item's Exec= just naming that command (relying on PATH via
-  # environment.systemPackages, exactly like nixos-help's own desktop item does) instead of
-  # duplicating the open-a-browser logic inline in the .desktop file. Same $BROWSER-then-xdg-open
-  # fallback nixos-help itself uses, minus its final w3m fallback -- that exists there for an
-  # SSH/no-DE session with no graphical browser at all, not a case a start-menu shortcut is meant
-  # to cover.
+  # description). Exec= runs xdg-open directly on that instance's url -- no wrapper script/
+  # terminal command; a writeShellScriptBin "ezconf-open[-<id>]" wrapper (shaped like NixOS's own
+  # nixos-help, which also checks $BROWSER before falling back to xdg-open) was tried first and
+  # dropped once it became clear the only reason for it -- a standalone terminal command -- wasn't
+  # actually wanted here; a bare xdg-open call is simpler with no real behavior loss for a
+  # start-menu-only shortcut.
   #
-  # id "default" (programs.ezconf.url) gets the bare "ezconf"/"ezconf-open" names, unchanged from
-  # before instances existed; every other id gets an "-<id>" suffix on both, so multiple
-  # instances' shortcuts/commands never collide with each other or with the default one. None of
-  # them are ever named plain "ezconf" for a non-default id -- the ezconf package (`package`
-  # above) already provides its own bin/ezconf, the actual web server wired into ezconf.service, a
-  # completely different program; colliding with that would break if anyone ever also puts
-  # services.ezconf.package into their own systemPackages, a usage pattern README.md documents
-  # (`nix run .#ezconf`).
+  # id "default" (programs.ezconf.url) gets the bare "ezconf" desktop-item name, unchanged from
+  # before instances existed; every other id gets an "-<id>" suffix, so multiple instances' items
+  # never collide with each other. Never named plain "ezconf" for a non-default id anyway, since
+  # the ezconf package (`package` above) already provides its own bin/ezconf, the actual web
+  # server wired into ezconf.service, a completely different program.
   #
-  # Two earlier approaches were tried and dropped in turn before landing here (back when this was
-  # still a single, non-instanced shortcut -- the reasoning is unchanged by instances existing):
-  #  1. Type=Application + Exec=<browser> --app=<url> --class=ezconf (a chromeless "app mode"
-  #     window). Confirmed against a real Brave install that Brave's own "Install page as app"
-  #     registers the site as an actual installed PWA with a stable app ID and a `crx_<id>`
-  #     WM_CLASS Chromium assigns itself internally -- entirely different from the ephemeral,
-  #     unregistered window --app=<url> opens -- so --class=ezconf never took effect, and the
-  #     running window's taskbar icon fell back to the browser's generic one. Reproducing the real
-  #     PWA-install behavior declaratively is possible (Chromium's WebAppInstallForceList
-  #     enterprise policy, create_desktop_shortcut: true) but needs a per-browser policy directory
-  #     and only takes effect after the browser is next launched -- not worth that complexity here.
+  # Two earlier Exec= approaches were tried and dropped in turn before landing here (back when
+  # this was still a single, non-instanced shortcut -- the reasoning is unchanged by instances
+  # existing):
+  #  1. <browser> --app=<url> --class=ezconf (a chromeless "app mode" window). Confirmed against a
+  #     real Brave install that Brave's own "Install page as app" registers the site as an actual
+  #     installed PWA with a stable app ID and a `crx_<id>` WM_CLASS Chromium assigns itself
+  #     internally -- entirely different from the ephemeral, unregistered window --app=<url>
+  #     opens -- so --class=ezconf never took effect, and the running window's taskbar icon fell
+  #     back to the browser's generic one. Reproducing the real PWA-install behavior declaratively
+  #     is possible (Chromium's WebAppInstallForceList enterprise policy,
+  #     create_desktop_shortcut: true) but needs a per-browser policy directory and only takes
+  #     effect after the browser is next launched -- not worth that complexity here.
   #  2. Type=Link + URL=<url> (no Exec= at all, opened via whatever handles links system-wide).
   #     Confirmed by a real nixos-rebuild that this simply doesn't show up in the application
   #     menu/grid at all on a real desktop (GNOME's app grid, and app-menu implementations
   #     generally, only treat Type=Application entries as launchable "apps" -- Type=Link is meant
   #     for file-manager bookmarks/desktop shortcuts, not the app menu -- even though the file
   #     itself is perfectly valid and desktop-file-validate accepts it).
-  mkEzconfShortcut = id: url: let
-    suffix   = lib.optionalString (id != "default") "-${id}";
-    openName = "ezconf-open${suffix}";
-    open = pkgs.writeShellScriptBin openName ''
-      browser="$(
-        IFS=: ; for b in $BROWSER; do
-          [ -n "$(type -P "$b" || true)" ] && echo "$b" && break
-        done
-      )"
-      if [ -z "$browser" ]; then
-        browser="$(type -P xdg-open || true)"
-      fi
-      exec "$browser" ${lib.escapeShellArg url}
-    '';
-    # Icon= reuses the exact same nixos-icons snowflake favicon.svg the web page itself uses (see
-    # ezconf-packages.nix's own build step and CLAUDE.md's "Favicon" section) -- Icon= accepts an
-    # absolute path per the desktop-entry spec, so no separate copy/derivation is needed.
-    item = pkgs.makeDesktopItem {
-      name        = "ezconf${suffix}";
-      desktopName = "ezconf (${url})";
-      comment     = "NixOS configuration editor";
-      icon        = "${package}/share/ezconf/favicon.svg";
-      type        = "Application";
-      exec        = openName;
-      categories  = [ "Network" ];
-    };
-  in [ open item ];
+  # Icon= reuses the exact same nixos-icons snowflake favicon.svg the web page itself uses (see
+  # ezconf-packages.nix's own build step and CLAUDE.md's "Favicon" section) -- Icon= accepts an
+  # absolute path per the desktop-entry spec, so no separate copy/derivation is needed.
+  # The "default" entry (programs.ezconf.enable/url, unnamed) shows its url in the label, same as
+  # before instances existed -- there's no name to show instead. A named instances.<id> entry
+  # shows id instead: showing every entry's url would tell two named shortcuts apart just as well,
+  # but the whole point of a name from instances is choosing something more legible than a raw url
+  # to look at in a menu.
+  mkEzconfShortcut = id: url: pkgs.makeDesktopItem {
+    name        = "ezconf${lib.optionalString (id != "default") "-${id}"}";
+    desktopName = "ezconf (${if id == "default" then url else id})";
+    comment     = "NixOS configuration editor";
+    icon        = "${package}/share/ezconf/favicon.svg";
+    type        = "Application";
+    exec        = "${pkgs.xdg-utils}/bin/xdg-open ${lib.escapeShellArg url}";
+    categories  = [ "Network" ];
+  };
 
   allEzconfInstances =
     (lib.optionalAttrs progCfg.enable { default = progCfg.url; })
@@ -387,13 +373,13 @@ in
       type        = lib.types.attrsOf lib.types.str;
       default     = { };
       example     = lib.literalExpression ''{ homelab = "https://homelab.local:9090"; vm2 = "https://192.168.1.50:9090"; }'';
-      description = "Extra named ezconf installations to add start-menu shortcuts (and matching ezconf-open-<name> terminal commands) for, one per attribute -- on top of (and independent of) the single enable/url shortcut above. Lets one machine's start menu hold shortcuts to several different ezconf instances at once, e.g. one per VM/host you administer.";
+      description = "Extra named ezconf installations to add start-menu shortcuts for, one per attribute -- on top of (and independent of) the single enable/url shortcut above. Lets one machine's start menu hold shortcuts to several different ezconf instances at once, e.g. one per VM/host you administer.";
     };
   };
 
   config = lib.mkMerge [
    (lib.mkIf (allEzconfInstances != { }) {
-      environment.systemPackages = lib.concatLists (lib.mapAttrsToList mkEzconfShortcut allEzconfInstances);
+      environment.systemPackages = lib.mapAttrsToList mkEzconfShortcut allEzconfInstances;
     })
    (lib.mkIf cfg.enable {
       # Setting interfaces alone, with listen left at its own default, would otherwise silently do
