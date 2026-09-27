@@ -4,19 +4,15 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>NixOS Config Editor</title>
-<!-- favicon.png/-512.png/manifest.json are written into WEBROOT at build time (see
+<!-- favicon.svg/manifest.json are written into WEBROOT at build time (see
      modules/ezconf-packages.nix), same convention as VERSION -- absent (plain 404s, no icon
-     shown) on a bare `python3 server.py` git checkout with no Nix build. PNG only, deliberately
-     not also linking an SVG favicon: a real report had the correct icon show briefly then
-     disappear after a few seconds, matching a known Chromium behavior where declaring both a PNG
-     and an SVG favicon link triggers an async re-evaluation shortly after first paint that swaps
-     to the SVG, which then fails to render and goes blank. -->
-<link rel="icon" type="image/png" href="favicon.png">
-<!-- manifest.json (with 192/512 icons, see webroot/manifest.json) is what lets a Chromium-based
-     browser's own native "Install page as app" (README's tip) show the correct icon -- a plain
-     <link rel="icon"> favicon isn't enough for that installed-app icon resolution on its own,
-     confirmed by a real report of Chromium's generated letter-monogram fallback showing instead
-     until this was added. -->
+     shown) on a bare `python3 server.py` git checkout with no Nix build. -->
+<link rel="icon" type="image/svg+xml" href="favicon.svg">
+<!-- manifest.json (see webroot/manifest.json) is what lets a Chromium-based browser's own native
+     "Install page as app" (README's tip) show the correct icon -- a plain <link rel="icon">
+     favicon isn't enough for that installed-app icon resolution on its own, confirmed by a real
+     report of Chromium's generated letter-monogram fallback showing instead until this was
+     added. -->
 <link rel="manifest" href="manifest.json">
 <script>
 const _DEFAULT_THEME = '%%EZCONF_THEME%%';

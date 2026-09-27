@@ -1539,16 +1539,16 @@ class StaticHandler(http.server.SimpleHTTPRequestHandler):
         else:
             self.send_error(404)
 
-    # favicon.png/-512.png/manifest.json: no more sensitive than style.css/theme-*.css, which get
-    # the same pre-auth treatment just above for the same reason (the login page needs them
-    # loadable before there's any session cookie at all). manifest.json/favicon-512.png need to be
-    # public for a different, real reason though, not just symmetry: a <link rel="manifest"> fetch
-    # defaults to credentials: "omit" per spec (unlike an ordinary <link>/<img> fetch), so the
-    # browser's request for it carries no session cookie regardless of whether the user is actually
-    # logged in -- confirmed by a real report where index.html's manifest link (and the icons it
+    # favicon.svg/manifest.json: no more sensitive than style.css/theme-*.css, which get the same
+    # pre-auth treatment just above for the same reason (the login page needs them loadable before
+    # there's any session cookie at all). manifest.json needs to be public for a different, real
+    # reason though, not just symmetry: a <link rel="manifest"> fetch defaults to
+    # credentials: "omit" per spec (unlike an ordinary <link>/<img> fetch), so the browser's
+    # request for it carries no session cookie regardless of whether the user is actually logged
+    # in -- confirmed by a real report where index.html's manifest link (and the icon it
     # references) silently failed auth right after logging in, even though the tab's own favicon
     # (an ordinary, credentialed fetch) worked fine throughout.
-    _PUBLIC_PATHS = {'/login.html', '/favicon.png', '/favicon-512.png', '/manifest.json'}
+    _PUBLIC_PATHS = {'/login.html', '/favicon.svg', '/manifest.json'}
 
     def do_GET(self):
         parsed = urlparse(self.path)
