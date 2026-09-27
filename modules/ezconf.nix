@@ -63,6 +63,19 @@ let
     (lib.optionalAttrs progCfg.enable { default = progCfg.url; })
     // progCfg.instances;
 
+  # The host part of programs.ezconf.url's own default. services.ezconf.listen is a single
+  # address (never a list -- see its own option), but it can be a wildcard bind address
+  # ("0.0.0.0"/"::", set explicitly or automatically once services.ezconf.interfaces is set) that
+  # a browser can't actually connect *to* the way it can bind *on* it, so those (and the
+  # unset/loopback cases, where "localhost" is just the more conventional thing to show) all fall
+  # back to "localhost" -- true either way, since binding a wildcard address still accepts
+  # loopback connections too. Any other configured value is assumed to be a real, reachable
+  # address/hostname and used as-is, IPv6 literals bracketed for URL syntax.
+  ezconfDefaultHost = let listen = config.services.ezconf.listen; in
+    if listen == null || builtins.elem listen [ "0.0.0.0" "::" "127.0.0.1" "::1" ] then "localhost"
+    else if lib.hasInfix ":" listen then "[${listen}]"
+    else listen;
+
   esc       = s: lib.replaceStrings [ ''"'' "\\" ] [ ''\"'' "\\\\" ] s;
   str       = s: ''"${esc s}"'';
   toml-list = xs: "[${lib.concatMapStringsSep ", " str xs}]";
@@ -364,9 +377,9 @@ in
 
     url = lib.mkOption {
       type        = lib.types.str;
-      default     = "http${lib.optionalString config.services.ezconf.https "s"}://localhost:${toString config.services.ezconf.ports.web}";
-      defaultText = lib.literalExpression ''"http" + optionalString config.services.ezconf.https "s" + "://localhost:" + toString config.services.ezconf.ports.web'';
-      description = "URL for the shortcut added when enable = true. Defaults to the services.ezconf instance running on this same machine -- independent of services.ezconf.enable, so this can also point at a different, remote ezconf instance instead.";
+      default     = "http${lib.optionalString config.services.ezconf.https "s"}://${ezconfDefaultHost}:${toString config.services.ezconf.ports.web}";
+      defaultText = lib.literalExpression ''"http" + optionalString config.services.ezconf.https "s" + "://<services.ezconf.listen, when it's a real address, else localhost>:" + toString config.services.ezconf.ports.web'';
+      description = "URL for the shortcut added when enable = true. Defaults to the services.ezconf instance running on this same machine, using services.ezconf.listen as the host when it's set to a real address (falling back to \"localhost\" for an unset/loopback/wildcard listen, since a wildcard bind address like 0.0.0.0 isn't something a browser can connect *to*) -- independent of services.ezconf.enable, so this can also point at a different, remote ezconf instance instead.";
     };
 
     instances = lib.mkOption {
