@@ -8,29 +8,29 @@ let
   termPkg  = p."ezconf-terminal";
   mkoptions = p."ezconf-mkoptions";
 
-  # A desktop-launcher shortcut for programs.ezconf.enable, opening url in a Chromium-based
-  # browser's own --app mode (a chromeless window, no tabs/toolbar -- see programs.ezconf.url).
-  # Icon= reuses the exact same nixos-icons snowflake favicon.svg the web page itself uses (see
+  # A desktop-launcher shortcut for programs.ezconf.enable: Type=Link + URL= (not Type=Application
+  # + Exec=<browser> --app=<url>, tried first and dropped) opens url in whatever the user's default
+  # browser already is, the same handoff any other "open link" action on the system uses -- no
+  # browser package to pick, and no window to fight over an icon for. The --app=/--class= route ran
+  # into a real, unresolved problem: a Chromium-based browser's own genuine "Install page as app"
+  # (confirmed against a real Brave install) registers the site as an actual installed PWA with a
+  # stable app ID and a `crx_<id>` WM_CLASS Chromium assigns itself, entirely different from the
+  # ephemeral, unregistered window --app=<url> opens -- so --class=ezconf never took effect, and
+  # the running window's taskbar icon fell back to the browser's generic one. Reproducing the real
+  # PWA install declaratively is possible (Chromium's WebAppInstallForceList enterprise policy) but
+  # needs a per-browser policy directory and only takes effect after the browser is next launched --
+  # not worth that complexity for what a plain Link shortcut already solves more simply. Icon=
+  # reuses the exact same nixos-icons snowflake favicon.svg the web page itself uses (see
   # ezconf-packages.nix's own build step and CLAUDE.md's "Favicon" section) -- Icon= accepts an
   # absolute path per the desktop-entry spec, so no separate copy/derivation is needed.
-  #
-  # --class/StartupWMClass are both set on the (documented, real) chance a given browser/window
-  # manager combination does respect them, but this was tried before and dropped once: Chromium's
-  # own app-mode window ends up with a WM_CLASS it derives internally (from the URL/profile), not
-  # from --class, on every version/platform this was actually tested against -- so the running
-  # window's own taskbar/alt-tab icon can still show the browser's generic icon even though this
-  # desktop entry's own icon (in an application launcher/menu, before the window exists) is
-  # correct. Re-added anyway despite that known, unresolved limitation -- a slightly-wrong running-
-  # window icon isn't worth not having the shortcut at all.
   desktopItem = pkgs.makeDesktopItem {
-    name             = "ezconf";
-    desktopName      = "Ezconf";
-    comment          = "NixOS configuration editor";
-    icon             = "${package}/share/ezconf/favicon.svg";
-    exec             = "${progCfg.browserPackage}/bin/${progCfg.binaryName} --app=${progCfg.url} --class=ezconf";
-    type             = "Application";
-    categories       = [ "Network" "System" ];
-    startupWMClass   = "ezconf";
+    name        = "ezconf";
+    desktopName = "Ezconf";
+    comment     = "NixOS configuration editor";
+    icon        = "${package}/share/ezconf/favicon.svg";
+    type        = "Link";
+    url         = progCfg.url;
+    categories  = [ "Network" "System" ];
   };
 
   esc       = s: lib.replaceStrings [ ''"'' "\\" ] [ ''\"'' "\\\\" ] s;
@@ -330,25 +330,13 @@ in
   };
 
   options.programs.ezconf = {
-    enable = lib.mkEnableOption "a desktop-launcher shortcut that opens ezconf in a Chromium-based browser's own app-mode window (no tabs/toolbar)";
+    enable = lib.mkEnableOption "an app-menu desktop shortcut that opens ezconf's url in the user's default web browser";
 
     url = lib.mkOption {
       type        = lib.types.str;
       default     = "http${lib.optionalString config.services.ezconf.https "s"}://localhost:${toString config.services.ezconf.ports.web}";
       defaultText = lib.literalExpression ''"http" + optionalString config.services.ezconf.https "s" + "://localhost:" + toString config.services.ezconf.ports.web'';
       description = "URL the shortcut opens. Defaults to the services.ezconf instance running on this same machine -- independent of services.ezconf.enable, so this can also point at a different, remote ezconf instance instead.";
-    };
-
-    browserPackage = lib.mkOption {
-      type        = lib.types.package;
-      default     = pkgs.brave;
-      description = "Package providing the browser binary (see binaryName) used to open url. Must be Chromium-based -- Firefox has no equivalent app-mode flag.";
-    };
-
-    binaryName = lib.mkOption {
-      type        = lib.types.str;
-      default     = "brave";
-      description = "Binary name inside browserPackage to run, e.g. \"chromium\" or \"google-chrome-stable\" for those packages instead.";
     };
   };
 
