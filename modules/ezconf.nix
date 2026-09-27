@@ -8,31 +8,38 @@ let
   termPkg  = p."ezconf-terminal";
   mkoptions = p."ezconf-mkoptions";
 
-  # A desktop-launcher shortcut for programs.ezconf.enable: Type=Link + URL= (not Type=Application
-  # + Exec=<browser> --app=<url>, tried first and dropped) opens url in whatever the user's default
-  # browser already is, the same handoff any other "open link" action on the system uses -- no
-  # browser package to pick, and no window to fight over an icon for. The --app=/--class= route ran
-  # into a real, unresolved problem: a Chromium-based browser's own genuine "Install page as app"
-  # (confirmed against a real Brave install) registers the site as an actual installed PWA with a
-  # stable app ID and a `crx_<id>` WM_CLASS Chromium assigns itself, entirely different from the
-  # ephemeral, unregistered window --app=<url> opens -- so --class=ezconf never took effect, and
-  # the running window's taskbar icon fell back to the browser's generic one. Reproducing the real
-  # PWA install declaratively is possible (Chromium's WebAppInstallForceList enterprise policy) but
-  # needs a per-browser policy directory and only takes effect after the browser is next launched --
-  # not worth that complexity for what a plain Link shortcut already solves more simply. Icon=
-  # reuses the exact same nixos-icons snowflake favicon.svg the web page itself uses (see
+  # A desktop-launcher shortcut for programs.ezconf.enable. Two earlier approaches were tried and
+  # dropped in turn:
+  #  1. Type=Application + Exec=<browser> --app=<url> --class=ezconf (a chromeless "app mode"
+  #     window). Confirmed against a real Brave install that Brave's own "Install page as app"
+  #     registers the site as an actual installed PWA with a stable app ID and a `crx_<id>`
+  #     WM_CLASS Chromium assigns itself internally -- entirely different from the ephemeral,
+  #     unregistered window --app=<url> opens -- so --class=ezconf never took effect, and the
+  #     running window's taskbar icon fell back to the browser's generic one. Reproducing the real
+  #     PWA-install behavior declaratively is possible (Chromium's WebAppInstallForceList
+  #     enterprise policy, create_desktop_shortcut: true) but needs a per-browser policy directory
+  #     and only takes effect after the browser is next launched -- not worth that complexity here.
+  #  2. Type=Link + URL=<url> (no Exec= at all, opened via whatever handles links system-wide).
+  #     Confirmed by a real nixos-rebuild that this simply doesn't show up in the application
+  #     menu/grid at all on a real desktop (GNOME's app grid, and app-menu implementations
+  #     generally, only treat Type=Application entries as launchable "apps" -- Type=Link is meant
+  #     for file-manager bookmarks/desktop shortcuts, not the app menu -- even though the file
+  #     itself is perfectly valid and desktop-file-validate accepts it).
+  # Settled on Type=Application with Exec=xdg-open <url> instead: a real "app" entry the menu
+  # actually lists, that still opens in whatever the user's default browser is (xdg-open resolves
+  # that via the same desktop mime-association mechanism any other "open a URL" action uses) --
+  # no specific browser package to pick, and no app-mode window to fight over a taskbar icon for.
+  # Icon= reuses the exact same nixos-icons snowflake favicon.svg the web page itself uses (see
   # ezconf-packages.nix's own build step and CLAUDE.md's "Favicon" section) -- Icon= accepts an
   # absolute path per the desktop-entry spec, so no separate copy/derivation is needed.
-  # Categories= is deliberately omitted -- confirmed by a real nixos-rebuild failure: it's only a
-  # valid key for Type=Application, and desktop-file-validate (run in makeDesktopItem's own
-  # checkPhase) rejects the whole file when it's set alongside Type=Link.
   desktopItem = pkgs.makeDesktopItem {
     name        = "ezconf";
     desktopName = "Ezconf";
     comment     = "NixOS configuration editor";
     icon        = "${package}/share/ezconf/favicon.svg";
-    type        = "Link";
-    url         = progCfg.url;
+    type        = "Application";
+    exec        = "${pkgs.xdg-utils}/bin/xdg-open ${progCfg.url}";
+    categories  = [ "Network" ];
   };
 
   esc       = s: lib.replaceStrings [ ''"'' "\\" ] [ ''\"'' "\\\\" ] s;
