@@ -8,22 +8,28 @@ let
   termPkg  = p."ezconf-terminal";
   mkoptions = p."ezconf-mkoptions";
 
-  # A start-menu shortcut for programs.ezconf.enable, shaped the same way NixOS's own
-  # `nixos-help` (nixos/modules/misc/documentation.nix) is: a plain writeShellScriptBin producing
-  # a real terminal command, with the desktop item's Exec= just naming that command (relying on
-  # PATH via environment.systemPackages, exactly like nixos-help's own desktop item does) instead
-  # of duplicating the open-a-browser logic inline in the .desktop file. Same $BROWSER-then-
-  # xdg-open fallback nixos-help itself uses, minus its final w3m fallback -- that exists there
-  # for an SSH/no-DE session with no graphical browser at all, not a case a start-menu shortcut is
-  # meant to cover.
+  # One start-menu shortcut per entry in programs.ezconf.instances (plus an implicit "default"
+  # entry for programs.ezconf.url when programs.ezconf.enable is set -- see instances' own
+  # description), shaped the same way NixOS's own `nixos-help`
+  # (nixos/modules/misc/documentation.nix) is: a plain writeShellScriptBin producing a real
+  # terminal command, with the desktop item's Exec= just naming that command (relying on PATH via
+  # environment.systemPackages, exactly like nixos-help's own desktop item does) instead of
+  # duplicating the open-a-browser logic inline in the .desktop file. Same $BROWSER-then-xdg-open
+  # fallback nixos-help itself uses, minus its final w3m fallback -- that exists there for an
+  # SSH/no-DE session with no graphical browser at all, not a case a start-menu shortcut is meant
+  # to cover.
   #
-  # Named ezconf-open, not ezconf -- the ezconf package (`package` above) already provides its
-  # own bin/ezconf, the actual web server wired into ezconf.service, a completely different
-  # program. Reusing that name here would collide if anyone ever also puts
+  # id "default" (programs.ezconf.url) gets the bare "ezconf"/"ezconf-open" names, unchanged from
+  # before instances existed; every other id gets an "-<id>" suffix on both, so multiple
+  # instances' shortcuts/commands never collide with each other or with the default one. None of
+  # them are ever named plain "ezconf" for a non-default id -- the ezconf package (`package`
+  # above) already provides its own bin/ezconf, the actual web server wired into ezconf.service, a
+  # completely different program; colliding with that would break if anyone ever also puts
   # services.ezconf.package into their own systemPackages, a usage pattern README.md documents
   # (`nix run .#ezconf`).
   #
-  # Two earlier approaches were tried and dropped in turn before landing here:
+  # Two earlier approaches were tried and dropped in turn before landing here (back when this was
+  # still a single, non-instanced shortcut -- the reasoning is unchanged by instances existing):
   #  1. Type=Application + Exec=<browser> --app=<url> --class=ezconf (a chromeless "app mode"
   #     window). Confirmed against a real Brave install that Brave's own "Install page as app"
   #     registers the site as an actual installed PWA with a stable app ID and a `crx_<id>`
@@ -39,30 +45,37 @@ let
   #     generally, only treat Type=Application entries as launchable "apps" -- Type=Link is meant
   #     for file-manager bookmarks/desktop shortcuts, not the app menu -- even though the file
   #     itself is perfectly valid and desktop-file-validate accepts it).
-  openScript = pkgs.writeShellScriptBin "ezconf-open" ''
-    browser="$(
-      IFS=: ; for b in $BROWSER; do
-        [ -n "$(type -P "$b" || true)" ] && echo "$b" && break
-      done
-    )"
-    if [ -z "$browser" ]; then
-      browser="$(type -P xdg-open || true)"
-    fi
-    exec "$browser" ${lib.escapeShellArg progCfg.url}
-  '';
+  mkEzconfShortcut = id: url: let
+    suffix   = lib.optionalString (id != "default") "-${id}";
+    openName = "ezconf-open${suffix}";
+    open = pkgs.writeShellScriptBin openName ''
+      browser="$(
+        IFS=: ; for b in $BROWSER; do
+          [ -n "$(type -P "$b" || true)" ] && echo "$b" && break
+        done
+      )"
+      if [ -z "$browser" ]; then
+        browser="$(type -P xdg-open || true)"
+      fi
+      exec "$browser" ${lib.escapeShellArg url}
+    '';
+    # Icon= reuses the exact same nixos-icons snowflake favicon.svg the web page itself uses (see
+    # ezconf-packages.nix's own build step and CLAUDE.md's "Favicon" section) -- Icon= accepts an
+    # absolute path per the desktop-entry spec, so no separate copy/derivation is needed.
+    item = pkgs.makeDesktopItem {
+      name        = "ezconf${suffix}";
+      desktopName = "ezconf (${url})";
+      comment     = "NixOS configuration editor";
+      icon        = "${package}/share/ezconf/favicon.svg";
+      type        = "Application";
+      exec        = openName;
+      categories  = [ "Network" ];
+    };
+  in [ open item ];
 
-  # Icon= reuses the exact same nixos-icons snowflake favicon.svg the web page itself uses (see
-  # ezconf-packages.nix's own build step and CLAUDE.md's "Favicon" section) -- Icon= accepts an
-  # absolute path per the desktop-entry spec, so no separate copy/derivation is needed.
-  desktopItem = pkgs.makeDesktopItem {
-    name        = "ezconf";
-    desktopName = "ezconf (${progCfg.url})";
-    comment     = "NixOS configuration editor";
-    icon        = "${package}/share/ezconf/favicon.svg";
-    type        = "Application";
-    exec        = "ezconf-open";
-    categories  = [ "Network" ];
-  };
+  allEzconfInstances =
+    (lib.optionalAttrs progCfg.enable { default = progCfg.url; })
+    // progCfg.instances;
 
   esc       = s: lib.replaceStrings [ ''"'' "\\" ] [ ''\"'' "\\\\" ] s;
   str       = s: ''"${esc s}"'';
@@ -361,19 +374,26 @@ in
   };
 
   options.programs.ezconf = {
-    enable = lib.mkEnableOption "an app-menu desktop shortcut that opens ezconf's url in the user's default web browser";
+    enable = lib.mkEnableOption "an app-menu desktop shortcut for url (see instances for additional shortcuts to other ezconf installations)";
 
     url = lib.mkOption {
       type        = lib.types.str;
       default     = "http${lib.optionalString config.services.ezconf.https "s"}://localhost:${toString config.services.ezconf.ports.web}";
       defaultText = lib.literalExpression ''"http" + optionalString config.services.ezconf.https "s" + "://localhost:" + toString config.services.ezconf.ports.web'';
-      description = "URL the shortcut opens. Defaults to the services.ezconf instance running on this same machine -- independent of services.ezconf.enable, so this can also point at a different, remote ezconf instance instead.";
+      description = "URL for the shortcut added when enable = true. Defaults to the services.ezconf instance running on this same machine -- independent of services.ezconf.enable, so this can also point at a different, remote ezconf instance instead.";
+    };
+
+    instances = lib.mkOption {
+      type        = lib.types.attrsOf lib.types.str;
+      default     = { };
+      example     = lib.literalExpression ''{ homelab = "https://homelab.local:9090"; vm2 = "https://192.168.1.50:9090"; }'';
+      description = "Extra named ezconf installations to add start-menu shortcuts (and matching ezconf-open-<name> terminal commands) for, one per attribute -- on top of (and independent of) the single enable/url shortcut above. Lets one machine's start menu hold shortcuts to several different ezconf instances at once, e.g. one per VM/host you administer.";
     };
   };
 
   config = lib.mkMerge [
-   (lib.mkIf progCfg.enable {
-      environment.systemPackages = [ openScript desktopItem ];
+   (lib.mkIf (allEzconfInstances != { }) {
+      environment.systemPackages = lib.concatLists (lib.mapAttrsToList mkEzconfShortcut allEzconfInstances);
     })
    (lib.mkIf cfg.enable {
       # Setting interfaces alone, with listen left at its own default, would otherwise silently do
