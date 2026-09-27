@@ -54,7 +54,7 @@ After `nixos-rebuild switch` the editor is at `https://localhost:9090`. A local 
 
 > **Tip:** In Chrome or any Chromium-based browser, open the address bar menu and choose *Install page as app* to get a standalone desktop app with no browser chrome.
 
-Or set `programs.ezconf.enable = true;` to add a start-menu shortcut (and an `ezconf-open` terminal command doing the same thing) that opens `https://localhost:9090` in your default web browser — set `programs.ezconf.url` to point it at a different/remote ezconf instance instead. Add more shortcuts for other ezconf installations via `programs.ezconf.instances`, e.g.:
+Or set `programs.ezconf.enable = true;` to add a start-menu shortcut that opens `https://localhost:9090` in your default web browser — set `programs.ezconf.url` to point it at a different/remote ezconf instance instead. Add more shortcuts for other ezconf installations via `programs.ezconf.instances`, e.g.:
 
 ```nix
 programs.ezconf.instances = {
@@ -63,7 +63,7 @@ programs.ezconf.instances = {
 };
 ```
 
-Each key gets its own start-menu entry and matching `ezconf-open-<name>` terminal command, independent of (and in addition to) the single `enable`/`url` shortcut above.
+Each key gets its own start-menu entry (labeled "ezconf (homelab)", "ezconf (vm2)", etc.), independent of (and in addition to) the single `enable`/`url` shortcut above.
 
 ## 🔁 Migrating from configuration.nix
 
