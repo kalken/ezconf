@@ -2234,6 +2234,45 @@ function parseMarkdown(text) {
       continue;
     }
 
+    // Table (GFM-style): a header row immediately followed by a delimiter row of only -, :, |,
+    // and whitespace (e.g. "|---|:---:|"). Every row is trimmed and has its leading/trailing pipe
+    // stripped before being split on '|' -- trimming is also what makes a row with odd/inconsistent
+    // leading whitespace (e.g. reflowed by whatever it was pasted from) still parse as a normal
+    // row instead of falling out of the table. Alignment from the delimiter row's colons becomes
+    // an inline text-align style per cell, since there's no separate CSS class for it.
+    const isDelimiterRow = l => {
+      const t = l.trim().replace(/^\|/, '').replace(/\|$/, '');
+      return t.length > 0 && /^:?-+:?(\s*\|\s*:?-+:?)*$/.test(t);
+    };
+    if (line.includes('|') && i + 1 < lines.length && isDelimiterRow(lines[i + 1])) {
+      const splitRow = l => {
+        let t = l.trim();
+        if (t.startsWith('|')) t = t.slice(1);
+        if (t.endsWith('|')) t = t.slice(0, -1);
+        return t.split('|').map(c => c.trim());
+      };
+      const headerCells = splitRow(line);
+      const aligns = splitRow(lines[i + 1]).map(c => {
+        if (c.startsWith(':') && c.endsWith(':')) return 'center';
+        if (c.endsWith(':')) return 'right';
+        if (c.startsWith(':')) return 'left';
+        return '';
+      });
+      i += 2;
+      const bodyRows = [];
+      while (i < lines.length && lines[i].trim() && lines[i].includes('|')) {
+        bodyRows.push(splitRow(lines[i]));
+        i++;
+      }
+      const cellAttr = idx => aligns[idx] ? ` style="text-align:${aligns[idx]}"` : '';
+      const thead = `<tr>${headerCells.map((c, idx) => `<th${cellAttr(idx)}>${inline(c)}</th>`).join('')}</tr>`;
+      const tbody = bodyRows.map(cells =>
+        `<tr>${cells.map((c, idx) => `<td${cellAttr(idx)}>${inline(c)}</td>`).join('')}</tr>`
+      ).join('');
+      out.push(`<table><thead>${thead}</thead><tbody>${tbody}</tbody></table>`);
+      continue;
+    }
+
     // Blank line
     if (!line.trim()) {
       i++;

@@ -260,6 +260,9 @@ body {
 .markdown-content pre code { background: none; border: none; padding: 0; color: var(--text); }
 .markdown-content hr { border: none; border-top: 1px solid var(--border); margin: 1.5em 0; }
 .markdown-content img { max-width: 100%; border-radius: var(--radius-sm); }
+.markdown-content table { border-collapse: collapse; width: 100%; margin: 0 0 1em; }
+.markdown-content th, .markdown-content td { border: 1px solid var(--border); padding: .4em .7em; text-align: left; }
+.markdown-content th { background: var(--field-bg); font-weight: 600; }
 
 /* ── Main ── */
 .main { flex: 1; display: flex; flex-direction: column; overflow: hidden; position: relative; }
