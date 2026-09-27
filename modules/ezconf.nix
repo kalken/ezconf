@@ -56,7 +56,7 @@ let
   # absolute path per the desktop-entry spec, so no separate copy/derivation is needed.
   desktopItem = pkgs.makeDesktopItem {
     name        = "ezconf";
-    desktopName = "Ezconf Web";
+    desktopName = "ezconf";
     comment     = "NixOS configuration editor";
     icon        = "${package}/share/ezconf/favicon.svg";
     type        = "Application";

@@ -1,6 +1,6 @@
 {
-  "name": "Ezconf",
-  "short_name": "Ezconf",
+  "name": "ezconf",
+  "short_name": "ezconf",
   "start_url": ".",
   "display": "standalone",
   "icons": [
