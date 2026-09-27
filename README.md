@@ -54,6 +54,8 @@ After `nixos-rebuild switch` the editor is at `https://localhost:9090`. A local 
 
 > **Tip:** In Chrome or any Chromium-based browser, open the address bar menu and choose *Install page as app* to get a standalone desktop app with no browser chrome.
 
+Or set `programs.ezconf.enable = true;` to add a desktop-launcher shortcut (app menu entry) that does the same thing declaratively, opening `https://localhost:9090` in Chromium's app mode — no manual "Install page as app" click needed. Set `programs.ezconf.url` to point it at a different/remote ezconf instance instead, and `browserPackage`/`binaryName` to use a different Chromium-based browser (e.g. `pkgs.google-chrome` / `"google-chrome-stable"`). Note: the shortcut's own icon is correct in the app menu, but the *running* window's taskbar icon may still show your browser's generic icon — Chromium's app-mode windows don't reliably honor `--class`/`StartupWMClass` for this.
+
 ## 🔁 Migrating from configuration.nix
 
 1. Enable the service and rebuild — this creates `/etc/nixos/ezconf/` (empty; nothing is seeded automatically)

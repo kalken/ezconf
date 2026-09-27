@@ -2,10 +2,36 @@ self:
 { config, lib, pkgs, ... }:
 let
   cfg      = config.services.ezconf;
+  progCfg  = config.programs.ezconf;
   p        = import ./ezconf-packages.nix { inherit pkgs; version = self.shortRev or "dev"; };
   package  = p.ezconf;
   termPkg  = p."ezconf-terminal";
   mkoptions = p."ezconf-mkoptions";
+
+  # A desktop-launcher shortcut for programs.ezconf.enable, opening url in a Chromium-based
+  # browser's own --app mode (a chromeless window, no tabs/toolbar -- see programs.ezconf.url).
+  # Icon= reuses the exact same nixos-icons snowflake favicon.svg the web page itself uses (see
+  # ezconf-packages.nix's own build step and CLAUDE.md's "Favicon" section) -- Icon= accepts an
+  # absolute path per the desktop-entry spec, so no separate copy/derivation is needed.
+  #
+  # --class/StartupWMClass are both set on the (documented, real) chance a given browser/window
+  # manager combination does respect them, but this was tried before and dropped once: Chromium's
+  # own app-mode window ends up with a WM_CLASS it derives internally (from the URL/profile), not
+  # from --class, on every version/platform this was actually tested against -- so the running
+  # window's own taskbar/alt-tab icon can still show the browser's generic icon even though this
+  # desktop entry's own icon (in an application launcher/menu, before the window exists) is
+  # correct. Re-added anyway despite that known, unresolved limitation -- a slightly-wrong running-
+  # window icon isn't worth not having the shortcut at all.
+  desktopItem = pkgs.makeDesktopItem {
+    name             = "ezconf";
+    desktopName      = "Ezconf";
+    comment          = "NixOS configuration editor";
+    icon             = "${package}/share/ezconf/favicon.svg";
+    exec             = "${progCfg.browserPackage}/bin/${progCfg.binaryName} --app=${progCfg.url} --class=ezconf";
+    type             = "Application";
+    categories       = [ "Network" "System" ];
+    startupWMClass   = "ezconf";
+  };
 
   esc       = s: lib.replaceStrings [ ''"'' "\\" ] [ ''\"'' "\\\\" ] s;
   str       = s: ''"${esc s}"'';
@@ -303,7 +329,34 @@ in
     };
   };
 
-  config = lib.mkIf cfg.enable {
+  options.programs.ezconf = {
+    enable = lib.mkEnableOption "a desktop-launcher shortcut that opens ezconf in a Chromium-based browser's own app-mode window (no tabs/toolbar)";
+
+    url = lib.mkOption {
+      type        = lib.types.str;
+      default     = "http${lib.optionalString config.services.ezconf.https "s"}://localhost:${toString config.services.ezconf.ports.web}";
+      defaultText = lib.literalExpression ''"http" + optionalString config.services.ezconf.https "s" + "://localhost:" + toString config.services.ezconf.ports.web'';
+      description = "URL the shortcut opens. Defaults to the services.ezconf instance running on this same machine -- independent of services.ezconf.enable, so this can also point at a different, remote ezconf instance instead.";
+    };
+
+    browserPackage = lib.mkOption {
+      type        = lib.types.package;
+      default     = pkgs.chromium;
+      description = "Package providing the browser binary (see binaryName) used to open url. Must be Chromium-based -- Firefox has no equivalent app-mode flag.";
+    };
+
+    binaryName = lib.mkOption {
+      type        = lib.types.str;
+      default     = "chromium";
+      description = "Binary name inside browserPackage to run, e.g. \"google-chrome-stable\" or \"brave\" for those packages instead.";
+    };
+  };
+
+  config = lib.mkMerge [
+   (lib.mkIf progCfg.enable {
+      environment.systemPackages = [ desktopItem ];
+    })
+   (lib.mkIf cfg.enable {
       # Setting interfaces alone, with listen left at its own default, would otherwise silently do
       # nothing: the firewall would open the port on that interface, but the socket would still
       # only be bound to 127.0.0.1, so nothing arriving via that interface could ever reach it.
@@ -405,5 +458,6 @@ in
           Restart   = "on-failure";
         };
       };
-  };
+   })
+  ];
 }
