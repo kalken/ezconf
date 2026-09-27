@@ -23,6 +23,9 @@ let
   # reuses the exact same nixos-icons snowflake favicon.svg the web page itself uses (see
   # ezconf-packages.nix's own build step and CLAUDE.md's "Favicon" section) -- Icon= accepts an
   # absolute path per the desktop-entry spec, so no separate copy/derivation is needed.
+  # Categories= is deliberately omitted -- confirmed by a real nixos-rebuild failure: it's only a
+  # valid key for Type=Application, and desktop-file-validate (run in makeDesktopItem's own
+  # checkPhase) rejects the whole file when it's set alongside Type=Link.
   desktopItem = pkgs.makeDesktopItem {
     name        = "ezconf";
     desktopName = "Ezconf";
@@ -30,7 +33,6 @@ let
     icon        = "${package}/share/ezconf/favicon.svg";
     type        = "Link";
     url         = progCfg.url;
-    categories  = [ "Network" "System" ];
   };
 
   esc       = s: lib.replaceStrings [ ''"'' "\\" ] [ ''\"'' "\\\\" ] s;
