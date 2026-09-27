@@ -8,8 +8,22 @@ let
   termPkg  = p."ezconf-terminal";
   mkoptions = p."ezconf-mkoptions";
 
-  # A desktop-launcher shortcut for programs.ezconf.enable. Two earlier approaches were tried and
-  # dropped in turn:
+  # A start-menu shortcut for programs.ezconf.enable, shaped the same way NixOS's own
+  # `nixos-help` (nixos/modules/misc/documentation.nix) is: a plain writeShellScriptBin producing
+  # a real terminal command, with the desktop item's Exec= just naming that command (relying on
+  # PATH via environment.systemPackages, exactly like nixos-help's own desktop item does) instead
+  # of duplicating the open-a-browser logic inline in the .desktop file. Same $BROWSER-then-
+  # xdg-open fallback nixos-help itself uses, minus its final w3m fallback -- that exists there
+  # for an SSH/no-DE session with no graphical browser at all, not a case a start-menu shortcut is
+  # meant to cover.
+  #
+  # Named ezconf-open, not ezconf -- the ezconf package (`package` above) already provides its
+  # own bin/ezconf, the actual web server wired into ezconf.service, a completely different
+  # program. Reusing that name here would collide if anyone ever also puts
+  # services.ezconf.package into their own systemPackages, a usage pattern README.md documents
+  # (`nix run .#ezconf`).
+  #
+  # Two earlier approaches were tried and dropped in turn before landing here:
   #  1. Type=Application + Exec=<browser> --app=<url> --class=ezconf (a chromeless "app mode"
   #     window). Confirmed against a real Brave install that Brave's own "Install page as app"
   #     registers the site as an actual installed PWA with a stable app ID and a `crx_<id>`
@@ -25,10 +39,18 @@ let
   #     generally, only treat Type=Application entries as launchable "apps" -- Type=Link is meant
   #     for file-manager bookmarks/desktop shortcuts, not the app menu -- even though the file
   #     itself is perfectly valid and desktop-file-validate accepts it).
-  # Settled on Type=Application with Exec=xdg-open <url> instead: a real "app" entry the menu
-  # actually lists, that still opens in whatever the user's default browser is (xdg-open resolves
-  # that via the same desktop mime-association mechanism any other "open a URL" action uses) --
-  # no specific browser package to pick, and no app-mode window to fight over a taskbar icon for.
+  openScript = pkgs.writeShellScriptBin "ezconf-open" ''
+    browser="$(
+      IFS=: ; for b in $BROWSER; do
+        [ -n "$(type -P "$b" || true)" ] && echo "$b" && break
+      done
+    )"
+    if [ -z "$browser" ]; then
+      browser="$(type -P xdg-open || true)"
+    fi
+    exec "$browser" ${lib.escapeShellArg progCfg.url}
+  '';
+
   # Icon= reuses the exact same nixos-icons snowflake favicon.svg the web page itself uses (see
   # ezconf-packages.nix's own build step and CLAUDE.md's "Favicon" section) -- Icon= accepts an
   # absolute path per the desktop-entry spec, so no separate copy/derivation is needed.
@@ -38,7 +60,7 @@ let
     comment     = "NixOS configuration editor";
     icon        = "${package}/share/ezconf/favicon.svg";
     type        = "Application";
-    exec        = "${pkgs.xdg-utils}/bin/xdg-open ${progCfg.url}";
+    exec        = "ezconf-open";
     categories  = [ "Network" ];
   };
 
@@ -351,7 +373,7 @@ in
 
   config = lib.mkMerge [
    (lib.mkIf progCfg.enable {
-      environment.systemPackages = [ desktopItem ];
+      environment.systemPackages = [ openScript desktopItem ];
     })
    (lib.mkIf cfg.enable {
       # Setting interfaces alone, with listen left at its own default, would otherwise silently do
