@@ -7,12 +7,12 @@
   --text:  #e0e0e0;
   --text2: #888888;
   --text3: #555555;
-  --accent:  #4a9edd;
-  --accent2: #2678c0;
-  --green:  #28d17a;
-  --green2: #18a858;
-  --red:    #f05060;
-  --purple: #8c66f0;
+  --accent:  #2f8fef;
+  --accent2: #1c6dc4;
+  --green:  #2ecc71;
+  --green2: #219a52;
+  --red:    #ef4444;
+  --purple: #a78bfa;
 
   /* ── Typography & shape ── */
   --font: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', ui-monospace, monospace;
@@ -29,15 +29,22 @@
   --select-option-color: #e0e0e0;
   --select-option-hover: #1a1a1a;
   /* ── Button states ── */
-  --btn-primary-bg:     #1a3a70;
-  --btn-primary-border: #2858b0;
-  --btn-primary-hover:  #1e4888;
-  --btn-primary-text:   #4a9edd;
-  --btn-active-border:  #222222;
+  --btn-primary-bg:     #0f2c4a;
+  --btn-primary-border: #1c6dc4;
+  --btn-primary-hover:  #153d66;
+  --btn-primary-text:   #2f8fef;
 
   /* ── Selection / highlight ── */
   --selected-bg:   #1a1a1a;
   --toggle-on-bg:  #252525;
+  --toggle-on-knob:   var(--accent);
+  --input-focus-border: var(--accent2);
+
+  /* ── Section keys / active tab ── */
+  --section-key-color: var(--accent);
+  --tab-active-bg:     var(--bg4);
+  --tab-active-border: var(--border2);
+  --tab-active-text:   var(--text);
 
   /* ── Semantic badges ── */
   --required-bg:   #1a1a1a;

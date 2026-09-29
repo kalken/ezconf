@@ -13,7 +13,7 @@ Graphical editor for nix configurations. Zero dependencies, no build step, no fr
 - Browse any `.md` files anywhere in the system config (e.g. `README.md`), rendered in a side panel
 - PAM auth (system credentials) or custom username/password
 - HTTPS with automatic local CA generation and browser trust store installation
-- Three themes: NixOS blue, dark, light
+- Four themes: NixOS blue, dark, light, gruvbox
 
 ## 🚀 Quick Start
 
@@ -367,7 +367,7 @@ The whole-`nixos_target` backups work the same way, just manual instead of on-sa
 ```nix
 services.ezconf = {
   enable = true;
-  theme  = "dark";  # nixos (default) | dark | light
+  theme  = "dark";  # nixos (default) | dark | light | gruvbox
 };
 ```
 
@@ -385,7 +385,7 @@ services.ezconf = {
 | `auth.password` | str or null | `null` | Password for `custom` auth (stored in Nix store — prefer `passwordFile`) |
 | `auth.passwordFile` | path or null | `null` | File containing the password for `custom` auth |
 | `auth.allowedUsers` | list of str | `[]` | Users allowed to log in (PAM mode); defaults to the service user |
-| `theme` | str | `"nixos"` | `nixos`, `dark`, or `light` |
+| `theme` | str | `"nixos"` | `nixos`, `dark`, `light`, or `gruvbox` |
 | `mode` | null or `"install"` | `null` | Set to `"install"` to show `mode = "install"` buttons in their own row and grey out ordinary ones, from page load — deploy-time only, no in-GUI toggle |
 | `terminal` | bool | `true` | Enable terminal panel and `ezconf-terminal.service`. The shared shell always persists across a dropped/closed connection (browser closed, network drop, logout) — reconnecting reattaches instead of starting fresh |
 | `buttons` | list | `[]` | Shortcut buttons shown in the terminal panel |
