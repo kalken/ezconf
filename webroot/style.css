@@ -762,10 +762,14 @@ textarea { resize: vertical; min-height: unset; line-height: 1.5; }
   font-family: var(--font);
   font-size: 12px;
   background: transparent;
+  color: var(--green);
   resize: vertical;
   white-space: nowrap;
   overflow-x: auto;
 }
+/* Raw Nix expr rendered inline in an array (renderArray's isExpr branch) -- same color as
+   .expr-input above, so an expression reads as green wherever it's shown as editable text. */
+.expr-value { color: var(--green); }
 
 
 /* ── Custom select ── */
