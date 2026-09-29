@@ -264,9 +264,9 @@ in
     };
 
     theme = lib.mkOption {
-      type        = lib.types.enum [ "nixos" "dark" "light" ];
+      type        = lib.types.enum [ "nixos" "dark" "light" "gruvbox" ];
       default     = "nixos";
-      description = "UI theme. \"nixos\" (dark blue), \"dark\" (black), or \"light\" (white).";
+      description = "UI theme. \"nixos\" (dark blue), \"dark\" (black), \"light\" (white), or \"gruvbox\" (Gruvbox Dark).";
     };
 
     mode = lib.mkOption {

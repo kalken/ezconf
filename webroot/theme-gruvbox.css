@@ -1,0 +1,95 @@
+:root {
+  /* ── Base palette ── */
+  --bg:   #282828;
+  --bg2:  #3c3836;
+  --bg3:  #1d2021;
+  --bg4:  #504945;
+  --text:  #ebdbb2;
+  --text2: #a89984;
+  --text3: #665c54;
+  --accent:  #d79921;
+  --accent2: #d65d0e;
+  --green:  #b8bb26;
+  --green2: #98971a;
+  --red:    #fb4934;
+  --purple: #d3869b;
+
+  /* ── Typography & shape ── */
+  --font: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', ui-monospace, monospace;
+  --radius:       5px;
+  --radius-sm:    3px;
+  --input-radius: 6px;
+  --term-padding: 4px;
+
+  /* ── Borders ── */
+  --border:  #3c3836;
+  --border2: #504945;
+  --input-border: #504945;
+  --select-option-bg:    #3c3836;
+  --select-option-color: #ebdbb2;
+  --select-option-hover: #504945;
+  /* ── Button states ── */
+  --btn-primary-bg:     #5b3f2e;
+  --btn-primary-border: #d65d0e;
+  --btn-primary-hover:  #724528;
+  --btn-primary-text:   #d79921;
+
+  /* ── Selection / highlight ── */
+  --selected-bg:   #4c4741;
+  --toggle-on-bg:  #5c4a26;
+  --toggle-on-knob:   var(--section-key-color);
+  --input-focus-border: var(--section-key-color);
+
+  /* ── Section keys / active tab ── */
+  --section-key-color: var(--accent);
+  --tab-active-bg:     var(--bg4);
+  --tab-active-border: var(--border2);
+  --tab-active-text:   var(--text);
+
+  /* ── Semantic badges ── */
+  --required-bg:   #623b36;
+  --required-text: #fb4934;
+  --error-bg:      #593b36;
+
+  /* ── Nix expression fields ── */
+  --expr-border: #4f4f23;
+
+  /* ── Editor fields ── */
+  --field-bg: rgba(235,219,178,0.05);
+
+  /* ── Misc UI ── */
+  --statusbar-bg:   #1d2021;
+  --dirty-color:    #fabd2f;
+  --wildcard-bg:    #3d3336;
+  --wildcard-hover: #4a3b3f;
+  --shadow:         #00000090;
+  --overlay:        #000000aa;
+  --scrollbar:      #3c3836;
+  --scrollbar-hover:#504945;
+  --section-header-border: rgba(235,219,178,0.07);
+
+  /* ── Terminal theme (Gruvbox Dark) ── */
+  --term-bg:             var(--bg);
+  --term-fg:             #ebdbb2;
+  --term-cursor:         #ebdbb2;
+  --term-cursor-style:          bar;
+  --term-cursor-inactive-style: none;
+  --term-cursor-blink:          0;
+  --term-selection:      #504945;
+  --term-black:          #282828;
+  --term-red:            #cc241d;
+  --term-green:          #98971a;
+  --term-yellow:         #d79921;
+  --term-blue:           #458588;
+  --term-magenta:        #b16286;
+  --term-cyan:           #689d6a;
+  --term-white:          #a89984;
+  --term-bright-black:   #928374;
+  --term-bright-red:     #fb4934;
+  --term-bright-green:   #b8bb26;
+  --term-bright-yellow:  #fabd2f;
+  --term-bright-blue:    #83a598;
+  --term-bright-magenta: #d3869b;
+  --term-bright-cyan:    #8ec07c;
+  --term-bright-white:   #ebdbb2;
+}

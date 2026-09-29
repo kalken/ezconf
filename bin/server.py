@@ -196,7 +196,7 @@ TERMINAL_CURRENT_HASH = ''       # hash of TERMINAL_SCRIPT, computed once at sta
 TERMINAL_CONFIG_HASH = ''        # hash of the config values terminal.py itself reads, computed once at
                                   # startup from this process's own cfg — see _ping_payload() and
                                   # terminal.py's own CONFIG_HASH (must use the identical key list/formula)
-THEME            = 'nixos'       # ui theme: nixos, dark, light
+THEME            = 'nixos'       # ui theme: nixos, dark, light, gruvbox
 EZCONF_MODE      = None          # None or 'install'; baked into index.html on load — shows
                                   # install-mode buttons in their own row and greys out ordinary
                                   # ones; set by mode in TOML (deploy-time, not user-toggleable)
@@ -902,7 +902,7 @@ def _compute_webroot_hash():
     after WEBROOT is finalized, in __main__ — not on every request, since these files don't
     change while this process is running (a real change only ever arrives via a restart)."""
     h = hashlib.sha256()
-    for name in ('index.html', 'style.css', 'theme-nixos.css', 'theme-dark.css', 'theme-light.css'):
+    for name in ('index.html', 'style.css', 'theme-nixos.css', 'theme-dark.css', 'theme-light.css', 'theme-gruvbox.css'):
         try:
             with open(os.path.join(WEBROOT, name), 'rb') as f:
                 h.update(f.read())
@@ -1947,7 +1947,7 @@ if __name__ == '__main__':
                     help='number of system backups to keep; 0 disables the feature (default: 5)')
     ap.add_argument('--auth', choices=['auto', 'custom', 'pam'], default=None,
                     help='authentication mode: auto, custom, or pam')
-    ap.add_argument('--theme', choices=['nixos', 'dark', 'light'], default=None,
+    ap.add_argument('--theme', choices=['nixos', 'dark', 'light', 'gruvbox'], default=None,
                     help='UI theme (default: nixos)')
     ap.add_argument('--terminal-port', type=int, default=None,
                     help='port the terminal.py WebSocket service is running on (enables terminal panel)')

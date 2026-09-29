@@ -33,11 +33,18 @@
   --btn-primary-border: #2858b0;
   --btn-primary-hover:  #1e4888;
   --btn-primary-text:   #4a9edd;
-  --btn-active-border:  #1a4828;
 
   /* ── Selection / highlight ── */
   --selected-bg:   #1a2c50;
   --toggle-on-bg:  #1a3878;
+  --toggle-on-knob:   var(--accent);
+  --input-focus-border: var(--accent2);
+
+  /* ── Section keys / active tab ── */
+  --section-key-color: var(--accent);
+  --tab-active-bg:     var(--bg4);
+  --tab-active-border: var(--border2);
+  --tab-active-text:   var(--text);
 
   /* ── Semantic badges ── */
   --required-bg:   #5c1414;
