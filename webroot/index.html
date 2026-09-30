@@ -3813,24 +3813,25 @@ function isAnyDirty() {
 let _restartDetected = false;
 
 // Polls GET /api/v1/ping periodically so an already-open tab notices ezconf.service restarting
-// (e.g. from nixos-rebuild switch), rather than watching for the connection itself to die. Most
-// restarts don't actually change anything the page cares about — a rebuild that never touched
-// services.ezconf.* just restarts the process for unrelated reasons — so a changed boot_id alone
-// is *not* treated as "reload now": the response also echoes every value that's otherwise only
-// baked into index.html at load time, and each is compared against what this page actually has.
-// STATIC_BUTTONS is small enough to just patch in place and re-render — no visible reload for
-// what's easily the most common thing to actually change. Everything else — theme,
-// terminal/mkoptions/backup availability, nixos_target, webroot_hash (a content hash of
-// index.html/style.css/the theme files, so an actual ezconf package upgrade — new HTML/CSS/JS,
-// not just a settings change — is caught too, since that can't be detected any other way), and
-// version (VERSION's own content, i.e. self.shortRev — added after a backend-only upgrade, e.g.
-// bin/generate-nixos-data.py, went unnoticed: it changes webroot_hash not at all, since none of
-// index.html/style.css/the theme files were touched, so the page kept working fine but its own
-// statusbar version string silently went stale with nothing else prompting a reload) — genuinely
-// can't be applied without reloading, so only *those* changing still triggers one — and even
-// then, never out from under unsaved edits: if something's dirty when that's first seen, it just
-// says so and waits — _updateDirty() (run after every edit, undo, and Save) is what actually
-// fires the reload, the moment the user gets back to a clean state.
+// (e.g. from nixos-rebuild switch), rather than watching for the connection itself to die. Any
+// boot_id change reloads the page — not a field-by-field comparison against
+// webroot_hash/version/theme/terminal_enabled/etc. against what this page loaded with. That
+// field-list approach was tried first and had a real, since-confirmed blind spot: a future change
+// that needs a reload but isn't added to the list (or is added with a bug — an earlier version of
+// this compared against an undeclared THEME global, throwing on every poll post-restart and
+// getting silently swallowed by poll()'s own catch, breaking the *entire* mechanism, not just
+// theme drift) leaves an already-open tab stuck indefinitely, with nothing left to prompt it to
+// check again. boot_id itself (fresh random hex every process start, never persisted) has no such
+// gap: reached here, the process has definitely restarted, which is reason enough on its own —
+// including a restart that only changed something ezconf can't yet know to compare for. The
+// trade-off is real and deliberate: `ezconf.service`'s own ExecStartPre embeds Nix store paths
+// built from the same pkgs the rest of the system uses, so a nixos-rebuild for something
+// completely unrelated to ezconf (a nixpkgs bump, an unrelated service) can still restart it —
+// this now reloads the GUI for that too, not just an ezconf-relevant change. Never out from under
+// unsaved edits either way: if something's dirty when a restart is first seen, it just says so and
+// waits — _updateDirty() (run after every edit, undo, and Save) is what actually fires the reload,
+// the moment the user gets back to a clean state — so the cost of over-triggering is an extra
+// reload once idle, never lost work.
 //
 // This used to be a held-open GET /api/v1/ping-stream SSE connection instead — near-instant
 // detection (the connection dying the moment the old process exits) rather than up to one poll
@@ -3872,30 +3873,14 @@ function initRestartWatcher() {
 
     if (!data.boot_id || data.boot_id === _lastSeenBootId) return;
     _lastSeenBootId = data.boot_id;
-    if (Array.isArray(data.buttons) && JSON.stringify(data.buttons) !== JSON.stringify(STATIC_BUTTONS)) {
-      STATIC_BUTTONS.length = 0;
-      STATIC_BUTTONS.push(...data.buttons);
-      renderButtons();
-    }
     // data.theme is compared against _DEFAULT_THEME (the config-baked default this page loaded
-    // with), not the possibly-localStorage-overridden theme actually on screen -- a rebuild that
-    // changes services.ezconf.theme should count as drift regardless of any per-browser pick.
-    const themeChanged = data.theme !== _DEFAULT_THEME;
-    const reloadNeeded = data.webroot_hash !== WEBROOT_HASH
-      || data.version !== CURRENT_VERSION
-      || themeChanged
-      || !!data.terminal_enabled !== TERMINAL_ENABLED
-      || !!data.mkoptions_enabled !== MKOPTIONS_ENABLED
-      || !!data.backup_enabled !== BACKUP_ENABLED
-      || !!data.system_backup_enabled !== SYSTEM_BACKUP_ENABLED
-      || data.nixos_target !== NIXOS_TARGET;
-    if (reloadNeeded) {
-      // A rebuild that actually changes the configured theme should win over a theme the user
-      // previously picked by hand in this browser (setTheme() -> localStorage) -- otherwise the
-      // reload below would just reapply the same stale local override on the freshly-loaded page.
-      if (themeChanged) localStorage.removeItem('ezconf-theme');
-      onRestartDetected();
-    }
+    // with), not the possibly-localStorage-overridden theme actually on screen -- this doesn't
+    // decide *whether* to reload (any restart does, unconditionally, see above) but *whether* a
+    // rebuild that actually changed services.ezconf.theme should win over a theme the user
+    // previously picked by hand in this browser (setTheme() -> localStorage). Only clearing it
+    // when the theme genuinely changed means an unrelated restart doesn't wipe a manual pick.
+    if (data.theme !== _DEFAULT_THEME) localStorage.removeItem('ezconf-theme');
+    onRestartDetected();
   }
   function onRestartDetected() {
     _restartDetected = true;
