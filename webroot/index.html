@@ -3877,15 +3877,25 @@ function initRestartWatcher() {
       STATIC_BUTTONS.push(...data.buttons);
       renderButtons();
     }
+    // data.theme is compared against _DEFAULT_THEME (the config-baked default this page loaded
+    // with), not the possibly-localStorage-overridden theme actually on screen -- a rebuild that
+    // changes services.ezconf.theme should count as drift regardless of any per-browser pick.
+    const themeChanged = data.theme !== _DEFAULT_THEME;
     const reloadNeeded = data.webroot_hash !== WEBROOT_HASH
       || data.version !== CURRENT_VERSION
-      || data.theme !== THEME
+      || themeChanged
       || !!data.terminal_enabled !== TERMINAL_ENABLED
       || !!data.mkoptions_enabled !== MKOPTIONS_ENABLED
       || !!data.backup_enabled !== BACKUP_ENABLED
       || !!data.system_backup_enabled !== SYSTEM_BACKUP_ENABLED
       || data.nixos_target !== NIXOS_TARGET;
-    if (reloadNeeded) onRestartDetected();
+    if (reloadNeeded) {
+      // A rebuild that actually changes the configured theme should win over a theme the user
+      // previously picked by hand in this browser (setTheme() -> localStorage) -- otherwise the
+      // reload below would just reapply the same stale local override on the freshly-loaded page.
+      if (themeChanged) localStorage.removeItem('ezconf-theme');
+      onRestartDetected();
+    }
   }
   function onRestartDetected() {
     _restartDetected = true;
