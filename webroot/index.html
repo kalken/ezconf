@@ -1047,8 +1047,28 @@ function _nixParse(s, cautious) {
     if (s.includes('${')) return { _expr: s }; // Nix string interpolation in indented string
     return _nixParseIndentedStr(s);
   }
-  if (s[0] === '[') { const inner = s.slice(1, _nixMatchBracket(s, 0)).trim(); return inner ? _nixSplitListItems(inner).map(_nixParse) : []; }
-  if (s[0] === '{') { const inner = s.slice(1, _nixMatchBracket(s, 0)).trim(); return inner ? _nixParseAttrs(inner) : {}; }
+  // Both branches below only ever consumed up through the *first* matching close bracket,
+  // silently discarding anything after it in `s` -- harmless when `s` is genuinely just "[ ... ]"
+  // or "{ ... }" end to end, but _nixParseAttrs's own value-scan (which looks for the next ';' at
+  // depth 0, not for "one complete value") can hand this a slice that runs past a missing ';'
+  // straight into the *next* binding, e.g. "[ \"a\" ]\n  next = true" when the ';' after "]" was
+  // deleted. Silently returning just the list/attrset and dropping "next = true" entirely, with
+  // no error, is exactly how that binding used to vanish without a trace. Requiring nothing but
+  // whitespace after the matched close bracket turns that into a real, catchable syntax error
+  // instead -- _nixHasBareEquals() in _nixParseAttrs covers the same failure mode for a bare
+  // scalar/raw-expr value, which has no closing bracket of its own to check against here.
+  if (s[0] === '[') {
+    const close = _nixMatchBracket(s, 0);
+    if (s.slice(close + 1).trim()) throw new Error('unexpected content after list');
+    const inner = s.slice(1, close).trim();
+    return inner ? _nixSplitListItems(inner).map(_nixParse) : [];
+  }
+  if (s[0] === '{') {
+    const close = _nixMatchBracket(s, 0);
+    if (s.slice(close + 1).trim()) throw new Error('unexpected content after attrset');
+    const inner = s.slice(1, close).trim();
+    return inner ? _nixParseAttrs(inner) : {};
+  }
   // 'with pkgs; [ name1 name2 ]' — convert to structured package array
   const withPkgs = s.match(/^with\s+pkgs\s*;\s*(\[[\s\S]*\])$/);
   if (withPkgs) {
