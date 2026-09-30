@@ -34,6 +34,7 @@ const _DEFAULT_THEME = '%%EZCONF_THEME%%';
     <button class="btn" onclick="undo()" data-tooltip="Undo (Ctrl+Z)"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 14 4 9 9 4"/><path d="M20 20v-7a4 4 0 0 0-4-4H4"/></svg></button>
     <button class="btn" onclick="redo()" data-tooltip="Redo (Ctrl+Y)"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="15 14 20 9 15 4"/><path d="M4 20v-7a4 4 0 0 1 4-4h12"/></svg></button>
     <button class="btn" onclick="reloadAllFiles()" data-tooltip="Reload all files from disk"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3.5-7.1"/><polyline points="3 3 3 8 8 8"/></svg></button>
+    <button class="btn" onclick="reloadGui()" data-tooltip="Reload the page (picks up a new frontend build)"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-3.5-7.1"/><polyline points="21 3 21 8 16 8"/></svg></button>
   </div>
   <div class="header-actions">
     <input type="file" id="import-file-input" accept=".json,.nix,.zip">
@@ -4042,6 +4043,24 @@ async function reloadAllFiles() {
   } catch (e) {
     setStatus('Reload failed', 3000, 'err');
   }
+}
+
+// A manual full page reload -- distinct from reloadAllFiles() above, which only re-fetches file
+// content/the autocomplete schema without touching the frontend itself. This is for picking up a
+// new index.html/style.css/theme build by hand, the same thing initRestartWatcher()'s own
+// location.reload() does automatically once it sees boot_id drift -- e.g. right after a rebuild,
+// without waiting up to POLL_INTERVAL_MS for the next ping tick. Deliberately refuses while dirty
+// rather than reloading anyway: a real navigation isn't guarded by any beforeunload prompt in
+// this app (see "Nothing touches the server until Save" -- every other destructive-looking action
+// here is safe to fire silently for the same reason, but an actual page reload is the one action
+// that genuinely discards anything not yet saved to disk), so this mirrors onRestartDetected()'s
+// own dirty-check instead of bypassing it just because a human clicked the button this time.
+function reloadGui() {
+  if (isAnyDirty()) {
+    setStatus('Save or undo changes before reloading.', 3000, 'err');
+    return;
+  }
+  location.reload();
 }
 
 // Pure field assignment, no rendering and no history-guarding — the part _restoreSnapshot()
