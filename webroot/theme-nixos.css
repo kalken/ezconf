@@ -50,6 +50,8 @@
   --required-bg:   #5c1414;
   --required-text: #fca5a5;
   --error-bg:      #220808;
+  --success-bg:    #1a2e1a;
+  --success-border: #2d5a2d;
 
   /* ── Nix expression fields ── */
   --expr-border: #162a16;
