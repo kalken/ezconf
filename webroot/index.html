@@ -825,6 +825,25 @@ function _nixMatchBracket(s, openIdx) {
   }
   throw new Error('unmatched ' + open);
 }
+// True if s contains a top-level '=' outside strings/indented strings and bracket nesting, that
+// isn't part of a two-character comparison operator ('==', '!=', '<=', '>='). See the call site
+// in _nixParseAttrs for why this is the signal used to catch a missing ';' between bindings.
+function _nixHasBareEquals(s) {
+  let depth = 0, i = 0;
+  while (i < s.length) {
+    const c = s[i];
+    if (c === '"') { i = _nixSkipStr(s, i); continue; }
+    if (c === "'" && s[i + 1] === "'") { i = _nixSkipIndentedStr(s, i); continue; }
+    if (c === '{' || c === '[' || c === '(') { depth++; i++; continue; }
+    if (c === '}' || c === ']' || c === ')') { depth--; i++; continue; }
+    if (depth === 0 && c === '=') {
+      const prev = s[i - 1], next = s[i + 1];
+      if (prev !== '=' && prev !== '!' && prev !== '<' && prev !== '>' && next !== '=') return true;
+    }
+    i++;
+  }
+  return false;
+}
 function _nixSplitListItems(s) {
   // Split whitespace-separated items at depth 0, respecting brackets, parens, and strings.
   // Parens matter here because a parenthesized item — e.g. a package override like
@@ -895,12 +914,30 @@ function _nixParseAttrs(s) {
       j++;
     }
     let val;
+    const rawSlice = s.slice(i, j).trim();
     try {
-      val = _nixParse(s.slice(i, j).trim());
+      val = _nixParse(rawSlice);
     } catch (e) {
       const err = new Error(`at key "${keyParts.join('.')}": ${e.message}`);
       err.nixKey = keyParts.join('.');
       if (e.nixSnippet) err.nixSnippet = e.nixSnippet;
+      throw err;
+    }
+    // A value that only matched _nixParse's raw-expression catch-all (isExprPkg) but contains a
+    // bare '=' outside strings/brackets almost always means the ';' that should have ended THIS
+    // binding is missing, so the scan above ran straight through to the *next* binding's ';'
+    // instead -- e.g. "bar = 2\n  baz = 3" (the ';' after "2" was deleted) gets captured whole as
+    // bar's "value" and would otherwise silently become { _expr: "bar = 2\n  baz = 3" } with
+    // baz's own binding lost entirely, rather than surfacing as an error. Real Nix has no other
+    // construct that puts a bare '=' inside an unbracketed value at this position -- an
+    // attrset's own '=' pairs are always inside {} and handled by the '{' branch in _nixParse,
+    // and 'let x = ...; in ...' isn't a form this parser's semicolon-scanning above actually
+    // supports either way (its own internal ';' isn't given the same "owns its semicolon"
+    // treatment 'with expr;' gets, so it was never round-trippable here to begin with).
+    // Comparison operators ('==', '!=', '<=', '>=') are excluded since they're two characters.
+    if (isExprPkg(val) && _nixHasBareEquals(rawSlice)) {
+      const err = new Error(`at key "${keyParts.join('.')}": missing ';' before "${rawSlice.split('\n').pop().trim()}"`);
+      err.nixKey = keyParts.join('.');
       throw err;
     }
     i = j + 1;
@@ -3259,7 +3296,21 @@ function renderField(container, key, val, path) {
       // for exactly the inputs it exists to handle: it just handed back the identical expr. Only
       // accept a result that's actually not still an expr wrapper as a real conversion.
       const parsed = nixToJs(inp.value);
-      if (parsed !== undefined && !isExprPkg(parsed)) {
+      // nixToJs() only ever returns undefined for a genuine syntax error (unmatched brackets, a
+      // bad attrset key, or -- since _nixParseAttrs's own fix -- a missing ';' between bindings);
+      // anything syntactically valid but non-literal (a bare identifier, a function call, ...)
+      // comes back as the expr-wrapper fallback above, not undefined. Refuse the conversion
+      // outright on a real syntax error instead of silently falling through to a type default
+      // below -- that fallback exists for a genuinely unconvertible-but-valid expression (e.g. a
+      // default referencing another option), not for discarding malformed text the user may
+      // still be mid-typing, or a multi-key section mangled by one missing ';'.
+      if (parsed === undefined) {
+        setStatus('Invalid Nix expression -- not converted.', 3000, 'err');
+        inp.classList.add('input-error');
+        setTimeout(() => inp.classList.remove('input-error'), 1500);
+        return;
+      }
+      if (!isExprPkg(parsed)) {
         setAtPath(config, path, parsed);
         renderAll();
         return;
