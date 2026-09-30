@@ -599,7 +599,7 @@ textarea { resize: vertical; min-height: unset; line-height: 1.5; }
 /* Package items: side-by-side chips */
 .pkg-items { display: flex; flex-wrap: wrap; gap: 4px; }
 .pkg-items .array-item {
-  background: transparent; border: 1px solid var(--input-focus-border);
+  background: transparent; border: 1px solid var(--border2);
   border-radius: var(--radius); padding: 2px 4px 2px 8px;
   gap: 4px;
 }
