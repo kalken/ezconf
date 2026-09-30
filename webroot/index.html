@@ -2212,8 +2212,14 @@ function parseMarkdown(text) {
 
   function inline(s) {
     return stashPop(s
-      .replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (_, alt, src) => { const s = src.replace(/^\.\.\//, ''); return `<a href="${s}"><img alt="${alt}" src="${s}"></a>`; })
-      .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>')
+      // target="_blank" on every link (both here and the text-link replace below) is what keeps
+      // a genuine external/unhandled link from navigating this SPA tab away to a dead URL
+      // (nothing here serves arbitrary NIXOS_TARGET files, image links included) -- the doc-to-doc
+      // case below is instead caught and preventDefault()-ed by a click handler before the
+      // browser ever acts on href/target at all, so this is just the safe fallback for everything
+      // that handler doesn't recognize as one of the open document's own siblings.
+      .replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (_, alt, src) => { const s = src.replace(/^\.\.\//, ''); return `<a href="${s}" target="_blank" rel="noopener noreferrer"><img alt="${alt}" src="${s}"></a>`; })
+      .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>')
       .replace(/`([^`]+)`/g, (_, c) => `<code>${escape(c)}</code>`)
       .replace(/\*\*\*(.+?)\*\*\*/g, '<strong><em>$1</em></strong>')
       .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
@@ -2244,11 +2250,15 @@ function parseMarkdown(text) {
       continue;
     }
 
-    // Heading
+    // Heading — id is a GitHub-style slug of the heading text, so an in-doc or cross-doc link
+    // (e.g. "[setup](./install.md#configuration)") has something to actually scroll to; see
+    // _resolveMdLink()/the click handler in openMarkdownFile() for how that fragment is used.
     const hm = line.match(/^(#{1,6})\s+(.+)/);
     if (hm) {
       const lvl = hm[1].length;
-      out.push(`<h${lvl}>${inline(hm[2])}</h${lvl}>`);
+      const text = hm[2];
+      const slug = text.toLowerCase().replace(/[^\w\s-]/g, '').trim().replace(/\s+/g, '-');
+      out.push(`<h${lvl} id="${escape(slug)}">${inline(text)}</h${lvl}>`);
       i++;
       continue;
     }
@@ -2438,10 +2448,51 @@ async function showMarkdownMenu(event) {
   })), { triggerEl: btn });
 }
 
-async function openMarkdownFile(name) {
-  if (_openMarkdownPanels.has(name)) return;
+// Resolves a link's href found inside the document at `basePath` (a NIXOS_TARGET-relative path,
+// same convention as _markdownFiles/openMarkdownFile's own `name`) to another NIXOS_TARGET-
+// relative path, the way a real relative link resolves against the file it's written in rather
+// than against NIXOS_TARGET's root — e.g. "../other.md" from "services/nginx/README.md" resolves
+// to "services/other.md", not "../other.md" taken literally. Splits off a trailing '#fragment'
+// first since that's not part of the path. http(s)/mailto/protocol-relative links are reported as
+// `external` rather than resolved — those are for the browser to handle (see inline()'s
+// target="_blank"), not something ezconf has any other copy of to open in a panel.
+function _resolveMdLink(basePath, href) {
+  const hashIdx = href.indexOf('#');
+  const fragment = hashIdx >= 0 ? href.slice(hashIdx + 1) : '';
+  const pathPart = hashIdx >= 0 ? href.slice(0, hashIdx) : href;
+  if (/^[a-z][a-z0-9+.-]*:/i.test(pathPart) || pathPart.startsWith('//')) return { external: true };
+  if (!pathPart) return { path: '', fragment }; // pure in-page anchor, e.g. "#heading"
+  const segments = basePath.split('/').slice(0, -1).concat(pathPart.split('/'));
+  const resolved = [];
+  for (const seg of segments) {
+    if (seg === '' || seg === '.') continue;
+    if (seg === '..') resolved.pop();
+    else resolved.push(seg);
+  }
+  return { path: resolved.join('/'), fragment };
+}
+
+function _scrollMarkdownPanelToFragment(name, fragment) {
+  const panel = _openMarkdownPanels.get(name);
+  const target = panel && panel.querySelector('#' + CSS.escape(fragment));
+  if (target) target.scrollIntoView({ block: 'start' });
+}
+
+// `fragment`, when given, scrolls to that heading's slug id (see parseMarkdown()'s heading
+// handling) once the panel's content is actually in the DOM — including when the target was
+// already open, which previously just no-opped here (fine for its only other caller,
+// showMarkdownMenu(), which routes an already-open entry to closeMarkdownPanel() instead — this
+// path is only reached for a fresh open there) but would otherwise leave a same-doc link (e.g. a
+// table of contents entry) unable to raise/rescroll an already-open panel.
+async function openMarkdownFile(name, fragment) {
+  if (_openMarkdownPanels.has(name)) {
+    _bringMarkdownPanelToFront(name);
+    if (fragment) _scrollMarkdownPanelToFragment(name, fragment);
+    return;
+  }
   const panel = document.createElement('div');
   panel.className = 'markdown-panel';
+  panel.dataset.mdPath = name; // read by the doc-link click handler below to resolve relative hrefs
   panel.innerHTML =
     '<div class="sidebar-header markdown-panel-header"><span></span>' +
     '<button class="icon-btn" data-tooltip="Close">✕</button></div>' +
@@ -2469,7 +2520,38 @@ async function openMarkdownFile(name) {
     content = '(failed to load)';
   }
   panel.querySelector('.markdown-content').innerHTML = parseMarkdown(content);
+  if (fragment) _scrollMarkdownPanelToFragment(name, fragment);
 }
+
+// One delegated listener covers every panel, including ones opened after this runs — a link
+// inside rendered markdown is otherwise just an ordinary <a href>, which would navigate this
+// whole SPA tab away (losing in-memory state) to a URL nothing here serves (NIXOS_TARGET's *.md
+// files are only ever reachable through /api/v1/markdown-files/content, not as static paths).
+// Only a relative link that resolves to another file _markdownFiles actually lists is turned into
+// an in-app panel open; anything else (external, or a relative link to something that isn't a
+// known .md file) is left to inline()'s own target="_blank" fallback rather than guessed at, since
+// there's no general file-serving endpoint to open it against anyway.
+document.getElementById('markdown-panels').addEventListener('click', e => {
+  const a = e.target.closest('a');
+  if (!a) return;
+  const panel = a.closest('.markdown-panel');
+  const basePath = panel ? panel.dataset.mdPath : '';
+  const resolved = _resolveMdLink(basePath, a.getAttribute('href') || '');
+  if (resolved.external) return; // let target="_blank" open it normally
+  e.preventDefault();
+  if (!resolved.path) {
+    // Same-document heading link (e.g. "#setup") -- scrolled explicitly within this panel rather
+    // than left to native anchor navigation, which isn't scoped to a panel and could land on a
+    // same-slugged heading in a *different* currently-open document instead.
+    if (resolved.fragment) _scrollMarkdownPanelToFragment(basePath, resolved.fragment);
+    return;
+  }
+  if (!_markdownFiles.includes(resolved.path)) {
+    setStatus('Linked file not found: ' + resolved.path, 3000, 'err');
+    return;
+  }
+  openMarkdownFile(resolved.path, resolved.fragment || undefined);
+});
 
 function closeMarkdownPanel(name) {
   const panel = _openMarkdownPanels.get(name);
