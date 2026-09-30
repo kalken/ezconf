@@ -604,9 +604,8 @@ textarea { resize: vertical; min-height: unset; line-height: 1.5; }
   gap: 4px;
 }
 .pkg-items .array-item .pkg-label {
-  color: var(--text); font-size: 12px; white-space: nowrap; position: relative;
+  color: var(--text); font-size: 12px; white-space: nowrap;
 }
-.pkg-items .array-item .pkg-label:hover > .tooltip { display: block; }
 
 /* ── Status bar ── */
 .statusbar {

@@ -3638,11 +3638,10 @@ function renderPkgArray(container, arr, path) {
     label.className = 'pkg-label';
     label.textContent = pkg._expr;
     const pkgInfo = packages.find(p => p.name === pkg._expr.replace(/^pkgs\./, ''));
-    if (pkgInfo && pkgInfo.description) {
-      const tt = document.createElement('div');
-      tt.className = 'tooltip'; tt.textContent = pkgInfo.description;
-      label.appendChild(tt);
-    }
+    // _wireHoverTooltip() (the same 1000ms-delayed, cursor-positioned mechanism every button in
+    // the app uses) rather than a plain CSS :hover child -- that showed instantly, with no delay
+    // at all, unlike every other hover hint here.
+    if (pkgInfo && pkgInfo.description) _wireHoverTooltip(label, pkgInfo.description);
     const del = document.createElement('button');
     del.className = 'icon-btn del'; del.textContent = '✕';
     del.onclick = () => {
