@@ -321,13 +321,6 @@ body {
   outline: none;
 }
 .autocomplete-wrap input:focus { border-color: var(--input-focus-border); }
-/* The "Add package…" input for a package array (renderPkgArray()'s own acWrap, not
-   renderEnumArray()'s — .pkg-add-wrap distinguishes the two even though both otherwise share
-   .autocomplete-wrap/.pkg-items) shows the same resting border every other input box uses
-   (.search-panel-wrap input, .import-target-row input, …) instead of .autocomplete-wrap input's
-   own default (transparent until focused) — a package list reads more like a real input field
-   at rest this way, not just on click. */
-.autocomplete-wrap.pkg-add-wrap input { border-color: var(--border2); }
 .autocomplete-list {
   position: absolute;
   top: calc(100% + 3px);
