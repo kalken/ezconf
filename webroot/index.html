@@ -6425,6 +6425,10 @@ async function loadSiblingFiles() {
     // and most content lives in input values, not text nodes at all), where this searches the
     // live config data (every open file, not just the active one) and jumps straight to a match.
     if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'f') { e.preventDefault(); toggleSearchPanel(); }
+    // Overrides the browser's own "Save Page As" dialog -- saveToServer() already handles the
+    // nothing-to-save case on its own (a quiet status message, same as a mouse click on a
+    // disabled Save button would if it could fire at all), so no dirty-check is needed here.
+    if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 's') { e.preventDefault(); saveToServer(); }
   });
 
   // Text/number fields now write straight into `config` on every keystroke ('input', see
