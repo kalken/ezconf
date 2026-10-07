@@ -532,7 +532,10 @@ body {
    border). A pseudo-element placed at the section's own indent rather than a border, since a
    section's box isn't inset (indentation lives inside the key column): it sits 8px in front of
    the name, --depth being the section's own. */
-.section.nest:not(.nest-top) { position: relative; }
+/* Not on a drag ghost: this rule is more specific than .drag-ghost's own `position: fixed`, and
+   would otherwise stop a dragged section following the pointer (a fixed element anchors the
+   line just as well). */
+.section.nest:not(.nest-top):not(.drag-ghost) { position: relative; }
 /* Off unless switched on from the editor's right-click menu (toggleNestLines(), which puts
    .nest-lines on <body>). */
 .nest-lines .section.nest:not(.nest-top)::before {
