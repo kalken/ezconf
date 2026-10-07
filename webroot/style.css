@@ -362,7 +362,6 @@ body {
 /* The editor's two surfaces are named by the themes: --editor-bg is the page, --card-bg the
    filled block each top-level section gets. */
 .editor-area { background: var(--editor-bg); flex: 1; overflow-y: auto; padding: 10px 12px; scroll-padding-top: 8px; scroll-padding-bottom: 8px; }
-.editor-area > .field-row { margin-bottom: 10px; }
 
 /* ── Sections ── */
 /* Nesting is shown by indentation and colour only, no rules or bars: a top-level section is a
@@ -499,9 +498,8 @@ body {
    (the value cell carries it), so the value cells of consecutive rows touch and form one strip
    that's only rounded at its two ends. */
 .field-row.nest { background: transparent; padding: 0; border-radius: 0; min-height: var(--row-height); }
-/* Barely different from the surface it sits on (see --value-bg/--value-bg-loose in the themes). */
+/* Barely different from the card it sits on (see --value-bg in the themes). */
 .field-row.nest > .field-value { background: var(--value-bg); border-radius: var(--radius); padding: 2px 0; }
-.editor-area > .field-row.nest-loose > .field-value { background: var(--value-bg-loose); }
 .field-row.nest + .field-row.nest > .field-value { border-top-left-radius: 0; border-top-right-radius: 0; }
 .field-row.nest:has(+ .field-row.nest) > .field-value { border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
 .field-row.nest > .field-key { flex: 0 0 var(--key-width); min-width: 0; padding-left: calc(var(--depth, 0) * var(--indent-step)); padding-top: 6px; }
@@ -520,20 +518,39 @@ body {
 .section.nest-card > .section-header .section-key { color: var(--section-key-color); }
 /* Cards: each section directly under a top-level one, set off from whatever is next to them
    (rows themselves have no gaps between them, in a card or out of one). */
-/* A top-level section is the filled block (the lighter panel colour), heading included, edged
-   all round by the same hairline and small soft shadow the panels have (see .tab-bar-row).
-   Each section directly under it has neither fill nor edge of its own, only the block's side
-   padding again and some space above and below. */
-.section.nest-top {
+/* The whole file is one card (.file-card, the wrapper renderEditor() puts around everything):
+   the lighter panel colour, edged by the same hairline and soft shadow the panels have. A
+   top-level section is a titled group inside it, set apart from the next only by space. */
+.file-card {
   background: var(--card-bg); border-radius: var(--radius); padding: 8px var(--block-pad);
   box-shadow: 0 0 0 1px var(--panel-hairline), 0 0 var(--panel-shadow-size) var(--panel-shadow);
 }
+.file-card:empty { display: none; }
+.file-card > .section:last-child { margin-bottom: 0; }
+/* A vertical bar down the left side of every section below the second level, for as long as the
+   section runs (the layout before the redesign had this as each nested section's own left
+   border). A pseudo-element placed at the section's own indent rather than a border, since a
+   section's box isn't inset (indentation lives inside the key column): it sits 8px in front of
+   the name, --depth being the section's own. */
+.section.nest:not(.nest-top) { position: relative; }
+/* Off unless switched on from the editor's right-click menu (toggleNestLines(), which puts
+   .nest-lines on <body>). */
+.nest-lines .section.nest:not(.nest-top)::before {
+  content: ''; position: absolute; pointer-events: none; font-size: 12px;
+  /* A plain straight line drawn like the borders are -- the dark hairline with the same soft
+     shadow around it -- 8px in front of the name, from
+     the top of the name (the heading's 4px of padding down) to the end of the section. */
+  top: 4px; bottom: 0; left: calc(var(--depth, 0) * var(--indent-step) - 8px);
+  width: 1px; background: var(--panel-hairline); box-shadow: 0 0 var(--panel-shadow-size) var(--panel-shadow);
+}
+/* A second-level section has its frame instead; the line is for the sections nested inside it. */
+.section.nest.nest-card:not(.nest-top)::before { content: none; }
+/* A second-level section is framed: the same hairline and soft shadow the panels and the file's
+   own card are edged with. */
 .section.nest-card {
   border-radius: var(--radius); padding: 4px var(--block-pad) 8px;
+  box-shadow: 0 0 0 1px var(--panel-hairline), 0 0 var(--panel-shadow-size) var(--panel-shadow);
 }
-/* An option at the very root of a file has no top-level block around it, so it takes that
-   block's side padding itself to keep its value in the same column as everything else. */
-.editor-area > .field-row.nest-loose { padding-left: calc(var(--block-pad) * 2); padding-right: calc(var(--block-pad) * 2); }
 * + .nest-card, .nest-card + * { margin-top: var(--card-gap); }
 /* A section nested deeper than that has no edge or fill, only a little space below it. */
 .section.nest:not(.nest-top):not(.nest-card) { margin-bottom: var(--nested-section-gap); }
@@ -561,10 +578,6 @@ body {
 /* ...and the same space between the items and the edges of the value cell holding them, so every
    object item has it on all four sides. */
 .field-row.nest > .field-value:has(> .array-obj-item) { padding: var(--list-item-gap); }
-/* ...but not for a list at the very root of a file: its value cell is the page colour and so
-   can't be seen, which made that padding look like the list simply starting further right
-   than every other value. */
-.editor-area > .field-row.nest-loose > .field-value:has(> .array-obj-item) { padding: 0; }
 /* Only the key's own text starts a drag (see makeDraggable()'s callers), so only it shows it. */
 .nest > .section-header .tt-anchor, .field-row.nest > .field-key .tt-anchor { cursor: grab; }
 /* A dragged row keeps exactly the look it had in place: no translucency, and the fill of the

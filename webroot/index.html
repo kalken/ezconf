@@ -2540,7 +2540,12 @@ function renderEditor() {
   // fully editable/saveable (see "Disabling a file or folder" in CLAUDE.md), this is purely
   // visual so it's obvious at a glance which file you're looking at.
   area.classList.toggle('file-disabled', _isFileDisabled(activeFile));
-  renderObj(area, config, []);
+  // Everything in the file goes into one card (.file-card in style.css) rather than straight
+  // into the scroll area, which stays the page around it.
+  const card = document.createElement('div');
+  card.className = 'file-card';
+  renderObj(card, config, []);
+  area.appendChild(card);
   _setNestDepths(area);
   _setValuePlaceholders(area);
   area.scrollTop = scroll;
@@ -2557,6 +2562,7 @@ function renderEditor() {
     e.stopPropagation();
     const items = [{ label: 'Add option…', onclick: () => showAddOptionMenu(e, []) }];
     if (_clipboard) items.push({ label: 'Paste', onclick: pastePath });
+    items.push({ label: _nestLinesShown() ? 'Hide section lines' : 'Show section lines', onclick: toggleNestLines });
     items.push({ separator: true }, ...await _fileMenuItems(activeFile));
     showContextMenu(e, items);
   };
@@ -2575,6 +2581,17 @@ function renderEditor() {
 // it (it stays on the page background, padded to line up with the cards). Classes
 // on the row itself rather than selectors written against its ancestors, so a drag ghost (a
 // clone appended to <body>, see makeDraggable()) carries its whole look along with it.
+// The vertical line beside each section nested below the second level ("Option rows" in
+// style.css) is optional and off unless switched on -- a per-browser view preference like the
+// tree sidebar's own, so it lives in localStorage, and as a class on <body> rather than
+// #editor-area so a drag ghost (appended to <body>) follows it too.
+function _nestLinesShown() { return localStorage.getItem('ezconf-nest-lines') === 'true'; }
+function _applyNestLines() { document.body.classList.toggle('nest-lines', _nestLinesShown()); }
+function toggleNestLines() {
+  localStorage.setItem('ezconf-nest-lines', _nestLinesShown() ? 'false' : 'true');
+  _applyNestLines();
+}
+
 function _setNestDepths(root) {
   for (const el of root.querySelectorAll('.section, .field-row')) {
     let depth = 0, inArrayObj = false;
@@ -6296,6 +6313,7 @@ async function loadSiblingFiles() {
   initRestartWatcher();
   initMarkdownMenu();
   initVersion();
+  _applyNestLines();
   const treeVisible = localStorage.getItem('ezconf-tree-visible') === 'true';
   document.getElementById('sidebar').classList.toggle('hidden', !treeVisible);
   document.getElementById('tree-toggle-btn').classList.toggle('active', treeVisible);
