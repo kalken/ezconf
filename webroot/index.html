@@ -3011,7 +3011,11 @@ function renderSection(container, key, obj, path) {
       ..._addOptionMenuItems(e, path),
       { label: 'Convert to Nix', onclick: () => { setAtPath(config, path, { _expr: jsonToNix(getAtPath(config, path)) }); renderAll(); } },
     ];
-    showContextMenu(e, [...items, ..._commonMenuItems(path)]);
+    // The section-lines switch is offered here as well as on the editor's own blank-space menu:
+    // it's about how sections are drawn, and a section is where one would look for it.
+    showContextMenu(e, [...items, ..._commonMenuItems(path),
+      { separator: true },
+      { label: _nestLinesShown() ? 'Hide section lines' : 'Show section lines', onclick: toggleNestLines }]);
   };
 
   section.appendChild(header);

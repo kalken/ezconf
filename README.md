@@ -83,7 +83,7 @@ There's no "+" button anywhere — file and folder management is entirely right-
 - Right-click empty space in the tab bar (or the empty editor area, if there are no files yet) for **New file** / **New folder**.
 - Right-click a folder for **New file here** or **Delete folder** (removes everything inside it).
 - Right-click a tab for that file's menu: **Import** (merge pasted or loaded Nix/JSON into it), **Export**, **Delete**, or **Reload** to discard that one file's unsaved edits and reread it from disk (the header's own reload icon reloads every file plus the folder list in one go — the file list itself can change on disk too, e.g. from an external edit).
-- Right-click empty space in the editor for the same menu for the open file, below **Add option…**. **Show section lines** / **Hide section lines** there turns on or off a thin vertical line beside each deeply nested section (off by default, remembered per browser).
+- Right-click empty space in the editor for the same menu for the open file, below **Add option…**. **Show section lines** / **Hide section lines** there (and on any section's own right-click menu) turns on or off a thin vertical line beside each deeply nested section (off by default, remembered per browser).
 - Double-click a tab to rename it inline.
 - Drag a tab into a folder (or back out to the root) to move it.
 - Drag a section or option by its name to reorder it, or onto a different file's tab to move it there — or use **Copy** / **Cut** / **Paste** (also right-click) to duplicate or relocate a section or option to the same path in another file.
