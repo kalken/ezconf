@@ -1,18 +1,18 @@
 :root {
   /* ── Base palette ── */
-  --bg:   #000000;
-  --bg2:  #0d0d0d;
-  --bg3:  #050505;
-  --bg4:  #1a1a1a;
-  --text:  #e0e0e0;
-  --text2: #888888;
-  --text3: #555555;
-  --accent:  #2f8fef;
-  --accent2: #1c6dc4;
-  --green:  #2ecc71;
-  --green2: #219a52;
+  --bg:   #0a0a0a;
+  --bg2:  #141414;
+  --bg3:  #1c1c1c;
+  --bg4:  #262626;
+  --text:  #e6e6e6;
+  --text2: color-mix(in srgb, #e6e6e6 60%, #141414);
+  --text3: color-mix(in srgb, #e6e6e6 38%, #141414);
+  --accent:  var(--text);
+  --accent2: var(--text);
+  --green:  #4dcb6b;
+  --green2: #3aa655;
   --red:    #ef4444;
-  --purple: #a78bfa;
+  --purple: var(--text2);
 
   /* ── Typography & shape ── */
   --font: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', ui-monospace, monospace;
@@ -22,56 +22,81 @@
   --term-padding: 4px;
 
   /* ── Borders ── */
-  --border:  #1a1a1a;
-  --border2: #252525;
-  --input-border: #202020;
-  --select-option-bg:    #0d0d0d;
-  --select-option-color: #e0e0e0;
-  --select-option-hover: #1a1a1a;
+  --border:  #242424;
+  --border2: #303030;
+  --input-border: #242424;
+  --select-option-bg:    #181818;
+  --select-option-color: #e6e6e6;
+  --select-option-hover: #262626;
+  --popup-bg: #181818; /* dialogs and tooltips */
   /* ── Button states ── */
-  --btn-primary-bg:     #0f2c4a;
-  --btn-primary-border: #1c6dc4;
-  --btn-primary-hover:  #153d66;
-  --btn-primary-text:   #2f8fef;
+  --btn-primary-bg:     #262626;
+  --btn-primary-border: #303030;
+  --btn-primary-hover:  #303030;
+  --btn-primary-text:   #e6e6e6;
 
   /* ── Selection / highlight ── */
-  --selected-bg:   #1a1a1a;
-  --toggle-on-bg:  #252525;
-  --toggle-on-knob:   var(--accent);
-  --input-focus-border: var(--accent2);
+  --selected-bg:   #262626;
+  --toggle-on-bg:  #484848;
+  --toggle-on-knob:   var(--text);
+  --toggle-on-border: #585858;
+  --input-focus-border: var(--text);
 
   /* ── Section keys / active tab ── */
-  --section-key-color: var(--accent);
-  --tab-active-bg:     var(--bg4);
+  --section-key-color: var(--text);
+  --tab-active-bg:     #303030;
   --tab-active-border: var(--border2);
   --tab-active-text:   var(--text);
 
   /* ── Semantic badges ── */
-  --required-bg:   #1a1a1a;
-  --required-text: #fca5a5;
-  --error-bg:      #111111;
-  --success-bg:    #0f1a0f;
-  --success-border: #234023;
+  --required-bg:   #1c1c1c;
+  --required-text: var(--red);
+  --error-bg:      #181818;
+  --success-bg:    color-mix(in srgb, #4dcb6b 12%, #141414);
+  --success-border: color-mix(in srgb, #4dcb6b 35%, #141414);
 
   /* ── Nix expression fields ── */
-  --expr-border: #141414;
+  --expr-border: #1c1c1c;
 
   /* ── Editor fields ── */
-  --field-bg: rgba(255,255,255,0.04);
+  --field-bg: rgb(255 255 255 / 3%);
+  --editor-bg: var(--bg);  /* the editor page */
+  --card-bg:   var(--bg2); /* the filled block of a top-level section */
+
+  /* ── Editor layout ── */
+  --key-width:      300px; /* key column; every value starts right after it */
+  --list-key-width: 160px; /* key column inside an object that is a list item */
+  --indent-step:    0.5ch; /* indent per nesting level (1ch = one letter) */
+  --row-height:     28px;  /* minimum height of an option row */
+  --section-gap:    14px;  /* between top-level blocks */
+  --card-gap:       8px;   /* around a bordered sub-section */
+  --nested-section-gap: 4px; /* below a section nested inside a sub-section */
+  --list-item-gap:  1ch;   /* space around each object in a list (1ch = one letter) */
+  --block-pad:      10px;  /* side padding of a block and of a bordered sub-section */
+  --section-title-size: 13px; /* top-level section name */
+  --panel-shadow-size:  6px;  /* blur of the soft shadow beside a panel edge */
+
+  /* ── Editor colours ── */
+  --section-title-color:    var(--section-key-color); /* top-level section name */
+  --section-key-deep-color: var(--section-key-color); /* section names below a sub-section */
+  --value-bg:       color-mix(in srgb, var(--card-bg) 50%, var(--editor-bg)); /* value cell: halfway between the section and the page */
+  --value-bg-loose: var(--editor-bg); /* value cell outside any block (same colour, so unseen) */
+  --danger-text:    #ffffff; /* text on a red (destructive) menu item */
 
   /* ── Misc UI ── */
-  --statusbar-bg:   #000000;
-  --dirty-color:    #e0a020;
-  --wildcard-bg:    #0a0a0a;
-  --wildcard-hover: #141414;
-  --shadow:         #000000b0;
+  --statusbar-bg:   var(--bg2);
+  --dirty-color:    #b9b745;
+  --wildcard-bg:    #181818;
+  --wildcard-hover: #1c1c1c;
+  --shadow:         rgb(0 0 0 / 40%);
+  --panel-hairline: rgb(0 0 0 / 28%); /* 1px line along a panel edge */
+  --panel-shadow:   rgb(0 0 0 / 40%); /* small soft shadow a panel casts beside that line */
   --overlay:        #000000cc;
-  --scrollbar:      #1a1a1a;
-  --scrollbar-hover:#2a2a2a;
-  --section-header-border: rgba(255,255,255,0.07);
+  --scrollbar:      #303030;
+  --scrollbar-hover:#444444;
 
   /* ── Terminal theme ── */
-  --term-bg:             var(--bg);
+  --term-bg:             var(--editor-bg);
   --term-fg:             #c7c7c7;
   --term-cursor:         #d0d0d0;
   --term-cursor-style:          bar;

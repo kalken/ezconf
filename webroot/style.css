@@ -14,9 +14,15 @@ body {
 }
 
 /* ── Header ── */
+/* The header and the tab bar below it read as one panel: no line between them, and the pair is
+   edged along its bottom by a hairline and a small soft shadow falling onto the editor (see
+   .tab-bar-row) -- the same panel edge ezqbit's toolbar has. */
 .header {
   background: var(--bg2);
-  border-bottom: 1px solid var(--border);
+  /* Above .tab-bar-row: a blurred shadow spreads in every direction, so the tab bar's own would
+     otherwise also show as a faint dark line along its top edge, over the bottom of this row. */
+  position: relative;
+  z-index: 31;
   padding: 10px 18px;
   display: flex;
   align-items: center;
@@ -60,12 +66,16 @@ body {
 
 /* ── Tab bar (multi-file mode) ── */
 /* .tab-bar-row carries the bar's own background/border — split out from #tab-bar so the
-   Flat-mode/Tree buttons (.tab-bar-actions) can sit in the same visual bar, at its right edge,
+   search/Tree buttons (.tab-bar-actions) can sit in the same visual bar, at its right edge,
    instead of getting a whole separate (near-empty, once the add-input is hidden) bar of their
    own below it — see .topbar below. */
 .tab-bar-row {
   background: var(--bg2);
-  border-bottom: 1px solid var(--border);
+  /* A box-shadow rather than a border for both the hairline and the shade; position/z-index
+     because .main below is positioned and would otherwise paint over the shadow. */
+  box-shadow: 0 1px 0 var(--panel-hairline), 0 1px var(--panel-shadow-size) var(--panel-shadow);
+  position: relative;
+  z-index: 30; /* above the tree sidebar (20) too, so the shade falls across its top as well */
   display: flex;
   align-items: flex-start;
   flex-shrink: 0;
@@ -118,8 +128,8 @@ body {
   min-width: 140px;
   max-width: 70%;
   background: var(--bg2);
-  border-left: 1px solid var(--border);
-  box-shadow: -8px 0 24px var(--shadow);
+  /* Same panel edge as the top bar (see .tab-bar-row), along its left side */
+  box-shadow: -1px 0 0 var(--panel-hairline), -1px 0 var(--panel-shadow-size) var(--panel-shadow);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -302,9 +312,9 @@ body {
 /* Only ever houses the always-hidden add-input/button below — a home for showAddOptionMenu() to
    detach them from and restore them to (right-click "Add option..."/"Add sub option..." is the
    only way to open them now, via the floating panel). display:contents so it generates no box
-   of its own — it used to render as a full visual bar with nothing in it but the Flat-mode/Tree
-   buttons over on the right (everything else inside it hidden by the rule below), which is why
-   those two buttons now live in .tab-bar-actions instead, alongside the tab bar. */
+   of its own — it used to render as a full visual bar with nothing in it but the Tree
+   button over on the right (everything else inside it hidden by the rule below), which is why
+   it now lives in .tab-bar-actions instead, alongside the tab bar. */
 .topbar { display: contents; }
 .topbar .autocomplete-wrap, .topbar #add-commit-btn { display: none; }
 
@@ -320,7 +330,6 @@ body {
   font-size: 12px;
   outline: none;
 }
-.autocomplete-wrap input:focus { border-color: var(--input-focus-border); }
 .autocomplete-list {
   position: absolute;
   top: calc(100% + 3px);
@@ -339,12 +348,10 @@ body {
 .autocomplete-item {
   padding: 6px 10px;
   cursor: pointer;
-  border-bottom: 1px solid var(--border);
   display: flex;
   flex-direction: column;
   gap: 1px;
 }
-.autocomplete-item:last-child { border-bottom: none; }
 .autocomplete-item:hover, .autocomplete-item.active { background: var(--bg4); }
 .autocomplete-item .ac-name { color: var(--accent); font-size: 12px; }
 .autocomplete-item .ac-desc { color: var(--text2); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 480px; }
@@ -352,34 +359,30 @@ body {
 .autocomplete-item .ac-required { background: var(--required-bg); color: var(--required-text); font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; padding: 1px 5px; border-radius: 3px; flex-shrink: 0; align-self: flex-start; }
 
 /* ── Editor area ── */
-.editor-area { flex: 1; overflow-y: auto; padding: 10px 12px; scroll-padding-top: 8px; scroll-padding-bottom: 8px; }
-.editor-area > .field-row { background: var(--bg2); margin-bottom: 10px; }
+/* The editor's two surfaces are named by the themes: --editor-bg is the page, --card-bg the
+   filled block each top-level section gets. */
+.editor-area { background: var(--editor-bg); flex: 1; overflow-y: auto; padding: 10px 12px; scroll-padding-top: 8px; scroll-padding-bottom: 8px; }
+.editor-area > .field-row { margin-bottom: 10px; }
 
 /* ── Sections ── */
-.section {
-  border-radius: var(--radius);
-  margin-bottom: 10px;
-  background: var(--bg2);
-}
-
-.section .section {
-  background: transparent;
-  border-left: 2px solid var(--border2);
-  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
-  margin-bottom: 8px;
-  margin-left: 0;
-}
+/* Nesting is shown by indentation and colour only, no rules or bars: a top-level section is a
+   bare heading on the page, each section directly beneath it is a card (see "Option rows"
+   below), and anything deeper is just indented one character per level via --depth, which
+   _setNestDepths() sets on every .section/.field-row after a render. */
+.section { margin-bottom: var(--section-gap); }
+.section .section { margin-bottom: 0; }
 
 .section-header {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 6px 10px 4px 6px;
+  padding: 4px 0;
   background: transparent;
-  border-bottom: 1px solid var(--section-header-border);
   position: relative;
 }
-.section-key { color: var(--section-key-color); font-size: 12px; font-weight: 600; flex: 1; display: flex; flex-direction: row; align-items: center; gap: 4px; }
+/* Depth is carried by how bright a section's name is, in three steps (the two brighter ones
+   are set in "Option rows" below): this dimmed tone is what anything below a sub-section gets. */
+.section-key { color: var(--section-key-deep-color); font-size: 12px; font-weight: 600; flex: 1; display: flex; flex-direction: row; align-items: center; gap: 4px; padding-left: calc(var(--depth, 0) * var(--indent-step)); }
 .section-key-inner { display: flex; flex-direction: column; align-items: flex-start; }
 .section-key-text { position: relative; }
 .section-key-sub { display: flex; align-items: center; gap: 4px; }
@@ -387,10 +390,8 @@ body {
 
 
 .section-body {
-  padding: 6px 0 6px 8px;
   display: flex;
   flex-direction: column;
-  gap: 4px;
   background: transparent;
 }
 
@@ -399,7 +400,7 @@ body {
   display: none;
   position: absolute;
   left: 0; top: calc(100% + 4px);
-  background: var(--bg2);
+  background: var(--popup-bg);
   border: 1px solid var(--border2);
   border-radius: var(--radius);
   padding: 7px 10px;
@@ -485,48 +486,90 @@ body {
 .field-key-inner { display: flex; flex-direction: column; align-items: flex-start; flex: 1; min-width: 0; }
 .field-value { flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: center; gap: 4px; align-self: stretch; }
 
-/* ── Flat mode ── */
-.editor-area.flat-mode { }
-.flat-group { margin-bottom: 10px; background: var(--bg2); border-radius: var(--radius); padding: 4px 8px 6px; }
-.flat-sublevel { margin: 0; }
-.flat-group-header .drag-handle,
-.flat-sublevel-header .drag-handle { opacity: 0; }
-.flat-group-header:hover .drag-handle,
-.flat-sublevel-header:hover .drag-handle { opacity: 1; }
-/* Top-level group header — same style as before */
-.flat-group-header { display: flex; align-items: center; padding: 4px 0 0 4px; position: relative; }
-.flat-group-header > .drag-handle { order: 100; }
-.flat-group-label { color: var(--accent); font-size: 13px; font-weight: 600; flex: 1; cursor: pointer; }
-/* Sub-level headers — same style as old flat-subgroup-label, with indentation per depth */
-.flat-sublevel { margin: 0; }
-.flat-sublevel + .flat-sublevel { margin-top: 4px; }
-.flat-sublevel-header { display: flex; align-items: center; padding: 1px 0; padding-left: calc(var(--depth, 0) * 10px + 4px); position: relative; }
-.flat-sublevel-header > .drag-handle { order: 100; }
-.flat-sublevel-label { flex: 1; font-size: 11px; font-weight: 600; color: var(--text2); opacity: 0.7; cursor: pointer; }
-/* Deeper levels get progressively dimmer */
-.flat-sublevel-header:not([data-depth="0"]) .flat-sublevel-label { font-size: 10px; opacity: calc(0.7 - var(--depth) * 0.1); }
-/* Buttons on the right — shown on hover */
-.flat-sublevel-actions { display: flex; gap: 2px; opacity: 0; transition: opacity .15s; margin-left: auto; }
-.flat-sublevel-header:hover .flat-sublevel-actions,
-.flat-group-header:hover .flat-sublevel-actions { opacity: 1; }
-.flat-mode .field-row { border-radius: 0; }
-.flat-mode .field-key {
-  flex: 0 1 var(--flat-key-width, 50%);
-  min-width: 80px;
+/* ── Option rows ── */
+/* Every rule here hangs off classes _setNestDepths() puts on the rows themselves (.nest, plus
+   .nest-top/.nest-card/.nest-loose), not off an .editor-area ancestor: a drag ghost is a clone
+   appended straight to <body>, and it only looks identical to the row it was lifted from if
+   nothing about that row's look depends on where it sits in the document.
+   The indent lives inside the key column (padding on the label, 1ch per level -- exactly one
+   letter, the font being monospace) rather than on the nested containers, and the key column
+   itself is a fixed --key-width: that's what makes every value start at the same position
+   however deep its option is nested. */
+/* Only the value half of an option row is filled; the key half shows whatever the row sits on. The row itself has no vertical padding
+   (the value cell carries it), so the value cells of consecutive rows touch and form one strip
+   that's only rounded at its two ends. */
+.field-row.nest { background: transparent; padding: 0; border-radius: 0; min-height: var(--row-height); }
+/* Barely different from the surface it sits on (see --value-bg/--value-bg-loose in the themes). */
+.field-row.nest > .field-value { background: var(--value-bg); border-radius: var(--radius); padding: 2px 0; }
+.editor-area > .field-row.nest-loose > .field-value { background: var(--value-bg-loose); }
+.field-row.nest + .field-row.nest > .field-value { border-top-left-radius: 0; border-top-right-radius: 0; }
+.field-row.nest:has(+ .field-row.nest) > .field-value { border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
+.field-row.nest > .field-key { flex: 0 0 var(--key-width); min-width: 0; padding-left: calc(var(--depth, 0) * var(--indent-step)); padding-top: 6px; }
+/* A text value's own text sits 1px border + 3px/6px padding inside its box, itself 2px down
+   inside the value cell. The key (6px from the top, above) and a toggle (7px from the left, here) are offset by the same amounts, so a
+   key shares a text line with its value and every kind of value starts on one vertical line. */
+.field-row.nest .toggle-wrap { padding-left: 7px; }
+/* Object items inside an array sit in the value column already, so they restart at depth 0
+   (see _setNestDepths()) with a narrower key column of their own. */
+.array-obj-fields { --key-width: var(--list-key-width); }
+/* The heading of a top-level section lines up with the content of the cards beneath it. */
+.section.nest-top > .section-header { padding: 0 var(--block-pad) var(--card-gap); }
+/* Section names by depth: a top-level one reads as a title, a sub-section gets the full accent,
+   and anything deeper keeps .section-key's own dimmed tone. */
+.section.nest-top > .section-header .section-key { color: var(--section-title-color); font-size: var(--section-title-size); }
+.section.nest-card > .section-header .section-key { color: var(--section-key-color); }
+/* Cards: each section directly under a top-level one, set off from whatever is next to them
+   (rows themselves have no gaps between them, in a card or out of one). */
+/* A top-level section is the filled block (the lighter panel colour), heading included, edged
+   all round by the same hairline and small soft shadow the panels have (see .tab-bar-row).
+   Each section directly under it has no fill of its own, only that same edge. */
+.section.nest-top {
+  background: var(--card-bg); border-radius: var(--radius); padding: 8px var(--block-pad);
+  box-shadow: 0 0 0 1px var(--panel-hairline), 0 0 var(--panel-shadow-size) var(--panel-shadow);
 }
-.flat-mode .field-key-text { align-self: flex-start; overflow: visible; }
-.flat-mode .field-value { flex: 1; min-width: 0; }
-.flat-col-handle {
-  flex-shrink: 0;
-  width: 5px;
-  cursor: col-resize;
-  background: transparent;
-  border-radius: 2px;
-  transition: background .15s;
-  margin: 0 1px;
-  align-self: stretch;
+.section.nest-card {
+  border-radius: var(--radius); padding: 4px var(--block-pad) 8px;
+  box-shadow: 0 0 0 1px var(--panel-hairline), 0 0 var(--panel-shadow-size) var(--panel-shadow);
 }
-.field-row:hover .flat-col-handle { background: var(--bg4); }
+/* An option at the very root of a file has no top-level block around it, so it takes that
+   block's side padding itself to keep its value in the same column as everything else. */
+.editor-area > .field-row.nest-loose { padding-left: calc(var(--block-pad) * 2); padding-right: calc(var(--block-pad) * 2); }
+* + .nest-card, .nest-card + * { margin-top: var(--card-gap); }
+/* A section nested deeper than that has no edge or fill, only a little space below it. */
+.section.nest:not(.nest-top):not(.nest-card) { margin-bottom: var(--nested-section-gap); }
+/* An option with no such section around it (set straight on a top-level section, or at the root
+   of the file) stays on the page background, with only the card's side padding so its value
+   still starts in the same column as the ones inside cards. */
+.field-row.nest-loose { padding-left: var(--block-pad); padding-right: var(--block-pad); }
+/* Text values have no outline or fill, at rest or on hover, so a set value reads as plain text;
+   an empty one says so with a placeholder instead (_setValuePlaceholders()). */
+.field-row.nest :is(input[type=text], input[type=number], input[type=password], textarea, .custom-select-btn):not(.key-rename-input) {
+  border-color: transparent;
+}
+.field-row.nest :is(input, textarea)::placeholder { color: var(--text3); opacity: 1; }
+/* No gaps between the plain items of a list, or between the options inside one object item --
+   but object items themselves keep a gap, so each one still reads as a separate entry. */
+.field-row.nest > .field-value { gap: 0; }
+/* ...except between a package or value list and the box for adding to it. */
+.field-row.nest > .field-value:has(> .pkg-items) { gap: 2px; }
+/* Chips start on the same vertical line as every other kind of value (see .toggle-wrap). */
+.field-row.nest .pkg-items { padding: 4px 7px; }
+/* An object item is filled like a section, so its keys sit on the section colour while its own
+   value cells stay the page colour -- the same split an ordinary option row has. */
+.field-row.nest .array-obj-item { background: var(--card-bg); }
+.field-row.nest .array-obj-item + .array-obj-item { margin-top: var(--list-item-gap); }
+/* ...and the same space between the items and the edges of the value cell holding them, so every
+   object item has it on all four sides. */
+.field-row.nest > .field-value:has(> .array-obj-item) { padding: var(--list-item-gap); }
+/* ...but not for a list at the very root of a file: its value cell is the page colour and so
+   can't be seen, which made that padding look like the list simply starting further right
+   than every other value. */
+.editor-area > .field-row.nest-loose > .field-value:has(> .array-obj-item) { padding: 0; }
+/* Only the key's own text starts a drag (see makeDraggable()'s callers), so only it shows it. */
+.nest > .section-header .tt-anchor, .field-row.nest > .field-key .tt-anchor { cursor: grab; }
+/* A dragged row keeps exactly the look it had in place: no translucency, and the fill of the
+   top-level block it was lifted from behind it instead of .drag-ghost's own. */
+.nest.drag-ghost, .array-obj-item.drag-ghost { opacity: 1; background-color: var(--card-bg); }
 
 .icon-btn {
   background: none; border: none; cursor: pointer; color: var(--text3);
@@ -534,10 +577,6 @@ body {
   transition: color .15s;
 }
 .icon-btn.del:hover { color: var(--red); }
-/* { } convert-to-expr button (flat-mode headers only; the tree view moved this into the
-   right-click context menu, see showContextMenu()) */
-.icon-btn.expr-wrap-btn { color: var(--purple); opacity: 0.6; }
-.icon-btn.expr-wrap-btn:hover { color: var(--purple); opacity: 1; }
 
 .is-disabled { opacity: 0.45; }
 .is-disabled input, .is-disabled textarea, .is-disabled .toggle,
@@ -565,7 +604,7 @@ input[type=text], input[type=number], input[type=password], textarea {
   outline: none;
   width: 100%;
 }
-input:focus, textarea:focus { border-color: var(--input-focus-border); }
+/* No focus outline on any input: the text cursor already shows which one is active. */
 textarea { resize: vertical; min-height: unset; line-height: 1.5; }
 
 /* ── Toggle ── */
@@ -575,7 +614,7 @@ textarea { resize: vertical; min-height: unset; line-height: 1.5; }
   background: var(--bg4); border: 1px solid var(--input-border);
   border-radius: var(--input-radius); cursor: pointer; position: relative; transition: background .2s; flex-shrink: 0;
 }
-.toggle.on { background: var(--toggle-on-bg); border-color: var(--input-focus-border); }
+.toggle.on { background: var(--toggle-on-bg); border-color: var(--toggle-on-border); }
 .toggle::after {
   content: ''; position: absolute;
   width: 11px; height: 11px; background: var(--text3);
@@ -594,7 +633,9 @@ textarea { resize: vertical; min-height: unset; line-height: 1.5; }
   border: 1px solid var(--border); border-radius: var(--radius);
   padding: 4px 12px;
 }
-.array-obj-fields { flex: 1; display: flex; flex-direction: column; gap: 4px; }
+/* No gap between an object item's own options -- set here rather than under .field-row.nest so
+   a dragged item (a clone outside any row, see makeDraggable()) keeps the same height. */
+.array-obj-fields { flex: 1; display: flex; flex-direction: column; }
 
 /* Package items: side-by-side chips */
 .pkg-items { display: flex; flex-wrap: wrap; gap: 4px; }
@@ -603,12 +644,17 @@ textarea { resize: vertical; min-height: unset; line-height: 1.5; }
   border-radius: var(--radius); padding: 2px 4px 2px 8px;
   gap: 4px;
 }
+/* Same colour as the name in the "Add package…" suggestion list (.ac-name), so a package
+   looks the same before and after it's picked. */
 .pkg-items .array-item .pkg-label {
-  color: var(--text); font-size: 12px; white-space: nowrap;
+  color: var(--accent); font-size: 12px; white-space: nowrap;
 }
 
 /* ── Status bar ── */
 .statusbar {
+  /* Above .terminal-panel, for the same reason .header is above .tab-bar-row: the panel's
+     upward shadow also spreads a few pixels below it, onto the top of this bar. */
+  position: relative; z-index: 31;
   background: var(--statusbar-bg); border-top: 1px solid var(--border);
   padding: 3px 14px; font-size: 11px; color: var(--text3);
   display: flex; gap: 16px; align-items: center; flex-shrink: 0;
@@ -621,7 +667,7 @@ textarea { resize: vertical; min-height: unset; line-height: 1.5; }
 .theme-swatch { width: 12px; height: 12px; border-radius: 50%; cursor: pointer; border: 2px solid transparent; padding: 0; flex-shrink: 0; transition: outline .15s; }
 .theme-swatch.active { outline: 2px solid var(--accent); outline-offset: 1px; }
 .theme-swatch-nixos { background: #060e1a; border-color: #2a3a54; }
-.theme-swatch-dark  { background: #000000; border-color: #444444; }
+.theme-swatch-dark  { background: #0a0a0a; border-color: #444444; }
 .theme-swatch-light { background: #ffffff; border-color: #bbbbbb; }
 .theme-swatch-gruvbox { background: #282828; border-color: #d79921; }
 
@@ -631,7 +677,7 @@ textarea { resize: vertical; min-height: unset; line-height: 1.5; }
   display: flex; align-items: center; justify-content: center; z-index: 300;
 }
 .modal {
-  background: var(--bg2); border: 1px solid var(--border2); border-radius: var(--radius);
+  background: var(--popup-bg); border: 1px solid var(--border2); border-radius: var(--radius);
   padding: 20px; width: 820px; max-width: 95vw; display: flex; flex-direction: column; gap: 12px;
 }
 .modal h2 { color: var(--text); font-size: 14px; font-weight: 600; }
@@ -645,7 +691,6 @@ textarea { resize: vertical; min-height: unset; line-height: 1.5; }
   flex: 1; background: var(--bg); border: 1px solid var(--input-border); color: var(--text);
   padding: 5px 9px; border-radius: var(--input-radius); font-family: var(--font); font-size: 12px; outline: none;
 }
-.import-target-row input:focus { border-color: var(--input-focus-border); }
 .import-hint { margin: 0 0 10px; font-size: 12px; color: var(--text3); line-height: 1.5; }
 .import-hint code { font-family: var(--font); color: var(--text2); }
 .import-error { background: var(--error-bg); border: 1px solid var(--required-bg); color: var(--required-text); border-radius: var(--radius-sm); padding: 8px 12px; font-size: 12px; font-family: var(--font); white-space: pre-wrap; word-break: break-all; }
@@ -660,12 +705,7 @@ textarea { resize: vertical; min-height: unset; line-height: 1.5; }
 /* Native file pickers, triggered programmatically via .click() -- never shown to the user. */
 #import-file-input, #system-import-input { display: none; }
 
-/* ── Drag handle ── */
-.drag-handle {
-  color: var(--text3); cursor: grab; font-size: 13px; padding: 0 2px;
-  opacity: 0; transition: opacity .15s; user-select: none; flex-shrink: 0;
-}
-.drag-handle:active { cursor: grabbing; }
+/* ── Drag and drop ── */
 /* Drop target highlight */
 .drag-over { outline: 1px solid var(--accent2); background: var(--selected-bg) !important; }
 /* Dragging a section/field over a file tab to move it there */
@@ -745,7 +785,6 @@ textarea { resize: vertical; min-height: unset; line-height: 1.5; }
   border-radius: var(--radius); box-shadow: 0 4px 16px var(--shadow);
   padding: 6px 10px; font-family: var(--font); font-size: 12px; color: var(--text); outline: none;
 }
-.search-panel-wrap input:focus { border-color: var(--input-focus-border); }
 .search-results-list { top: calc(100% + 2px); width: 380px; border-radius: var(--radius); }
 /* The "No matches" / "N+ matches, refine" rows aren't results -- no hover highlight, no pointer. */
 .search-info-row { color: var(--text2); cursor: default; }
@@ -780,7 +819,7 @@ textarea { resize: vertical; min-height: unset; line-height: 1.5; }
   overflow: hidden; text-overflow: ellipsis;
 }
 .custom-select-btn::after { content: '▾'; position: absolute; right: 7px; top: 50%; transform: translateY(-50%); color: var(--text3); pointer-events: none; font-size: 10px; }
-.custom-select-btn:focus { outline: none; border-color: var(--input-focus-border); }
+.custom-select-btn:focus { outline: none; }
 .custom-select-dropdown {
   position: absolute; z-index: 200; top: calc(100% + 3px); left: 0; min-width: 100%;
   background: var(--select-option-bg); border: 1px solid var(--border2);
@@ -836,7 +875,7 @@ textarea { resize: vertical; min-height: unset; line-height: 1.5; }
 }
 .context-menu-item:hover { background: var(--select-option-hover); }
 .context-menu-item:disabled { opacity: 0.4; cursor: default; pointer-events: none; }
-.context-menu-item.danger:hover { background: var(--red); color: #fff; }
+.context-menu-item.danger:hover { background: var(--red); color: var(--danger-text); }
 .context-menu-item.has-submenu { justify-content: space-between; gap: 8px; }
 .context-menu-item.has-submenu::after { content: '▶'; font-size: 8px; opacity: 0.6; }
 .context-menu-sep { height: 1px; background: var(--border2); margin: 4px 2px; }
@@ -911,7 +950,10 @@ textarea { resize: vertical; min-height: unset; line-height: 1.5; }
 /* ── Terminal Panel ── */
 .terminal-panel {
   background: var(--bg2);
-  border-top: 1px solid var(--border2);
+  /* Same panel edge as the top bar (see .tab-bar-row), along its top; z-index so it's drawn
+     over the editor and the tree sidebar above it rather than under them. */
+  box-shadow: 0 -1px 0 var(--panel-hairline), 0 -1px var(--panel-shadow-size) var(--panel-shadow);
+  z-index: 30;
   flex-shrink: 0;
   display: flex;
   flex-direction: column;

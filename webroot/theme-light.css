@@ -1,18 +1,18 @@
 :root {
   /* ── Base palette ── */
-  --bg:   #ffffff;
-  --bg2:  #f0f0f0;
-  --bg3:  #e4e4e4;
-  --bg4:  #d8d8d8;
-  --text:  #1a1a1a;
-  --text2: #555555;
-  --text3: #999999;
-  --accent:  #2563eb;
-  --accent2: #1d4ed8;
-  --green:  #059669;
-  --green2: #047857;
+  --bg:   #f0f0f0;
+  --bg2:  #ffffff;
+  --bg3:  #e2e2e2;
+  --bg4:  #d4d4d4;
+  --text:  #262626;
+  --text2: #595959;
+  --text3: color-mix(in srgb, #262626 45%, #f0f0f0);
+  --accent:  var(--text);
+  --accent2: var(--text);
+  --green:  #3aa655;
+  --green2: color-mix(in srgb, #3aa655 80%, #111111);
   --red:    #dc2626;
-  --purple: #7c3aed;
+  --purple: var(--text2);
 
   /* ── Typography & shape ── */
   --font: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', ui-monospace, monospace;
@@ -23,55 +23,80 @@
 
   /* ── Borders ── */
   --border:  #d0d0d0;
-  --border2: #b8b8b8;
-  --input-border: #b8b8b8;
+  --border2: #c2c2c2;
+  --input-border: #c2c2c2;
   --select-option-bg:    #ffffff;
-  --select-option-color: #1a1a1a;
-  --select-option-hover: #e8e8e8;
+  --select-option-color: #262626;
+  --select-option-hover: #e2e2e2;
+  --popup-bg: #ffffff; /* dialogs and tooltips */
   /* ── Button states ── */
-  --btn-primary-bg:     #2563eb;
-  --btn-primary-border: #1d4ed8;
-  --btn-primary-hover:  #3b82f6;
-  --btn-primary-text:   #ffffff;
+  --btn-primary-bg:     #d4d4d4;
+  --btn-primary-border: #c2c2c2;
+  --btn-primary-hover:  #c8c8c8;
+  --btn-primary-text:   #262626;
 
   /* ── Selection / highlight ── */
-  --selected-bg:   #d8d8d8;
-  --toggle-on-bg:  #c8c8c8;
-  --toggle-on-knob:   var(--accent);
+  --selected-bg:   #d4d4d4;
+  --toggle-on-bg:  #595959;
+  --toggle-on-knob:   #ffffff;
+  --toggle-on-border: #595959;
   --input-focus-border: var(--accent2);
 
   /* ── Section keys / active tab ── */
-  --section-key-color: var(--accent);
-  --tab-active-bg:     var(--bg4);
+  --section-key-color: var(--text);
+  --tab-active-bg:     #c8c8c8;
   --tab-active-border: var(--border2);
   --tab-active-text:   var(--text);
 
   /* ── Semantic badges ── */
-  --required-bg:   #fad4d4;
-  --required-text: #b91c1c;
+  --required-bg:   #e2e2e2;
+  --required-text: var(--red);
   --error-bg:      #fce8e8;
-  --success-bg:    #e2f5e9;
-  --success-border: #a3d9b8;
+  --success-bg:    color-mix(in srgb, #3aa655 12%, #ffffff);
+  --success-border: color-mix(in srgb, #3aa655 40%, #ffffff);
 
   /* ── Nix expression fields ── */
-  --expr-border: #c8c8c8;
+  --expr-border: #d0d0d0;
 
   /* ── Editor fields ── */
-  --field-bg: rgba(0,0,0,0.03);
+  --field-bg: rgb(0 0 0 / 4%);
+  --editor-bg: var(--bg);  /* the editor page */
+  --card-bg:   var(--bg2); /* the filled block of a top-level section */
+
+  /* ── Editor layout ── */
+  --key-width:      300px; /* key column; every value starts right after it */
+  --list-key-width: 160px; /* key column inside an object that is a list item */
+  --indent-step:    0.5ch; /* indent per nesting level (1ch = one letter) */
+  --row-height:     28px;  /* minimum height of an option row */
+  --section-gap:    14px;  /* between top-level blocks */
+  --card-gap:       8px;   /* around a bordered sub-section */
+  --nested-section-gap: 4px; /* below a section nested inside a sub-section */
+  --list-item-gap:  1ch;   /* space around each object in a list (1ch = one letter) */
+  --block-pad:      10px;  /* side padding of a block and of a bordered sub-section */
+  --section-title-size: 13px; /* top-level section name */
+  --panel-shadow-size:  6px;  /* blur of the soft shadow beside a panel edge */
+
+  /* ── Editor colours ── */
+  --section-title-color:    var(--section-key-color); /* top-level section name */
+  --section-key-deep-color: var(--section-key-color); /* section names below a sub-section */
+  --value-bg:       color-mix(in srgb, var(--card-bg) 50%, var(--editor-bg)); /* value cell: halfway between the section and the page */
+  --value-bg-loose: var(--editor-bg); /* value cell outside any block (same colour, so unseen) */
+  --danger-text:    #ffffff; /* text on a red (destructive) menu item */
 
   /* ── Misc UI ── */
-  --statusbar-bg:   #e4e4e4;
-  --dirty-color:    #d97706;
-  --wildcard-bg:    #e8e8e8;
-  --wildcard-hover: #dcdcdc;
-  --shadow:         #00000028;
+  --statusbar-bg:   var(--bg2);
+  --dirty-color:    color-mix(in srgb, #b9b745 70%, #111111);
+  --wildcard-bg:    #e9e9e9;
+  --wildcard-hover: #e2e2e2;
+  --shadow:         rgb(0 0 0 / 14%);
+  --panel-hairline: rgb(0 0 0 / 12%); /* 1px line along a panel edge */
+  --panel-shadow:   rgb(0 0 0 / 14%); /* small soft shadow a panel casts beside that line */
   --overlay:        #00000055;
-  --scrollbar:      #bbbbbb;
-  --scrollbar-hover:#999999;
-  --section-header-border: rgba(0,0,0,0.12);
+  --scrollbar:      #c2c2c2;
+  --scrollbar-hover:#a8a8a8;
 
   /* ── Terminal theme (iTerm2 Light Background) ── */
-  --term-bg:             var(--bg);
+  --term-bg:             var(--editor-bg);
   --term-fg:             #000000;
   --term-cursor:         #000000;
   --term-cursor-style:          bar;

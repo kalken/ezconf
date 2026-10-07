@@ -28,6 +28,7 @@
   --select-option-bg:    #0d1a2e; /* dropdown background */
   --select-option-color: #dce6f4; /* dropdown option text */
   --select-option-hover: #1a2c50; /* dropdown option hover */
+  --popup-bg: var(--bg2); /* dialogs and tooltips */
   /* ── Button states ── */
   --btn-primary-bg:     #1a3a70;
   --btn-primary-border: #2858b0;
@@ -38,6 +39,7 @@
   --selected-bg:   #1a2c50;
   --toggle-on-bg:  #1a3878;
   --toggle-on-knob:   var(--accent);
+  --toggle-on-border: var(--input-focus-border);
   --input-focus-border: var(--accent2);
 
   /* ── Section keys / active tab ── */
@@ -58,6 +60,28 @@
 
   /* ── Editor fields ── */
   --field-bg: rgba(0,0,0,0.12);
+  --editor-bg: var(--bg);  /* the editor page */
+  --card-bg:   var(--bg2); /* the filled block of a top-level section */
+
+  /* ── Editor layout ── */
+  --key-width:      300px; /* key column; every value starts right after it */
+  --list-key-width: 160px; /* key column inside an object that is a list item */
+  --indent-step:    0.5ch; /* indent per nesting level (1ch = one letter) */
+  --row-height:     28px;  /* minimum height of an option row */
+  --section-gap:    14px;  /* between top-level blocks */
+  --card-gap:       8px;   /* around a bordered sub-section */
+  --nested-section-gap: 4px; /* below a section nested inside a sub-section */
+  --list-item-gap:  1ch;   /* space around each object in a list (1ch = one letter) */
+  --block-pad:      10px;  /* side padding of a block and of a bordered sub-section */
+  --section-title-size: 13px; /* top-level section name */
+  --panel-shadow-size:  6px;  /* blur of the soft shadow beside a panel edge */
+
+  /* ── Editor colours ── */
+  --section-title-color:    var(--section-key-color); /* top-level section name */
+  --section-key-deep-color: var(--section-key-color); /* section names below a sub-section */
+  --value-bg:       color-mix(in srgb, var(--card-bg) 50%, var(--editor-bg)); /* value cell: halfway between the section and the page */
+  --value-bg-loose: var(--editor-bg); /* value cell outside any block (same colour, so unseen) */
+  --danger-text:    #ffffff; /* text on a red (destructive) menu item */
 
   /* ── Misc UI ── */
   --statusbar-bg:   #040508;
@@ -65,13 +89,14 @@
   --wildcard-bg:    #10102a;
   --wildcard-hover: #181838;
   --shadow:         #00000090;
+  --panel-hairline: rgb(0 0 0 / 28%); /* 1px line along a panel edge */
+  --panel-shadow:   rgb(0 0 0 / 40%); /* small soft shadow a panel casts beside that line */
   --overlay:        #000000aa;
   --scrollbar:      #1a2438;
   --scrollbar-hover:#222e48;
-  --section-header-border: rgba(255,255,255,0.07);
 
   /* ── Terminal theme (iTerm2 default) ── */
-  --term-bg:             var(--bg);
+  --term-bg:             var(--editor-bg);
   --term-fg:             #c7c7c7;
   --term-cursor:         #d0d0d0;
   --term-cursor-style:          bar;

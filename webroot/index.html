@@ -53,7 +53,6 @@ const _DEFAULT_THEME = '%%EZCONF_THEME%%';
   </div>
   <div class="tab-bar-actions">
     <button class="btn" id="search-toggle-btn" onclick="toggleSearchPanel()" data-tooltip="Search option paths and values (Ctrl+F)"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg></button>
-    <button class="btn" id="flat-mode-btn" onclick="toggleFlatMode()" data-tooltip="Toggle flat / nested view"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M21 9H3"/><path d="M21 15H3"/></svg></button>
     <button class="btn" id="tree-toggle-btn" onclick="toggleTree()" data-tooltip="Show/hide the configuration tree"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 5h13"/><path d="M13 12h8"/><path d="M13 19h8"/><path d="M3 10a2 2 0 0 0 2 2h3"/><path d="M3 5v12a2 2 0 0 0 2 2h3"/></svg></button>
   </div>
 </div>
@@ -311,22 +310,12 @@ function renameKeyAtPath(path, newKey) {
 
 // Inline-renames the key at `path`: swaps its label for a live <input>, same pattern as
 // _startTabRename/_startFolderRename. Works for a section header (.section-header) and a
-// field/array-field row (.field-key) in tree/nested mode, and for a top-level or nested group
-// header (.flat-group/.flat-sublevel, via makeFlatGroupHeader()/makeFlatSubHeader()) in flat mode
-// -- those use their own .flat-group-label/.flat-sublevel-label spans instead of a shared
-// .tt-anchor, since they're built by flat-mode-specific code, not renderSection(). Previously only
-// the first two were matched, so Rename silently did nothing on a flat-mode group/sublevel (the
-// menu item still appeared -- see _commonMenuItems() -- but this function's own `if (!anchor)
-// return` guard swallowed it with no error).
+// field/array-field row (.field-key).
 function _startKeyRename(path) {
   const pathKey = path.join('.');
   const el = document.querySelector('[data-path="' + CSS.escape(pathKey) + '"]');
   if (!el) return;
-  const anchor = el.querySelector(
-    ':scope > .section-header .tt-anchor, :scope > .field-key .tt-anchor, ' +
-    ':scope > .flat-group-content > .flat-group-header > .flat-group-label, ' +
-    ':scope > .flat-sublevel-content > .flat-sublevel-header > .flat-sublevel-label'
-  );
+  const anchor = el.querySelector(':scope > .section-header .tt-anchor, :scope > .field-key .tt-anchor');
   if (!anchor) return;
   const oldKey = path[path.length - 1];
   const input = document.createElement('input');
@@ -1933,9 +1922,7 @@ async function _jumpToSearchResult(match) {
 // ── Tree ──────────────────────────────────────────────────────────────────────
 function findEditorEl(pathKey) {
   return document.querySelector(`.section[data-path="${pathKey}"]`)
-      || document.querySelector(`.field-row[data-path="${pathKey}"]`)
-      || document.querySelector(`.flat-group[data-path="${pathKey}"]`)
-      || document.querySelector(`.flat-sublevel[data-path="${pathKey}"]`);
+      || document.querySelector(`.field-row[data-path="${pathKey}"]`);
 }
 
 function renderTree() {
@@ -2048,33 +2035,6 @@ function reorderKey(parentPath, fromKey, toKey) {
   renderAll();
 }
 
-function makeFlatColHandle() {
-  const handle = document.createElement('div');
-  handle.className = 'flat-col-handle';
-  handle.addEventListener('mousedown', e => {
-    e.preventDefault();
-    const area = document.getElementById('editor-area');
-    const startX = e.clientX;
-    const startW = handle.previousElementSibling.getBoundingClientRect().width;
-    const containerW = area.getBoundingClientRect().width;
-    function onMove(e) {
-      const pct = Math.max(10, Math.min(90, (startW + e.clientX - startX) / containerW * 100));
-      area.style.setProperty('--flat-key-width', pct + '%');
-    }
-    function onUp() {
-      window.removeEventListener('mousemove', onMove);
-      window.removeEventListener('mouseup', onUp);
-      document.body.style.cursor = '';
-      document.body.style.userSelect = '';
-    }
-    document.body.style.cursor = 'col-resize';
-    document.body.style.userSelect = 'none';
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup', onUp);
-  });
-  return handle;
-}
-
 // Elements that must keep normal click/focus/text-selection behavior instead of starting a
 // drag — relevant mainly for `handle` being the whole row (no dedicated key element to restrict
 // to, e.g. an anonymous array item), where the row's value inputs/buttons still need to work.
@@ -2106,15 +2066,6 @@ function makeDraggable(el, key, parentPath, handle) {
     // Create ghost
     dragGhost = el.cloneNode(true);
     dragGhost.className += ' drag-ghost';
-    if (flatMode) {
-      // .flat-mode .field-key's key/value split (--flat-key-width, default 50%) only applies
-      // to a descendant of #editor-area.flat-mode — the ghost, appended straight to <body>, has
-      // no such ancestor, so without this it silently falls back to plain .field-key's
-      // content-width flex-basis, visibly closing up the gap before the value column.
-      dragGhost.classList.add('flat-mode');
-      const kw = document.getElementById('editor-area').style.getPropertyValue('--flat-key-width');
-      if (kw) dragGhost.style.setProperty('--flat-key-width', kw);
-    }
     dragGhost.style.width = rect.width + 'px';
     dragGhost.style.left = rect.left + 'px';
     dragGhost.style.top = rect.top + 'px';
@@ -2184,7 +2135,7 @@ function makeDraggable(el, key, parentPath, handle) {
   });
 }
 
-// Hidden by default (unlike flat mode's URL-param persistence) — remembered per-browser via
+// Hidden by default — remembered per-browser via
 // localStorage since which tab/path you're in doesn't affect whether the tree is useful.
 function toggleTree() {
   const visible = document.getElementById('sidebar').classList.toggle('hidden') === false;
@@ -2562,187 +2513,6 @@ function closeMarkdownPanel(name) {
   _persistOpenMarkdownDocs();
 }
 
-let flatMode = new URLSearchParams(location.search).get('mode') === 'flat';
-
-function toggleFlatMode() {
-  const prevPath = document.getElementById('status-path').textContent;
-  flatMode = !flatMode;
-  const url = new URL(location);
-  if (flatMode) url.searchParams.set('mode', 'flat');
-  else url.searchParams.delete('mode');
-  history.replaceState(null, '', url);
-  document.getElementById('flat-mode-btn').classList.toggle('active', flatMode);
-  renderEditor();
-  if (prevPath && prevPath !== 'root') {
-    const el = findEditorEl(prevPath);
-    if (el) scrollThenFlash(el, 'center');
-  }
-}
-
-// Recursively collect leaf fields, grouping second-level objects as sub-groups.
-function makeFlatDragHandle() {
-  const h = document.createElement('span');
-  h.className = 'drag-handle';
-  h.innerHTML = '⠿';
-  _wireHoverTooltip(h, 'Drag to reorder');
-  return h;
-}
-
-function makeFlatSubHeader(k, childPath, depth) {
-  const wrap = document.createElement('div');
-  wrap.className = 'flat-sublevel-header';
-  wrap.dataset.depth = depth;
-  wrap.style.setProperty('--depth', depth);
-
-  wrap.appendChild(makeFlatDragHandle());
-  const lbl = document.createElement('span');
-  lbl.className = 'flat-sublevel-label';
-  lbl.textContent = k;
-  lbl.onclick = e => showAddOptionMenu(e, childPath);
-  wrap.appendChild(lbl);
-
-  const actions = document.createElement('div');
-  actions.className = 'flat-sublevel-actions';
-
-  const exprBtn = document.createElement('button');
-  exprBtn.className = 'icon-btn expr-wrap-btn'; exprBtn.textContent = '{ }'; _wireHoverTooltip(exprBtn, 'Convert to Nix');
-  exprBtn.onclick = () => { const cur = getAtPath(config, childPath); setAtPath(config, childPath, { _expr: jsonToNix(cur) }); renderAll(); };
-  actions.appendChild(exprBtn);
-
-  const delBtn = document.createElement('button');
-  delBtn.className = 'icon-btn del'; delBtn.textContent = '✕'; _wireHoverTooltip(delBtn, 'Delete');
-  delBtn.onclick = () => { deleteAtPath(config, childPath); renderAll(); };
-  actions.appendChild(delBtn);
-
-  wrap.appendChild(actions);
-  return wrap;
-}
-
-function renderFlatLeaves(container, obj, path, depth) {
-  if (typeof obj !== 'object' || obj === null) return;
-  for (const [k, v] of Object.entries(obj)) {
-    const childPath = [...path, k];
-    const isSection = v !== null && typeof v === 'object' && !Array.isArray(v) && !isExprPkg(v);
-    if (isSection) {
-      const sub = document.createElement('div');
-      sub.className = 'flat-sublevel';
-      sub.dataset.path = childPath.join('.');
-      sub.dataset.depth = depth;
-
-      const content = document.createElement('div');
-      content.className = 'flat-sublevel-content';
-      const subHeader = makeFlatSubHeader(k, childPath, depth);
-      content.appendChild(subHeader);
-      renderFlatLeaves(content, v, childPath, depth + 1);
-      sub.appendChild(content);
-      // Mirrors renderSection's binding on the whole section (not just the header) so
-      // right-clicking anywhere inside — including blank space — offers Add option.
-      // Nested rows/subsections have their own handler + stopPropagation, so a right-click
-      // on a child still shows the child's menu, not this one.
-      sub.oncontextmenu = e => {
-        const items = isDisabled(getAtPath(config, childPath)) ? [] : [
-          ..._addOptionMenuItems(e, childPath),
-          { label: 'Convert to Nix', onclick: () => { setAtPath(config, childPath, { _expr: jsonToNix(getAtPath(config, childPath)) }); renderAll(); } },
-        ];
-        showContextMenu(e, [...items, ..._commonMenuItems(childPath)]);
-      };
-      container.appendChild(sub);
-      makeDraggable(sub, k, path, subHeader);
-    } else if (Array.isArray(v)) {
-      renderFlatArray(container, v, childPath, depth + 1);
-    } else {
-      renderField(container, childPath.join('.'), v, childPath);
-    }
-  }
-}
-
-function renderFlatArray(container, arr, path, depth) {
-  const hasObjects = arr.some(item => item !== null && typeof item === 'object' && !Array.isArray(item) && !isExprPkg(item));
-  if (hasObjects) {
-    arr.forEach((item, i) => {
-      const itemPath = [...path, i];
-      if (item !== null && typeof item === 'object' && !Array.isArray(item) && !isExprPkg(item)) {
-        renderFlatLeaves(container, item, itemPath, depth);
-      } else {
-        renderField(container, itemPath.join('.'), item, itemPath);
-      }
-    });
-  } else {
-    renderArrayField(container, path.join('.'), arr, path);
-  }
-}
-
-function makeFlatGroupHeader(k, childPath) {
-  const row = document.createElement('div');
-  row.className = 'flat-group-header';
-  row.appendChild(makeFlatDragHandle());
-  const lbl = document.createElement('span');
-  lbl.className = 'flat-group-label'; lbl.textContent = k;
-  lbl.onclick = e => showAddOptionMenu(e, childPath);
-  row.appendChild(lbl);
-  const actions = document.createElement('div');
-  actions.className = 'flat-sublevel-actions';
-  const exprBtn = document.createElement('button');
-  exprBtn.className = 'icon-btn expr-wrap-btn'; exprBtn.textContent = '{ }'; _wireHoverTooltip(exprBtn, 'Convert to Nix');
-  exprBtn.onclick = () => { const cur = getAtPath(config, childPath); setAtPath(config, childPath, { _expr: jsonToNix(cur) }); renderAll(); };
-  actions.appendChild(exprBtn);
-  const delBtn = document.createElement('button');
-  delBtn.className = 'icon-btn del'; delBtn.textContent = '✕'; _wireHoverTooltip(delBtn, 'Delete');
-  delBtn.onclick = () => { deleteAtPath(config, childPath); renderAll(); };
-  actions.appendChild(delBtn);
-  row.appendChild(actions);
-  return row;
-}
-
-// Flat mode: show top-level sections as headers, leaves listed under each with full paths.
-function renderFlat(container, obj, path) {
-  for (const [k, v] of Object.entries(obj)) {
-    const childPath = [...path, k];
-    const isSection = v !== null && typeof v === 'object' && !Array.isArray(v) && !isExprPkg(v);
-    if (isSection) {
-      const group = document.createElement('div');
-      group.className = 'flat-group';
-      group.dataset.path = childPath.join('.');
-
-      const content = document.createElement('div');
-      content.className = 'flat-group-content';
-      const groupHeader = makeFlatGroupHeader(k, childPath);
-      content.appendChild(groupHeader);
-      renderFlatLeaves(content, v, childPath, 0);
-      group.appendChild(content);
-      group.oncontextmenu = e => {
-        const items = isDisabled(getAtPath(config, childPath)) ? [] : [
-          ..._addOptionMenuItems(e, childPath),
-          { label: 'Convert to Nix', onclick: () => { setAtPath(config, childPath, { _expr: jsonToNix(getAtPath(config, childPath)) }); renderAll(); } },
-        ];
-        showContextMenu(e, [...items, ..._commonMenuItems(childPath)]);
-      };
-      container.appendChild(group);
-      makeDraggable(group, k, path, groupHeader);
-    } else if (Array.isArray(v)) {
-      const hasObjects = v.some(item => item !== null && typeof item === 'object' && !Array.isArray(item) && !isExprPkg(item));
-      if (hasObjects) {
-        const group = document.createElement('div');
-        group.className = 'flat-group';
-        group.dataset.path = childPath.join('.');
-
-        const content = document.createElement('div');
-        content.className = 'flat-group-content';
-        const groupHeader = makeFlatGroupHeader(k, childPath);
-        content.appendChild(groupHeader);
-        renderFlatArray(content, v, childPath, 0);
-        group.appendChild(content);
-        container.appendChild(group);
-        makeDraggable(group, k, path, groupHeader);
-      } else {
-        renderArrayField(container, k, v, childPath);
-      }
-    } else {
-      renderField(container, k, v, childPath);
-    }
-  }
-}
-
 function renderEditor() {
   const area = document.getElementById('editor-area');
   const scroll = area.scrollTop;
@@ -2752,7 +2522,6 @@ function renderEditor() {
   // the area blank, and let right-clicking it do the same thing the tab bar's own empty-space
   // menu offers.
   if (!activeFile) {
-    area.classList.remove('flat-mode');
     const empty = document.createElement('div');
     empty.className = 'editor-empty-state';
     empty.innerHTML = 'No configuration files yet.<br>Right-click here (or the tab bar above) to create your first one.';
@@ -2765,25 +2534,70 @@ function renderEditor() {
     };
     return;
   }
-  area.classList.toggle('flat-mode', flatMode);
   // Dim the whole editor when the active file itself is disabled (not just its tab) — a
   // dedicated class rather than reusing .is-disabled, since that also sets pointer-events: none
   // on inputs and a per-row strikethrough, neither of which apply here: a disabled file stays
   // fully editable/saveable (see "Disabling a file or folder" in CLAUDE.md), this is purely
   // visual so it's obvious at a glance which file you're looking at.
   area.classList.toggle('file-disabled', _isFileDisabled(activeFile));
-  if (flatMode) renderFlat(area, config, []);
-  else renderObj(area, config, []);
+  renderObj(area, config, []);
+  _setNestDepths(area);
+  _setValuePlaceholders(area);
   area.scrollTop = scroll;
   // Right-clicking any actual row shows that row's own menu (stopPropagation in
   // showContextMenu), so this only ever fires on genuinely empty space — most importantly a
   // blank (or not-yet-populated) file, which otherwise has nowhere to right-click to add a
   // top-level option. Paste is only offered when there's something to paste.
-  area.oncontextmenu = e => {
+  // Below those comes the open file's own menu, the same one its tab shows (_fileMenuItems()).
+  // Prevented synchronously for the same reason the tab's handler does it: that menu is built
+  // after an awaited fetch, by which point showContextMenu()'s own preventDefault() is too late
+  // to stop the native menu.
+  area.oncontextmenu = async e => {
+    e.preventDefault();
+    e.stopPropagation();
     const items = [{ label: 'Add option…', onclick: () => showAddOptionMenu(e, []) }];
-    if (_clipboard) items.push({ separator: true }, { label: 'Paste', onclick: pastePath });
+    if (_clipboard) items.push({ label: 'Paste', onclick: pastePath });
+    items.push({ separator: true }, ...await _fileMenuItems(activeFile));
     showContextMenu(e, items);
   };
+}
+
+// The editor indents each key by its nesting depth while keeping every value in one column (see
+// "Option rows" in style.css), which needs each row to know how deep it is. Counted from the
+// finished DOM in one pass rather than threaded through renderObj()/renderSection()/
+// renderDisabled() and every other caller as a parameter, and not derivable in CSS alone (a
+// custom property can't be defined in terms of its own inherited value). Object items inside an
+// array restart at 0, since they're already laid out inside the value column.
+//
+// Also tags each one with the classes all of the editor's row styling hangs off: .nest on every row,
+// .nest-top on a top-level section (a bare heading), .nest-card on a section directly under one
+// (the only thing that gets a card), and .nest-loose on an option with no such section around
+// it (it stays on the page background, padded to line up with the cards). Classes
+// on the row itself rather than selectors written against its ancestors, so a drag ghost (a
+// clone appended to <body>, see makeDraggable()) carries its whole look along with it.
+function _setNestDepths(root) {
+  for (const el of root.querySelectorAll('.section, .field-row')) {
+    let depth = 0, inArrayObj = false;
+    for (let p = el.parentElement; p && p !== root; p = p.parentElement) {
+      if (p.classList.contains('array-obj-fields')) { inArrayObj = true; break; }
+      if (p.classList.contains('section')) depth++;
+    }
+    const isSection = el.classList.contains('section');
+    el.style.setProperty('--depth', depth);
+    el.classList.add('nest');
+    el.classList.toggle('nest-top', !inArrayObj && isSection && depth === 0);
+    el.classList.toggle('nest-card', !inArrayObj && isSection && depth === 1);
+    el.classList.toggle('nest-loose', !inArrayObj && !isSection && depth <= 1);
+  }
+}
+
+// Text values are drawn with no box at rest (see "Option rows" in style.css), so an
+// empty one would otherwise be invisible -- nothing there to show it can be typed into. Only
+// fills in inputs that don't already carry a more specific placeholder of their own.
+function _setValuePlaceholders(root) {
+  for (const el of root.querySelectorAll('input[type=text], input[type=number], textarea')) {
+    if (!el.placeholder) el.placeholder = 'Type a value…';
+  }
 }
 
 function renderObj(container, obj, path) {
@@ -3024,6 +2838,15 @@ function _addOptionMenuItems(event, path, subLabel = 'Add sub option…') {
   ];
 }
 
+// An object inside a list has no header of its own to right-click -- its "Add field" lives on
+// the item's blank space (renderArray()), which its own option rows cover almost entirely. So a
+// row directly inside such an item offers the item's add entries itself, on top of its own.
+function _listItemAddMenuItems(event, path) {
+  const itemPath = path.slice(0, -1);
+  if (!itemPath.length || !Array.isArray(getAtPath(config, itemPath.slice(0, -1)))) return [];
+  return _addOptionMenuItems(event, itemPath, 'Add field');
+}
+
 // Right-click "Add option…": rather than a separate/duplicate implementation, this temporarily
 // relocates the real topbar add-input (+ its autocomplete dropdown, Add button, and force-type
 // bar) to a floating panel at the cursor — so search, wildcard hints, Tab-completion, force-add,
@@ -3180,7 +3003,9 @@ function renderSection(container, key, obj, path) {
   body.className = 'section-body';
   renderObj(body, obj, path);
   section.appendChild(body);
-  makeDraggable(section, key, path.slice(0, -1), header);
+  // Only the key's own text starts a drag, not the whole header row (which spans the full width
+  // of the section) -- so pressing anywhere else on that line can't lift the section by accident.
+  makeDraggable(section, key, path.slice(0, -1), header.querySelector('.tt-anchor'));
   container.appendChild(section);
 }
 
@@ -3243,13 +3068,12 @@ function renderArrayField(container, key, arr, path) {
       ...(isPkgArrayPath(path) || enumOpts ? [] : [{ label: 'Add item', onclick: addItem }]),
       { label: 'Convert to Nix', onclick: () => { setAtPath(config, path, { _expr: jsonToNix(getAtPath(config, path)) }); renderAll(); } },
     ];
-    showContextMenu(e, [...items, ..._commonMenuItems(path)]);
+    showContextMenu(e, [..._listItemAddMenuItems(e, path), ...items, ..._commonMenuItems(path)]);
   };
 
   row.appendChild(keyEl);
-  if (flatMode) row.appendChild(makeFlatColHandle());
   row.appendChild(valEl);
-  makeDraggable(row, path[path.length - 1], path.slice(0, -1), keyEl);
+  makeDraggable(row, path[path.length - 1], path.slice(0, -1), keyLabelInner);
   container.appendChild(row);
 }
 
@@ -3266,6 +3090,53 @@ function parseEnumOptions(nixType) {
   const hasNull = nixType.startsWith('null or') || nixType.includes('null or');
   return { values: matches, nullable: hasNull };
 }
+
+// Dropdowns and suggestion lists inside the editor are children of its scroll container, which
+// clips anything positioned past its own edge -- so one opened near the bottom was cut off at
+// the terminal panel instead of showing over it. position: fixed takes a popup out of that
+// clipping (nothing between it and <body> has a transform/filter that would re-contain it),
+// placed from its anchor's on-screen rect: below it by default, above when there's more room
+// there, and capped to the room available so it never runs off-screen either way.
+// Fixed means it no longer scrolls along with its anchor, so every popup placed this way is
+// tracked in _floatedPopups and re-placed on any scroll/resize while it's still open (a hidden
+// or removed one just drops out of the set there -- none of the many places that hide one need
+// to know about this).
+const _floatedPopups = new Map();
+function _placeFloatedPopup(popup, anchor) {
+  const gap = 3, margin = 6;
+  const r = anchor.getBoundingClientRect();
+  popup.style.position = 'fixed';
+  popup.style.minWidth = r.width + 'px';
+  popup.style.maxHeight = '';
+  popup.style.top = '0px'; popup.style.bottom = 'auto'; popup.style.left = '0px';
+  const cap = parseFloat(getComputedStyle(popup).maxHeight) || Infinity;
+  const height = popup.offsetHeight, width = popup.offsetWidth;
+  const below = window.innerHeight - r.bottom - gap - margin;
+  const above = r.top - gap - margin;
+  if (height <= below || below >= above) {
+    popup.style.top = (r.bottom + gap) + 'px';
+    popup.style.maxHeight = Math.max(60, Math.min(cap, below)) + 'px';
+  } else {
+    popup.style.top = 'auto';
+    popup.style.bottom = (window.innerHeight - r.top + gap) + 'px';
+    popup.style.maxHeight = Math.max(60, Math.min(cap, above)) + 'px';
+  }
+  popup.style.left = Math.max(margin, Math.min(r.left, window.innerWidth - margin - width)) + 'px';
+}
+function _floatPopup(popup, anchor) {
+  _floatedPopups.set(popup, anchor);
+  _placeFloatedPopup(popup, anchor);
+}
+function _refloatPopups(e) {
+  for (const [popup, anchor] of _floatedPopups) {
+    if (!popup.isConnected || !anchor.isConnected || popup.classList.contains('hidden')) { _floatedPopups.delete(popup); continue; }
+    // Scrolling the popup's own list isn't the page moving under it.
+    if (e && e.target instanceof Node && popup.contains(e.target)) continue;
+    _placeFloatedPopup(popup, anchor);
+  }
+}
+document.addEventListener('scroll', _refloatPopups, true);
+window.addEventListener('resize', _refloatPopups);
 
 function makeCustomSelect(items, curValue, onChange, { search = true } = {}) {
   const wrap = document.createElement('div');
@@ -3310,6 +3181,7 @@ function makeCustomSelect(items, curValue, onChange, { search = true } = {}) {
   function open() {
     dropdown.classList.remove('hidden');
     renderList(searchInp ? searchInp.value : '');
+    _floatPopup(dropdown, btn);
     const sel = list.querySelector('.selected');
     if (sel) sel.scrollIntoView({ block: 'nearest' });
     if (searchInp) searchInp.focus(); else btn.focus();
@@ -3327,7 +3199,7 @@ function makeCustomSelect(items, curValue, onChange, { search = true } = {}) {
     if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); }
     if (e.key === 'Escape') close();
   });
-  if (searchInp) searchInp.addEventListener('input', () => renderList(searchInp.value));
+  if (searchInp) searchInp.addEventListener('input', () => { renderList(searchInp.value); _floatPopup(dropdown, btn); });
 
   document.addEventListener('mousedown', e => { if (!wrap.contains(e.target)) close(); }, true);
 
@@ -3547,13 +3419,12 @@ function renderField(container, key, val, path) {
       ...(unwrapAction ? [{ label: 'Convert to native', onclick: unwrapAction }] : []),
       ...(canConvertExpr ? [{ label: 'Convert to Nix', onclick: convertToExpr }] : []),
     ];
-    showContextMenu(e, [...items, ..._commonMenuItems(path)]);
+    showContextMenu(e, [..._listItemAddMenuItems(e, path), ...items, ..._commonMenuItems(path)]);
   };
 
   row.appendChild(keyEl);
-  if (flatMode) row.appendChild(makeFlatColHandle());
   row.appendChild(valEl);
-  makeDraggable(row, path[path.length - 1], path.slice(0, -1), keyEl);
+  makeDraggable(row, path[path.length - 1], path.slice(0, -1), keyLabelInner);
   container.appendChild(row);
 }
 
@@ -3615,6 +3486,10 @@ function renderArray(container, arr, path) {
     if (isExpr) editor.classList.add('expr-value');
     item.oncontextmenu = e => {
       const items = [
+        // Also offered here, not only on the list's own row: an item's text box covers most of
+        // the row, so right-clicking "the list" usually lands on an item (same push as the row's
+        // own "Add item" does for a list of plain values, see renderArrayField()).
+        { label: 'Add item', onclick: () => { arr.push(''); renderAll(); } },
         isExpr
           ? { label: 'Convert to native', onclick: () => { setAtPath(config, itemPath, editor.value); renderAll(); } }
           : { label: 'Convert to Nix', onclick: () => { setAtPath(config, itemPath, { _expr: editor.value }); renderAll(); } },
@@ -3680,6 +3555,7 @@ function renderPkgArray(container, arr, path) {
       acList.appendChild(it);
     });
     acList.classList.remove('hidden');
+    _floatPopup(acList, inp);
   }
 
   function addPkg(name) {
@@ -3774,6 +3650,7 @@ function renderEnumArray(container, arr, path, enumOpts) {
       acList.appendChild(it);
     });
     acList.classList.remove('hidden');
+    _floatPopup(acList, inp);
   }
 
   function addValue(val) {
@@ -4217,10 +4094,12 @@ function setImportExample(el) {
   ta.value = el.textContent;
   _validateImportInput(ta);
 }
-function showImportModal() {
+// `targetFile` prefills "Import into" -- a file's own menu passes that file, so importing from a
+// tab that isn't the open one goes where the menu said rather than into whatever's active.
+function showImportModal(targetFile) {
   const ta = document.getElementById('import-textarea');
   ta.value = '';
-  document.getElementById('import-target-file').value = activeFile || '';
+  document.getElementById('import-target-file').value = (typeof targetFile === 'string' && targetFile) || activeFile || '';
   _importClearError();
   document.getElementById('import-modal').classList.remove('hidden');
 }
@@ -5484,6 +5363,51 @@ function _folderLabel(name) {
 // Tabs are plain divs, not <button>s, because rename mode swaps the label for a live <input> —
 // and an <input> nested inside a real <button> is invalid HTML with inconsistent browser
 // behavior.
+// The menu for one file: what right-clicking its tab shows, and (after the editor's own entries)
+// what right-clicking blank space in the editor shows for the open file -- one builder so the two
+// can't drift apart. Async because the Restore submenu lists that file's backups from the server.
+async function _fileMenuItems(name) {
+  const disabled = _isFileDisabled(name);
+  const items = [];
+  const ownDisabled = name.endsWith('.json.disabled');
+  // If the file is only disabled because it sits in a disabled folder, toggling its own
+  // state here would have no visible effect until the folder itself is re-enabled — so the
+  // item is only offered when this file's own disabled-ness is what's being toggled.
+  if (!disabled || ownDisabled) {
+    items.push({
+      label: ownDisabled ? 'Enable file' : 'Disable file',
+      onclick: () => _toggleFileDisabled(name, !ownDisabled),
+    });
+  }
+  items.push({ label: 'Import', title: 'Merge pasted or loaded Nix/JSON into this file', onclick: () => showImportModal(name) });
+  items.push({ label: 'Export', onclick: () => exportFile(name) });
+  items.push({ label: 'Reload', title: 'Discard unsaved edits to this file and reload it from disk', onclick: () => reloadFile(name) });
+  // This file's own backups (was the header Restore button's "File" submenu, back when it
+  // covered both scopes — see showBackupsMenu()'s own comment for why that split moved here).
+  // Explicitly this file, not activeFile: right-clicking a tab that isn't the active one should
+  // restore into *that* file, not silently overwrite whatever's currently open.
+  if (BACKUP_ENABLED) {
+    let fileBackups = [];
+    try {
+      const res = await apiFetch('/backups?file=' + encodeURIComponent(name));
+      if (res.ok) fileBackups = (await res.json()).backups || [];
+    } catch (err) { /* falls through to the empty-state item below */ }
+    items.push({
+      label: 'Restore',
+      items: fileBackups.length
+        ? fileBackups.map(b => ({
+            label: new Date(b.mtime * 1000).toLocaleString() + '  ·  ' + _formatBackupSize(b.size),
+            onclick: () => loadBackup(b.name, name),
+          }))
+        : [{ label: 'No backups yet — one is made on every save.', disabled: true }],
+    });
+  }
+  items.push({ separator: true });
+  items.push({ label: 'Clear', onclick: () => clearFile(name) });
+  items.push({ label: 'Delete', danger: true, onclick: () => deleteFile(name) });
+  return items;
+}
+
 function _makeTab(name) {
   const tab = document.createElement('div');
   const disabled = _isFileDisabled(name);
@@ -5566,43 +5490,7 @@ function _makeTab(name) {
     // dispatch; calling it again once the event's already fully dispatched is a no-op).
     e.preventDefault();
     e.stopPropagation();
-    const items = [];
-    const ownDisabled = name.endsWith('.json.disabled');
-    // If the file is only disabled because it sits in a disabled folder, toggling its own
-    // state here would have no visible effect until the folder itself is re-enabled — so the
-    // item is only offered when this file's own disabled-ness is what's being toggled.
-    if (!disabled || ownDisabled) {
-      items.push({
-        label: ownDisabled ? 'Enable file' : 'Disable file',
-        onclick: () => _toggleFileDisabled(name, !ownDisabled),
-      });
-    }
-    items.push({ label: 'Export', onclick: () => exportFile(name) });
-    items.push({ label: 'Reload', title: 'Discard unsaved edits to this file and reload it from disk', onclick: () => reloadFile(name) });
-    // This file's own backups (was the header Restore button's "File" submenu, back when it
-    // covered both scopes — see showBackupsMenu()'s own comment for why that split moved here).
-    // Explicitly this file, not activeFile: right-clicking a tab that isn't the active one should
-    // restore into *that* file, not silently overwrite whatever's currently open.
-    if (BACKUP_ENABLED) {
-      let fileBackups = [];
-      try {
-        const res = await apiFetch('/backups?file=' + encodeURIComponent(name));
-        if (res.ok) fileBackups = (await res.json()).backups || [];
-      } catch (err) { /* falls through to the empty-state item below */ }
-      items.push({
-        label: 'Restore',
-        items: fileBackups.length
-          ? fileBackups.map(b => ({
-              label: new Date(b.mtime * 1000).toLocaleString() + '  ·  ' + _formatBackupSize(b.size),
-              onclick: () => loadBackup(b.name, name),
-            }))
-          : [{ label: 'No backups yet — one is made on every save.', disabled: true }],
-      });
-    }
-    items.push({ separator: true });
-    items.push({ label: 'Clear', onclick: () => clearFile(name) });
-    items.push({ label: 'Delete', danger: true, onclick: () => deleteFile(name) });
-    showContextMenu(e, items);
+    showContextMenu(e, await _fileMenuItems(name));
   };
   return tab;
 }
@@ -6403,7 +6291,6 @@ async function loadSiblingFiles() {
   initRestartWatcher();
   initMarkdownMenu();
   initVersion();
-  document.getElementById('flat-mode-btn').classList.toggle('active', flatMode);
   const treeVisible = localStorage.getItem('ezconf-tree-visible') === 'true';
   document.getElementById('sidebar').classList.toggle('hidden', !treeVisible);
   document.getElementById('tree-toggle-btn').classList.toggle('active', treeVisible);
