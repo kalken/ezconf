@@ -80,7 +80,6 @@
   --section-title-color:    var(--section-key-color); /* top-level section name */
   --section-key-deep-color: var(--section-key-color); /* section names below a sub-section */
   --value-bg:       color-mix(in srgb, var(--card-bg) 50%, var(--editor-bg)); /* value cell: halfway between the section and the page */
-  --value-bg-loose: var(--editor-bg); /* value cell outside any block (same colour, so unseen) */
   --danger-text:    #ffffff; /* text on a red (destructive) menu item */
 
   /* ── Misc UI ── */
