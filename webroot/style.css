@@ -522,14 +522,14 @@ body {
    (rows themselves have no gaps between them, in a card or out of one). */
 /* A top-level section is the filled block (the lighter panel colour), heading included, edged
    all round by the same hairline and small soft shadow the panels have (see .tab-bar-row).
-   Each section directly under it has no fill of its own, only that same edge. */
+   Each section directly under it has neither fill nor edge of its own, only the block's side
+   padding again and some space above and below. */
 .section.nest-top {
   background: var(--card-bg); border-radius: var(--radius); padding: 8px var(--block-pad);
   box-shadow: 0 0 0 1px var(--panel-hairline), 0 0 var(--panel-shadow-size) var(--panel-shadow);
 }
 .section.nest-card {
   border-radius: var(--radius); padding: 4px var(--block-pad) 8px;
-  box-shadow: 0 0 0 1px var(--panel-hairline), 0 0 var(--panel-shadow-size) var(--panel-shadow);
 }
 /* An option at the very root of a file has no top-level block around it, so it takes that
    block's side padding itself to keep its value in the same column as everything else. */
