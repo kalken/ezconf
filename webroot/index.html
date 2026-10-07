@@ -5884,6 +5884,10 @@ async function _toggleFileDisabled(name, disable) {
     localStorage.setItem('ezconf-active-file', activeFile);
   }
   renderFileSelector();
+  // The editor too, not only the tab bar: its own dimmed look for a disabled file (.file-disabled,
+  // set in renderEditor()) otherwise stayed as it was until something else happened to re-render
+  // it, e.g. switching tabs and back -- so disabling the open file appeared to do nothing to it.
+  renderEditor();
   renderButtons();
   _pushHistory();
   _updateDirty();
@@ -5928,6 +5932,7 @@ async function _toggleFolderDisabled(name, disable) {
     localStorage.setItem('ezconf-active-file', activeFile);
   }
   renderFileSelector();
+  renderEditor(); // same reason as in _toggleFileDisabled(): the open file may be inside this folder
   renderButtons();
   _pushHistory();
   _updateDirty();
