@@ -113,6 +113,8 @@ let
     "auth = ${str cfg.auth.method}"
     "theme = ${str cfg.theme}"
     (lib.optional (cfg.mode != null) "mode = ${str cfg.mode}")
+    "terminal_auto_hide = ${lib.boolToString cfg.terminalAutoHide}"
+    "sections_default = ${str cfg.sectionsDefault}"
     "session_key_file = ${str "/var/lib/ezconf/session.key"}"
     "backup_dir = ${str cfg.backupDir}"
     "backup_count = ${toString cfg.backupCount}"
@@ -278,6 +280,18 @@ in
     terminal = lib.mkOption {
       type    = lib.types.bool;
       default = true;
+    };
+
+    terminalAutoHide = lib.mkOption {
+      type        = lib.types.bool;
+      default     = true;
+      description = "Hide the open terminal panel when clicking anywhere outside it. Set to false to keep it open until hidden with its own button.";
+    };
+
+    sectionsDefault = lib.mkOption {
+      type        = lib.types.enum [ "collapsed" "expanded" ];
+      default     = "collapsed";
+      description = "How the editor's foldable sections (the third level down and below) start out on page load: \"collapsed\" (hidden until opened) or \"expanded\" (shown until folded).";
     };
 
     https = lib.mkOption {

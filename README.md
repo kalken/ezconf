@@ -83,7 +83,7 @@ There's no "+" button anywhere — file and folder management is entirely right-
 - Right-click empty space in the tab bar (or the empty editor area, if there are no files yet) for **New file** / **New folder**.
 - Right-click a folder for **New file here** or **Delete folder** (removes everything inside it).
 - Right-click a tab for that file's menu: **Import** (merge pasted or loaded Nix/JSON into it), **Export**, **Delete**, or **Reload** to discard that one file's unsaved edits and reread it from disk (the header's own reload icon reloads every file plus the folder list in one go — the file list itself can change on disk too, e.g. from an external edit).
-- Right-click empty space in the editor for the same menu for the open file, below **Add option…**. Deeply nested sections (the third level down and below) start out folded, with an arrow in front of the name: click the arrow or the name to show or hide one. **Expand all** and **Collapse all** there do it for every foldable section in the file at once; the same two entries on a section's own right-click menu only reach that section and the ones inside it. Jumping to something inside a folded section (a search result, the tree sidebar, a newly added option) opens it for you. What you've opened is forgotten on a page reload.
+- Right-click empty space in the editor for the same menu for the open file, below **Add option…**. Deeply nested sections (the third level down and below) start out folded (or shown, with `sectionsDefault = "expanded"` / `sections_default` in `ezconf.toml`), with an arrow in front of the name: click the arrow or the name to show or hide one. **Expand all** and **Collapse all** there do it for every foldable section in the file at once; the same two entries on a section's own right-click menu only reach that section and the ones inside it. Jumping to something inside a folded section (a search result, the tree sidebar, a newly added option) opens it for you. What you've opened or folded is forgotten on a page reload.
 - Double-click a tab to rename it inline.
 - Drag a tab into a folder (or back out to the root) to move it.
 - Drag a section by its heading line, or an option by its name column, to reorder it, or onto a different file's tab to move it there — or use **Copy** / **Cut** / **Paste** (also right-click) to duplicate or relocate a section or option to the same path in another file.
@@ -212,6 +212,8 @@ services.ezconf = {
 ```
 
 `save_first = true` disables the button while there are unsaved changes. `clear_first` clears the terminal screen right before the command runs, and defaults to `true` — set it to `false` to instead run the command in whatever's already there. The terminal service has `restartIfChanged = false`, so a rebuild that only changes the `ezconf-terminal` package itself doesn't restart the running process — whatever's running in the terminal at the time keeps going straight through that.
+
+Clicking anywhere outside the open terminal panel hides it again, down to its button bar, the same as its own hide button. Set `terminalAutoHide = false` (`terminal_auto_hide = false` in `ezconf.toml`) to keep it open until you hide it yourself.
 
 Closing the browser tab (or losing the connection, reloading the page, or logging out) doesn't kill the shell — reopening the terminal reattaches to the same one (replaying its recent output) rather than starting fresh, so something long-running survives an accidentally-closed tab or a step-away-and-come-back. There's only ever one such shell, shared by *everyone* who connects — not one per browser — so anyone with access sees and can type into the exact same terminal, always; that's consistent with the rest of ezconf, which has no separate identity per person either (one shared login for everyone with access). It survives a page reload and a logout/login cycle, but not a reboot or a manual restart of `ezconf-terminal.service` itself — nothing can make a shell survive the process that owns it actually dying, and anything the shell itself spawned dies right along with it (systemd's own default cgroup-based cleanup on that restart, not anything ezconf does).
 
@@ -389,6 +391,8 @@ services.ezconf = {
 | `theme` | str | `"nixos"` | `nixos`, `dark`, `light`, or `gruvbox` |
 | `mode` | null or `"install"` | `null` | Set to `"install"` to show `mode = "install"` buttons in their own row and grey out ordinary ones, from page load — deploy-time only, no in-GUI toggle |
 | `terminal` | bool | `true` | Enable terminal panel and `ezconf-terminal.service`. The shared shell always persists across a dropped/closed connection (browser closed, network drop, logout) — reconnecting reattaches instead of starting fresh |
+| `terminalAutoHide` | bool | `true` | Hide the open terminal panel when clicking anywhere outside it; `false` keeps it open until hidden with its own button |
+| `sectionsDefault` | `"collapsed"` or `"expanded"` | `"collapsed"` | How the editor's foldable sections (the third level down and below) start out on page load |
 | `buttons` | list | `[]` | Shortcut buttons shown in the terminal panel |
 | `https` | bool | `true` | Enable HTTPS |
 | `generateCert` | bool | auto | Generate a local CA + cert in `/var/lib/ezconf/` (set automatically when `https = true` and no cert/key provided) |

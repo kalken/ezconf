@@ -29,8 +29,16 @@ file = "example/configuration.json"
 # meant for a dedicated install image, not something to flip on an already-running instance.
 # mode = "install"
 
+# How the editor's foldable sections (the third level down and below) start out on page load:
+# "collapsed" (hidden until opened, the default) or "expanded" (shown until folded).
+# sections_default = "collapsed"
+
 # Port the terminal.py WebSocket service is running on (enables terminal panel)
 # terminal_port = 9091
+
+# Hide the open terminal panel when clicking anywhere outside it (default: true). Set to false to
+# keep it open until hidden with its own button.
+# terminal_auto_hide = true
 
 # Shell to launch in the terminal panel (default: login shell or $SHELL)
 # shell = "/bin/bash"

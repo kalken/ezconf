@@ -200,6 +200,9 @@ THEME            = 'nixos'       # ui theme: nixos, dark, light, gruvbox
 EZCONF_MODE      = None          # None or 'install'; baked into index.html on load — shows
                                   # install-mode buttons in their own row and greys out ordinary
                                   # ones; set by mode in TOML (deploy-time, not user-toggleable)
+TERMINAL_AUTO_HIDE = True        # hide the open terminal panel on a click outside it; terminal_auto_hide in TOML
+SECTIONS_EXPANDED = False        # foldable editor sections start out shown rather than hidden;
+                                  # sections_default = "expanded" in TOML
 LOGIN_USER       = ''            # custom auth username
 LOGIN_PASS       = ''            # custom auth password
 MKOPTIONS_CMD    = None          # path to ezconf-mkoptions binary; enables /api/v1/autocomplete/update
@@ -1827,6 +1830,8 @@ class StaticHandler(http.server.SimpleHTTPRequestHandler):
                     .replace('%%EZCONF_BACKUP%%', 'true' if BACKUP_COUNT > 0 else 'false')
                     .replace('%%EZCONF_SYSTEM_BACKUP%%', 'true' if SYSTEM_BACKUP_COUNT > 0 else 'false')
                     .replace('%%EZCONF_MODE%%', json.dumps(EZCONF_MODE))
+                    .replace('%%EZCONF_TERMINAL_AUTO_HIDE%%', 'true' if TERMINAL_AUTO_HIDE else 'false')
+                    .replace('%%EZCONF_SECTIONS_EXPANDED%%', 'true' if SECTIONS_EXPANDED else 'false')
                     .replace('%%EZCONF_NIXOS_TARGET%%', NIXOS_TARGET.replace('\\', '\\\\').replace("'", "\\'"))
                     .replace('%%EZCONF_HOSTNAME%%', HOSTNAME.replace('\\', '\\\\').replace("'", "\\'"))
                     .replace('%%EZCONF_BOOT_ID%%', BOOT_ID)
@@ -1989,6 +1994,9 @@ if __name__ == '__main__':
     AUTH_MODE = _resolve(args.auth, cfg.get('auth'), None, 'auto')
     THEME     = _resolve(args.theme, cfg.get('theme'), None, 'nixos')
     EZCONF_MODE = cfg.get('mode') or None
+    if 'terminal_auto_hide' in cfg:
+        TERMINAL_AUTO_HIDE = bool(cfg['terminal_auto_hide'])
+    SECTIONS_EXPANDED = cfg.get('sections_default') == 'expanded'
     STATIC_BUTTONS = cfg.get('buttons') or []
     _term_port = args.terminal_port or cfg.get('terminal_port')
     if _term_port:

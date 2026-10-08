@@ -2602,14 +2602,16 @@ function renderEditor() {
 // on the row itself rather than selectors written against its ancestors, so a drag ghost (a
 // clone appended to <body>, see makeDraggable()) carries its whole look along with it.
 
-// Which foldable sections are currently shown, as "file\0path" -- everything else is hidden,
-// which is how one starts out. Kept here rather than read back from the DOM since every edit
-// rebuilds the editor from scratch (renderAll()); in memory only, so a page reload folds
-// everything again.
-const _openSections = new Set();
+// Which foldable sections have been switched away from how they start out, as "file\0path" --
+// everything else is in its starting state: hidden, or shown when SECTIONS_EXPANDED
+// (services.ezconf.sectionsDefault / sections_default in ezconf.toml). Kept here rather than
+// read back from the DOM since every edit rebuilds the editor from scratch (renderAll()); in
+// memory only, so a page reload puts everything back to how it starts out.
+const _toggledSections = new Set();
 function _sectionOpenKey(el) { return activeFile + '\x00' + el.dataset.path; }
+function _isSectionOpen(el) { return SECTIONS_EXPANDED !== _toggledSections.has(_sectionOpenKey(el)); }
 function _setSectionOpen(el, open) {
-  if (open) _openSections.add(_sectionOpenKey(el)); else _openSections.delete(_sectionOpenKey(el));
+  if (open === SECTIONS_EXPANDED) _toggledSections.delete(_sectionOpenKey(el)); else _toggledSections.add(_sectionOpenKey(el));
   el.classList.toggle('collapsed', !open);
 }
 function _toggleSectionOpen(el) {
@@ -2652,7 +2654,7 @@ function _setNestDepths(root) {
     el.classList.toggle('nest-card', !inArrayObj && isSection && depth === 1);
     const foldable = !inArrayObj && isSection && depth >= 2;
     el.classList.toggle('nest-arrow', foldable);
-    el.classList.toggle('collapsed', foldable && !_openSections.has(_sectionOpenKey(el)));
+    el.classList.toggle('collapsed', foldable && !_isSectionOpen(el));
     el.classList.toggle('nest-loose', !inArrayObj && !isSection && depth <= 1);
     el.classList.toggle('nest-root', !inArrayObj && !isSection && depth === 0);
   }
@@ -5179,6 +5181,23 @@ function toggleTerminal() {
   }
 }
 
+// Hides the open terminal panel on a press anywhere outside it, when TERMINAL_AUTO_HIDE. On
+// mousedown rather than click: a text selection dragged out of the terminal and released over
+// the editor ends in a click on their common ancestor, which would count as "outside". A menu
+// counts as inside -- a command button's own dropdown is appended to <body>, not the panel, and
+// picking a command from it must not hide the terminal it's about to run in -- and so does the
+// restart popup, which sits just above the panel.
+function initTerminalAutoHide() {
+  if (!TERMINAL_ENABLED || !TERMINAL_AUTO_HIDE) return;
+  const panel = document.getElementById('terminal-panel');
+  document.addEventListener('mousedown', e => {
+    if (panel.classList.contains('collapsed') || panel.contains(e.target)) return;
+    if (_ctxMenuStack.some(m => m.contains(e.target))) return;
+    if (e.target.closest && e.target.closest('#term-restart-popup, .hover-tooltip')) return;
+    toggleTerminal();
+  }, true);
+}
+
 function setTerminalSize(size) {
   const panel = document.getElementById('terminal-panel');
   let h;
@@ -5397,6 +5416,8 @@ const TERMINAL_ENABLED  = %%EZCONF_TERMINAL%%;
 const MKOPTIONS_ENABLED = %%EZCONF_MKOPTIONS%%;
 const BACKUP_ENABLED    = %%EZCONF_BACKUP%%;
 const SYSTEM_BACKUP_ENABLED = %%EZCONF_SYSTEM_BACKUP%%;
+const TERMINAL_AUTO_HIDE = %%EZCONF_TERMINAL_AUTO_HIDE%%; // services.ezconf.terminalAutoHide / terminal_auto_hide in ezconf.toml -- see initTerminalAutoHide()
+const SECTIONS_EXPANDED = %%EZCONF_SECTIONS_EXPANDED%%; // services.ezconf.sectionsDefault = "expanded" / sections_default in ezconf.toml -- see _toggledSections
 const EZCONF_MODE       = %%EZCONF_MODE%%; // null or "install" — services.ezconf.mode / mode in ezconf.toml, deploy-time only, no in-GUI toggle
 const INSTALL_MODE      = EZCONF_MODE === 'install';
 const STATIC_BUTTONS    = %%EZCONF_BUTTONS%%; // from [[buttons]] in ezconf.toml — not tied to any tab
@@ -6325,6 +6346,7 @@ async function loadSiblingFiles() {
     const tp = document.getElementById('terminal-panel');
     if (tp) tp.style.display = 'none';
   }
+  initTerminalAutoHide();
   if (INSTALL_MODE) {
     document.getElementById('terminal-panel').classList.add('install-mode');
     document.getElementById('terminal-header-install').classList.remove('hidden');
