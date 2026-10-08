@@ -18,7 +18,7 @@ Don't use subagents for work in this repo. Don't test changes in a real browser 
 
 ```sh
 pkill -f "bin/server.py --config"; sleep 1
-(nohup python3 bin/server.py --config .claude/test-server/ezconf.toml > .claude/test-server/server.log 2>&1 &)
+(nohup python3 bin/server.py --config .claude/test-server/ezconf.toml >| .claude/test-server/server.log 2>&1 &)
 sleep 2; curl -s -o /dev/null -w "%{http_code}\n" http://127.0.0.1:9090/api/v1/ping   # 401 = up (not logged in)
 ```
 
