@@ -567,10 +567,6 @@ body {
 .section.nest-arrow > .section-header .section-key-text::before {
   content: '▸'; position: absolute; right: 100%; margin-right: 0.5ch; pointer-events: none;
 }
-/* ...and a fourth-level one (.nest-dot) a dot, placed the same way. */
-.section.nest-dot > .section-header .section-key-text::before {
-  content: '•'; position: absolute; right: 100%; margin-right: 0.5ch; pointer-events: none;
-}
 /* A section nested deeper than that has no edge or fill, only a little space below it. */
 .section.nest:not(.nest-top):not(.nest-card) { margin-bottom: var(--nested-section-gap); }
 /* An option with no such section around it (set straight on a top-level section, or at the root
