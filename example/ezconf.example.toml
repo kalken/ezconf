@@ -21,8 +21,11 @@ file = "example/configuration.json"
 # username = "admin"
 # password = "changeme"
 
-# UI theme: nixos, dark, light (default: nixos)
+# UI theme: nixos, dark, gruvbox, osx-dark, osx-light (default: nixos), or one of your own
 # theme = "nixos"
+
+# Folder of your own themes, one <name>.css each (see README, "Your own themes")
+# themes_dir = "/etc/ezconf/themes"
 
 # Set to "install" to show buttons with mode = "install" (see [[buttons]] below) in their own
 # row and grey out ordinary buttons, from page load. Deploy-time only, not a runtime toggle --

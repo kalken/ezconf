@@ -166,7 +166,7 @@ body {
 }
 .tree-toggle.open { transform: rotate(90deg); }
 .tree-label { white-space: nowrap; color: var(--accent); font-size: 12px; padding-right: 12px; }
-.tree-leaf .tree-label { color: var(--fg3); font-size: 11px; font-weight: 400; }
+.tree-leaf .tree-label { font-size: 11px; font-weight: 400; }
 .tree-leaf { opacity: 0.8; }
 .tree-leaf:hover { opacity: 1; }
 .tree-children { margin-left: 8px; }
@@ -516,19 +516,18 @@ body {
    and anything deeper keeps .section-key's own dimmed tone. */
 .section.nest-top > .section-header .section-key { color: var(--section-title-color); font-size: var(--section-title-size); }
 .section.nest-card > .section-header .section-key { color: var(--section-key-color); }
-/* The whole file is one card (.file-card, the wrapper renderEditor() puts around everything):
-   the lighter panel colour, edged by the same hairline and soft shadow the panels have. A
-   top-level section is a titled, framed group inside it (see below). */
-.file-card {
-  background: var(--card-bg); border-radius: var(--radius); padding: 8px var(--block-pad);
-  box-shadow: 0 0 0 1px var(--panel-hairline), 0 0 var(--panel-shadow-size) var(--panel-shadow);
-}
+/* .file-card is the wrapper renderEditor() puts around everything in the file. It used to be a
+   filled, outlined block of its own with the sections framed inside it; now it's only spacing
+   (--page-margin, the same on every side), and each top-level section is its own card straight
+   on the page (see below). */
+.file-card { padding: calc(var(--page-margin) - 10px) calc(var(--page-margin) - 12px); } /* less .editor-area's own padding */
 .file-card:empty { display: none; }
 .file-card > .section:last-child { margin-bottom: 0; }
-/* Everything at the top level of the file is framed -- a section, or an option set at the root
-   (.nest-root) on its own -- with the same hairline and soft shadow the panels and the file's
-   own card are edged with. */
+/* Everything at the top level of the file is a card -- a section, or an option set at the root
+   (.nest-root) on its own: --card-bg on the --editor-bg page, edged with the same hairline and
+   soft shadow the panels have. */
 .section.nest-top, .field-row.nest-root {
+  background: var(--card-bg);
   border-radius: var(--radius);
   box-shadow: 0 0 0 1px var(--panel-hairline), 0 0 var(--panel-shadow-size) var(--panel-shadow);
 }
@@ -683,8 +682,10 @@ textarea { resize: vertical; min-height: unset; line-height: 1.5; }
 .theme-swatch.active { outline: 2px solid var(--accent); outline-offset: 1px; }
 .theme-swatch-nixos { background: #060e1a; border-color: #2a3a54; }
 .theme-swatch-dark  { background: #0a0a0a; border-color: #444444; }
-.theme-swatch-light { background: #ffffff; border-color: #bbbbbb; }
+.theme-swatch-osx-light { background: #ececec; border-color: #8e8e93; }
 .theme-swatch-gruvbox { background: #282828; border-color: #d79921; }
+.theme-swatch-osx-dark { background: #1e1e1e; border-color: #8e8e93; }
+.theme-swatch-custom { background: #808080; border-color: #b0b0b0; } /* a user theme: overridden inline from its own colours */
 
 /* ── Modal ── */
 .modal-overlay {
@@ -796,11 +797,17 @@ textarea { resize: vertical; min-height: unset; line-height: 1.5; }
 .search-panel-wrap { width: 380px; }
 .search-panel-wrap input {
   width: 100%; box-sizing: border-box; height: 30px;
-  background: var(--select-option-bg); border: 1px solid var(--border2);
+  background: var(--popup-bg); border: 1px solid var(--border2);
   border-radius: var(--radius); box-shadow: 0 4px 16px var(--shadow);
   padding: 6px 10px; font-family: var(--font); font-size: 12px; color: var(--text); outline: none;
 }
-.search-results-list { top: calc(100% + 2px); width: 380px; border-radius: var(--radius); }
+/* Coloured like the documentation popup over an option (.tooltip): the same surface, and a
+   result's value in the colour that popup shows a default/example value in (.tt-val). */
+.search-results-list {
+  top: calc(100% + 2px); width: 380px; border-radius: var(--radius);
+  background: var(--popup-bg); box-shadow: 0 4px 16px var(--shadow);
+}
+.search-results-list .ac-desc { color: var(--green); }
 /* The "No matches" / "N+ matches, refine" rows aren't results -- no hover highlight, no pointer. */
 .search-info-row { color: var(--text2); cursor: default; }
 .search-info-row:hover { background: transparent; }

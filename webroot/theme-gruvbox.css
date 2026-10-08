@@ -25,10 +25,10 @@
   --border:  #3c3836;
   --border2: #504945;
   --input-border: #504945;
-  --select-option-bg:    #3c3836;
+  --select-option-bg:    #45403d;
   --select-option-color: #ebdbb2;
   --select-option-hover: #504945;
-  --popup-bg: var(--bg2); /* dialogs and tooltips */
+  --popup-bg: #45403d; /* dialogs and tooltips */
   /* ── Button states ── */
   --btn-primary-bg:     #5b3f2e;
   --btn-primary-border: #d65d0e;
@@ -38,7 +38,7 @@
   /* ── Selection / highlight ── */
   --selected-bg:   #4c4741;
   --toggle-on-bg:  #5c4a26;
-  --toggle-on-knob:   var(--section-key-color);
+  --toggle-on-knob:   #fbf1c7;
   --toggle-on-border: var(--input-focus-border);
   --input-focus-border: var(--section-key-color);
 
@@ -68,7 +68,8 @@
   --list-key-width: 160px; /* key column inside an object that is a list item */
   --indent-step:    2ch;   /* indent per nesting level (1ch = one letter) */
   --row-height:     28px;  /* minimum height of an option row */
-  --section-gap:    20px;  /* between top-level blocks */
+  --page-margin:    20px;  /* around the top-level blocks, on every side */
+  --section-gap:    16px;  /* between top-level blocks */
   --card-gap:       12px;   /* around a bordered sub-section */
   --nested-section-gap: 10px; /* below a section nested inside a sub-section */
   --list-item-gap:  1ch;   /* space around each object in a list (1ch = one letter) */
@@ -83,7 +84,7 @@
   --danger-text:    #ffffff; /* text on a red (destructive) menu item */
 
   /* ── Misc UI ── */
-  --statusbar-bg:   #1d2021;
+  --statusbar-bg:   var(--bg2);
   --dirty-color:    #fabd2f;
   --wildcard-bg:    #3d3336;
   --wildcard-hover: #4a3b3f;

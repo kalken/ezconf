@@ -73,11 +73,12 @@ ezconf server — single listener bound to 127.0.0.1:
                                    logic and auto-backup-first safety net as system-import (see
                                    _restore_system_zip()), differing only in where the zip bytes
                                    come from (a file already on disk, not a fresh upload)
-    POST /api/v1/terminal/restart  runs `systemctl restart ezconf-terminal.service` directly from
-                                   this process — the single restart mechanism #term-restart-btn
-                                   (index.html) uses, independent of the terminal's own shell, so
-                                   it works even if the shell is wedged or the panel's never been
-                                   opened. Linux/systemd only (501 elsewhere)
+    POST /api/v1/terminal/restart  restarts the terminal service directly from this process
+                                   (`systemctl restart ezconf-terminal.service` on Linux,
+                                   `launchctl kickstart -k` on macOS) — the single restart
+                                   mechanism #term-restart-btn (index.html) uses, independent of
+                                   the terminal's own shell, so it works even if the shell is
+                                   wedged or the panel's never been opened. 501 anywhere else
 
 Every *.json file in CONFIG_DIR (except custom-options.json) is a
 separately editable/saveable "tab" in the UI, merged together only at
@@ -192,11 +193,18 @@ AUTH_MODE        = 'none'        # set by --auth: 'none', 'custom', 'pam'
 TERMINAL_ENABLED = False         # True when terminal_port is set
 TERMINAL_PORT    = None          # port the terminal WebSocket service is running on
 TERMINAL_SCRIPT  = None          # path to the terminal.py currently on disk; set by terminal_script in TOML
+TERMINAL_LAUNCHD_LABEL = 'org.nixos.ezconf-terminal'  # macOS: the launchd job "Restart Terminal"
+                                 # restarts; set by terminal_launchd_label in TOML
 TERMINAL_CURRENT_HASH = ''       # hash of TERMINAL_SCRIPT, computed once at startup — see _ping_payload()
 TERMINAL_CONFIG_HASH = ''        # hash of the config values terminal.py itself reads, computed once at
                                   # startup from this process's own cfg — see _ping_payload() and
                                   # terminal.py's own CONFIG_HASH (must use the identical key list/formula)
-THEME            = 'nixos'       # ui theme: nixos, dark, light, gruvbox
+THEME            = 'nixos'       # ui theme: one of BUILTIN_THEMES, or the name of a file in THEMES_DIR
+BUILTIN_THEMES   = ('nixos', 'dark', 'osx-light', 'gruvbox', 'osx-dark')
+THEME_ALIASES    = {'light': 'osx-light'}   # former names, still accepted for `theme` and a user theme's base
+THEMES_DIR       = None          # folder of user themes (<name>.css); set by themes_dir in TOML
+CUSTOM_THEMES    = {}            # name -> {path, base, bg, border}, scanned once at startup --
+                                 # see _scan_custom_themes()
 EZCONF_MODE      = None          # None or 'install'; baked into index.html on load — shows
                                   # install-mode buttons in their own row and greys out ordinary
                                   # ones; set by mode in TOML (deploy-time, not user-toggleable)
@@ -206,7 +214,8 @@ SECTIONS_EXPANDED = False        # foldable editor sections start out shown rath
 LOGIN_USER       = ''            # custom auth username
 LOGIN_PASS       = ''            # custom auth password
 MKOPTIONS_CMD    = None          # path to ezconf-mkoptions binary; enables /api/v1/autocomplete/update
-NIXOS_TARGET     = '/etc/nixos'  # flake path passed as TARGET to mkoptions
+DEFAULT_TARGET   = '/etc/nix-darwin' if sys.platform == 'darwin' else '/etc/nixos'
+NIXOS_TARGET     = DEFAULT_TARGET  # flake path passed as TARGET to mkoptions
 TRUSTED_HOSTS    = set()         # extra hostnames allowed by _valid_host; set by trusted_hosts in TOML
 BIND_ADDR        = '127.0.0.1'   # IP address to listen on; set by listen in TOML
 CA_FILE          = None          # path to CA cert served at /download-ca; set by --generate-ca or ca_file in TOML
@@ -226,7 +235,7 @@ SYSTEM_EXPORT_EXCLUDE = set()                              # extra basenames ski
                                                             # _iter_system_export_files(); set by
                                                             # system_export_exclude in TOML
 
-# Short hostname (domain stripped, same convention as generate-nixos-data.py's own
+# Short hostname (domain stripped, same convention as autocomplete-data.py's own
 # system_hostname), used as the default basename for exported zips (exportAll()/exportSystem())
 # so a download is identifiable by which machine it came from rather than a generic "ezconf"/
 # "nixos" label. Doesn't depend on any config/args, so unlike WEBROOT_HASH etc. it's computed
@@ -257,7 +266,7 @@ BOOT_ID = secrets.token_hex(8)
 # real upgrade always does, and unlike a settings change there's no way to apply it live at all.
 WEBROOT_HASH = ''
 # The VERSION file's content (see _read_version(), computed once alongside WEBROOT_HASH) — a
-# package upgrade that only touches backend files (bin/server.py, bin/generate-nixos-data.py) has
+# package upgrade that only touches backend files (bin/server.py, bin/autocomplete-data.py) has
 # no reason to change WEBROOT_HASH at all (index.html/style.css/theme files are untouched), so it
 # was landing silently: the running page kept working correctly, but the statusbar's own version
 # string went stale until something else forced a reload. self.shortRev changes on every real
@@ -500,7 +509,7 @@ def _clear_login_failures(ip):
 _ANSI_RE = re.compile(r'\x1b\[[0-9;]*m')
 
 def _strip_ansi(s):
-    """generate-nixos-data.py colors its stderr output for terminal use; the autocomplete/update
+    """autocomplete-data.py colors its stderr output for terminal use; the autocomplete/update
     response is displayed in a plain HTML <pre>, which would otherwise show the raw escape codes."""
     return _ANSI_RE.sub('', s)
 
@@ -899,13 +908,69 @@ def _config_stem(name):
     return _flatten_stem(rel)
 
 
+_THEME_NAME_RE = re.compile(r'^[a-z0-9][a-z0-9_-]*$')
+
+
+def _scan_custom_themes(themes_dir):
+    """User themes: every <name>.css in themes_dir. A theme file is the same thing a built-in
+    theme-<name>.css is — a :root block of variables — except it doesn't have to be complete: the
+    page loads a built-in theme underneath it (its base), so a file only sets what it wants to
+    change, and keeps working when a later version adds a variable it has never heard of. The
+    base is "nixos" unless the file says otherwise in a comment near its top:
+
+        /* base: light */
+
+    bg/border are what its swatch in the header is painted with, read from the file's own --bg
+    and --accent when it sets them as plain values. A name that's already a built-in theme is
+    skipped rather than allowed to replace it."""
+    themes = {}
+    if not themes_dir:
+        return themes
+    try:
+        names = sorted(os.listdir(themes_dir))
+    except OSError as e:
+        print(f'themes_dir: {e}', file=sys.stderr)
+        return themes
+    for fname in names:
+        name, ext = os.path.splitext(fname)
+        if ext != '.css' or not _THEME_NAME_RE.match(name):
+            continue
+        if name in BUILTIN_THEMES:
+            print(f'themes_dir: {fname} skipped ("{name}" is a built-in theme)', file=sys.stderr)
+            continue
+        path = os.path.join(themes_dir, fname)
+        try:
+            with open(path, encoding='utf-8', errors='replace') as f:
+                css = f.read()
+        except OSError:
+            continue
+        m = re.search(r'/\*\s*base:\s*([a-z0-9_-]+)\s*\*/', css[:2000])
+        base = THEME_ALIASES.get(m.group(1), m.group(1)) if m else 'nixos'
+        if base not in BUILTIN_THEMES:
+            base = 'nixos'
+
+        def colour(var):
+            c = re.search(r'--' + var + r'\s*:\s*(#[0-9a-fA-F]{3,8})\s*;', css)
+            return c.group(1) if c else None
+        themes[name] = {'path': path, 'base': base, 'bg': colour('bg'), 'border': colour('accent')}
+    return themes
+
+
+def _theme_links(theme):
+    """The stylesheet link(s) for a theme, for login.html: a custom theme is its base plus its
+    own file on top (see _scan_custom_themes())."""
+    link = '<link rel="stylesheet" href="theme-%s.css">'
+    custom = CUSTOM_THEMES.get(theme)
+    return (link % custom['base'] + '\n' if custom else '') + link % theme
+
+
 def _compute_webroot_hash():
     """WEBROOT_HASH — the static files that actually make up the served frontend (skipping the
     xterm.js addons and autocomplete data, which don't affect ezconf's own behavior). Called once,
     after WEBROOT is finalized, in __main__ — not on every request, since these files don't
     change while this process is running (a real change only ever arrives via a restart)."""
     h = hashlib.sha256()
-    for name in ('index.html', 'style.css', 'theme-nixos.css', 'theme-dark.css', 'theme-light.css', 'theme-gruvbox.css'):
+    for name in ('index.html', 'style.css') + tuple(f'theme-{t}.css' for t in BUILTIN_THEMES):
         try:
             with open(os.path.join(WEBROOT, name), 'rb') as f:
                 h.update(f.read())
@@ -1054,12 +1119,12 @@ def _read_login_page(error=''):
         username_field = '<input id="u" name="username" type="text" autocomplete="username" autofocus>'
     ca_link = ''
     if CA_FILE and os.path.exists(CA_FILE):
-        ca_link = '<div class="login-ca-link"><a href="/download-ca">Download CA certificate</a></div>'
+        ca_link = '<div class="login-ca-link"><a href="/download-ca" tabindex="-1">Download CA certificate</a></div>'
     path = os.path.join(WEBROOT, 'login.html')
     try:
         return (open(path).read()
                 .replace('%%EZCONF_ERROR%%', error)
-                .replace('%%EZCONF_THEME%%', THEME)
+                .replace('%%EZCONF_THEME_LINKS%%', _theme_links(THEME))
                 .replace('%%EZCONF_USERNAME_FIELD%%', username_field)
                 .replace('%%EZCONF_CA_LINK%%', ca_link))
     except FileNotFoundError:
@@ -1389,7 +1454,7 @@ class StaticHandler(http.server.SimpleHTTPRequestHandler):
                     # one file (e.g. a host's configuration.nix importing a missing
                     # hardware-configuration.nix) still exits 0 with that file written as [].
                     # Checking the files directly is simpler and more reliable than trying to
-                    # parse generate-nixos-data.py's progress output for signs of trouble.
+                    # parse autocomplete-data.py's progress output for signs of trouble.
                     empty = [
                         f for f in ('options.json', 'packages.json', 'kernels.json')
                         if _is_empty_json_array(os.path.join(out_dir, f))
@@ -1418,9 +1483,10 @@ class StaticHandler(http.server.SimpleHTTPRequestHandler):
             except Exception as e:
                 self.send_error(500, str(e))
         elif parsed.path == '/api/v1/terminal/restart':
-            # Runs systemctl directly from server.py's own process, independent of the terminal's
-            # own shell -- so this still works even if the running shell is wedged, or the panel's
-            # never been opened. systemctl only exists on Linux, so this is a no-op elsewhere.
+            # Restarts the service directly from server.py's own process, independent of the
+            # terminal's own shell -- so this still works even if the running shell is wedged, or
+            # the panel's never been opened. systemd on Linux, launchd on macOS (kickstart -k
+            # kills the running job and starts it again); nothing to restart anywhere else.
             if not TERMINAL_PORT:
                 resp = b'{"error":"terminal not enabled"}'
                 self.send_response(501)
@@ -1429,8 +1495,12 @@ class StaticHandler(http.server.SimpleHTTPRequestHandler):
                 self.end_headers()
                 self.wfile.write(resp)
                 return
-            if not sys.platform.startswith('linux'):
-                resp = b'{"error":"systemctl restart is only available on Linux"}'
+            if sys.platform.startswith('linux'):
+                restart_cmd = ['systemctl', 'restart', 'ezconf-terminal.service']
+            elif sys.platform == 'darwin':
+                restart_cmd = ['launchctl', 'kickstart', '-k', f'system/{TERMINAL_LAUNCHD_LABEL}']
+            else:
+                resp = b'{"error":"restarting the terminal service is only supported on Linux and macOS"}'
                 self.send_response(501)
                 self.send_header('Content-Type', 'application/json')
                 self.send_header('Content-Length', str(len(resp)))
@@ -1439,7 +1509,7 @@ class StaticHandler(http.server.SimpleHTTPRequestHandler):
                 return
             try:
                 result = subprocess.run(
-                    ['systemctl', 'restart', 'ezconf-terminal.service'],
+                    restart_cmd,
                     capture_output=True, text=True, timeout=30,
                 )
                 if result.returncode == 0:
@@ -1578,7 +1648,8 @@ class StaticHandler(http.server.SimpleHTTPRequestHandler):
                 parsed.path.startswith('/theme-') and parsed.path.endswith('.css')):
             # Public (pre-auth, for the login page) and worth gzipping: style.css alone runs
             # ~46KB, served fresh on every page load since WEBROOT files are no-store.
-            self._serve_static_gzip(parsed.path.lstrip('/')); return
+            custom = CUSTOM_THEMES.get(parsed.path[len('/theme-'):-len('.css')])
+            self._serve_static_gzip(parsed.path.lstrip('/'), custom and custom['path']); return
         if parsed.path in self._PUBLIC_PATHS:
             super().do_GET()
             return
@@ -1779,14 +1850,15 @@ class StaticHandler(http.server.SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
-    def _serve_static_gzip(self, rel_path):
+    def _serve_static_gzip(self, rel_path, abs_path=None):
         """Gzip-capable serving for a handful of sizeable static WEBROOT files (style.css,
         theme-*.css, addons/*) that don't go through SimpleHTTPRequestHandler's own static
         serving, which has no compression at all. Cache-Control stays no-store (see
         end_headers()) — these files really can change across a restart, unlike /autocomplete/*'s
         genuinely-fresh mtimes, so no attempt at conditional-GET caching here, just compression.
-        _STATIC_GZIP_CACHE holds both encodings per path, built on first request."""
-        path = os.path.join(WEBROOT, rel_path)
+        _STATIC_GZIP_CACHE holds both encodings per path, built on first request. abs_path
+        serves that file instead of WEBROOT/rel_path — a user theme, which lives in THEMES_DIR."""
+        path = abs_path or os.path.join(WEBROOT, rel_path)
         cached = _STATIC_GZIP_CACHE.get(path)
         if cached is None:
             try:
@@ -1826,6 +1898,8 @@ class StaticHandler(http.server.SimpleHTTPRequestHandler):
                     .replace('%%EZCONF_TERMINAL_SCRIPTS%%', terminal_scripts)
                     .replace('%%EZCONF_TERMINAL%%', 'true' if TERMINAL_PORT else 'false')
                     .replace('%%EZCONF_THEME%%', THEME)
+                    .replace('%%EZCONF_CUSTOM_THEMES%%', json.dumps(
+                        {n: {k: t[k] for k in ('base', 'bg', 'border')} for n, t in CUSTOM_THEMES.items()}))
                     .replace('%%EZCONF_MKOPTIONS%%', 'true' if MKOPTIONS_CMD else 'false')
                     .replace('%%EZCONF_BACKUP%%', 'true' if BACKUP_COUNT > 0 else 'false')
                     .replace('%%EZCONF_SYSTEM_BACKUP%%', 'true' if SYSTEM_BACKUP_COUNT > 0 else 'false')
@@ -1937,7 +2011,7 @@ if __name__ == '__main__':
     ap.add_argument('--mkoptions', metavar='CMD', default=None,
                     help='path to ezconf-mkoptions binary; enables the Update Autocomplete button')
     ap.add_argument('--nixos-target', metavar='PATH', default=None,
-                    help='flake path passed as TARGET to mkoptions (default: /etc/nixos)')
+                    help='flake path passed as TARGET to mkoptions (default: /etc/nixos, or /etc/nix-darwin on macOS)')
     ap.add_argument('--file', metavar='FILE', default=None,
                     help='directory of JSON config files (tabs) to edit, or a specific *.json file inside one')
     ap.add_argument('--default-file', metavar='NAME', default=None,
@@ -1952,7 +2026,9 @@ if __name__ == '__main__':
                     help='number of system backups to keep; 0 disables the feature (default: 5)')
     ap.add_argument('--auth', choices=['auto', 'custom', 'pam'], default=None,
                     help='authentication mode: auto, custom, or pam')
-    ap.add_argument('--theme', choices=['nixos', 'dark', 'light', 'gruvbox'], default=None,
+    ap.add_argument('--themes-dir', metavar='DIR', default=None,
+                    help='folder of user themes, one <name>.css each (see README, "Theme")')
+    ap.add_argument('--theme', default=None,
                     help='UI theme (default: nixos)')
     ap.add_argument('--terminal-port', type=int, default=None,
                     help='port the terminal.py WebSocket service is running on (enables terminal panel)')
@@ -1983,7 +2059,7 @@ if __name__ == '__main__':
     _mk = _resolve(args.mkoptions, cfg.get('mkoptions'), None, None)
     if _mk:
         MKOPTIONS_CMD = os.path.abspath(_mk)
-    NIXOS_TARGET = _resolve(args.nixos_target, cfg.get('nixos_target'), None, '/etc/nixos')
+    NIXOS_TARGET = _resolve(args.nixos_target, cfg.get('nixos_target'), None, DEFAULT_TARGET)
     if 'system_export_exclude_dotfiles' in cfg:
         SYSTEM_EXPORT_EXCLUDE_DOTFILES = bool(cfg['system_export_exclude_dotfiles'])
     if 'system_export_exclude' in cfg:
@@ -1992,7 +2068,13 @@ if __name__ == '__main__':
     CERT_FILE = _resolve(args.cert, cfg.get('cert'), None, 'localhost.pem')
     KEY_FILE  = _resolve(args.key,  cfg.get('key'),  None, 'localhost-key.pem')
     AUTH_MODE = _resolve(args.auth, cfg.get('auth'), None, 'auto')
+    THEMES_DIR    = _resolve(args.themes_dir, cfg.get('themes_dir'), None, None)
+    CUSTOM_THEMES = _scan_custom_themes(THEMES_DIR)
     THEME     = _resolve(args.theme, cfg.get('theme'), None, 'nixos')
+    THEME     = THEME_ALIASES.get(THEME, THEME)
+    if THEME not in BUILTIN_THEMES and THEME not in CUSTOM_THEMES:
+        ap.error(f'theme "{THEME}" is neither a built-in theme ({", ".join(BUILTIN_THEMES)}) '
+                 f'nor a <name>.css file in themes_dir')
     EZCONF_MODE = cfg.get('mode') or None
     if 'terminal_auto_hide' in cfg:
         TERMINAL_AUTO_HIDE = bool(cfg['terminal_auto_hide'])
@@ -2003,12 +2085,13 @@ if __name__ == '__main__':
         TERMINAL_PORT    = int(_term_port)
         TERMINAL_ENABLED = True
     TERMINAL_SCRIPT = cfg.get('terminal_script')
+    TERMINAL_LAUNCHD_LABEL = cfg.get('terminal_launchd_label') or TERMINAL_LAUNCHD_LABEL
     TERMINAL_CURRENT_HASH = _compute_file_hash(TERMINAL_SCRIPT)
     # Raw values, not resolved/fallback-applied -- must match terminal.py's own CONFIG_HASH
     # formula exactly, key for key, since these are compared directly (see _ping_payload()).
     # Deliberately excludes `webroot` -- see the matching comment in terminal.py's __main__.
     TERMINAL_CONFIG_HASH = hashlib.sha256(json.dumps(
-        {k: cfg.get(k) for k in ('terminal_port', 'session_key_file', 'shell')},
+        {k: cfg.get(k) for k in ('terminal_port', 'session_key_file', 'shell', 'nixos_target')},
         sort_keys=True, default=str
     ).encode()).hexdigest()[:16]
 

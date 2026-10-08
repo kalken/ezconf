@@ -12,17 +12,39 @@
      the resulting installed shortcut ends up at the same site either way. -->
 <link rel="icon" type="image/svg+xml" href="favicon.svg">
 <link rel="manifest" href="manifest.json">
-<link rel="stylesheet" href="theme-%%EZCONF_THEME%%.css">
+%%EZCONF_THEME_LINKS%%
 <link rel="stylesheet" href="style.css">
 <style>
-  body { align-items: center; justify-content: center; overflow: auto; }
+  /* Dressed like the editor itself: the page is the editor's page, the card is a top-level
+     section's card (same fill, hairline and soft shadow -- .section.nest-top in style.css), and
+     the two fields are filled like an option's value cell, with no outline of their own. */
+  body { align-items: center; justify-content: center; overflow: auto; background: var(--editor-bg); }
   .login-card {
-    background: var(--bg2); border: 1px solid var(--border2); border-radius: 10px;
+    background: var(--card-bg); border-radius: var(--radius);
+    box-shadow: 0 0 0 1px var(--panel-hairline), 0 0 var(--panel-shadow-size) var(--panel-shadow);
     padding: 40px 36px; width: 100%; max-width: 360px;
   }
-  .login-card h1 { font-size: 18px; font-weight: 700; margin-bottom: 28px; color: var(--accent); letter-spacing: .04em; }
+  .login-card h1 { font-size: 18px; font-weight: 700; margin-bottom: 28px; color: var(--section-title-color); letter-spacing: .04em; }
   .login-card label { display: block; font-size: 11px; color: var(--text2); text-transform: uppercase; letter-spacing: .06em; margin-bottom: 5px; }
-  .login-card input { display: block; margin-bottom: 16px; padding: 7px 10px; }
+  .login-card input {
+    display: block; margin-bottom: 16px; padding: 8px 11px;
+    background: var(--value-bg); border: 0; border-radius: var(--radius);
+  }
+  /* A field the browser has filled in from a saved login gets the browser's own pale fill, set
+     in a way a page's background can't override. An inset shadow painted over it can, and the
+     text colour needs restating the same way. (Firefox tints with a filter instead.) The shadow
+     only covers the inside of a border, which is why these fields have none at all: a
+     transparent one left a 1px ring of the browser's fill showing around an autofilled field. */
+  .login-card input:-webkit-autofill,
+  .login-card input:-webkit-autofill:hover,
+  .login-card input:-webkit-autofill:focus,
+  .login-card input:autofill {
+    -webkit-box-shadow: 0 0 0 1000px var(--value-bg) inset;
+    box-shadow: 0 0 0 1000px var(--value-bg) inset;
+    -webkit-text-fill-color: var(--text);
+    caret-color: var(--text);
+    filter: none;
+  }
   /* The username picker (allowed_users) -- deliberately not a native <datalist>, and deliberately
      not opened by focusing or typing in the field either. Both were tried and both collided with
      the browser's own saved-password autofill, which reacts to those same triggers on this same
@@ -59,10 +81,23 @@
     %%EZCONF_USERNAME_FIELD%%
     <label for="p">Password</label>
     <input id="p" name="password" type="password" autocomplete="current-password" autofocus>
-    <button type="submit" class="btn primary">Sign in</button>
+    <button type="submit" class="btn primary" tabindex="-1">Sign in</button>
   </form>
   <div class="login-error">%%EZCONF_ERROR%%</div>
   %%EZCONF_CA_LINK%%
 </div>
+<script>
+// Tab (and Shift+Tab) only ever moves between the two fields -- never on to the button, the
+// username picker's arrow, the certificate link or out into the browser's own toolbar. Enter
+// signs in from either field, so nothing else needs to be reachable by keyboard.
+(function() {
+  var u = document.getElementById('u'), p = document.getElementById('p');
+  document.addEventListener('keydown', function(e) {
+    if (e.key !== 'Tab' || e.ctrlKey || e.altKey || e.metaKey) return;
+    e.preventDefault();
+    (document.activeElement === u ? p : u).focus();
+  });
+})();
+</script>
 </body>
 </html>

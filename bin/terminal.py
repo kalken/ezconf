@@ -6,7 +6,7 @@ Run:
   python3 terminal.py --config /run/ezconf/ezconf.toml
   python3 terminal.py --port 9092 --session-key-file /run/ezconf/session.key
 
-Config keys read from TOML: terminal_port, session_key_file, shell
+Config keys read from TOML: terminal_port, session_key_file, shell, nixos_target
 
 Always binds 127.0.0.1 regardless of `listen` in TOML -- the browser never connects here
 directly. server.py proxies /terminal straight through to this process over loopback (see
@@ -115,6 +115,7 @@ def load_toml(path):
 
 
 SHELL        = '/bin/sh'
+START_DIR    = os.path.expanduser('~')   # where a new shell starts; the flake's root when it exists
 SESSION_KEY  = ''
 PORT         = 9091
 BIND_ADDR    = '127.0.0.1'
@@ -622,7 +623,7 @@ def _create_session(rows, cols):
             stdin=slave_fd, stdout=slave_fd, stderr=slave_fd,
             close_fds=True,
             preexec_fn=_init_child,
-            cwd=os.path.expanduser('~'),
+            cwd=START_DIR,
             env=env,
         )
     except Exception as e:
@@ -938,7 +939,7 @@ if __name__ == '__main__':
     # flagged a terminal restart as needed on nearly every upgrade, regardless of whether
     # anything that actually affects terminal.py's behavior had changed.
     CONFIG_HASH = hashlib.sha256(json.dumps(
-        {k: cfg.get(k) for k in ('terminal_port', 'session_key_file', 'shell')},
+        {k: cfg.get(k) for k in ('terminal_port', 'session_key_file', 'shell', 'nixos_target')},
         sort_keys=True, default=str
     ).encode()).hexdigest()[:16]
 
@@ -951,6 +952,13 @@ if __name__ == '__main__':
     except Exception:
         pass
     SHELL = cfg.get('shell') or _passwd_shell or os.environ.get('SHELL') or '/bin/sh'
+
+    # The flake is what the terminal is there to act on (rebuild, git, nix flake update), so a new
+    # shell starts in its root. Same default server.py uses when the key is absent; anything that
+    # isn't a directory this user can enter leaves it at the home directory.
+    _target = cfg.get('nixos_target') or ('/etc/nix-darwin' if sys.platform == 'darwin' else '/etc/nixos')
+    if os.path.isdir(_target) and os.access(_target, os.X_OK):
+        START_DIR = os.path.abspath(_target)
 
     # BIND_ADDR deliberately ignores `listen` -- see the module docstring above: this process
     # only ever talks to server.py over loopback, never to a browser directly.

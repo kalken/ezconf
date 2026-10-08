@@ -16,12 +16,29 @@
 <link rel="manifest" href="manifest.json">
 <script>
 const _DEFAULT_THEME = '%%EZCONF_THEME%%';
+// User themes from themes_dir (see _scan_custom_themes() in server.py): name -> {base, bg,
+// border}. One of these doesn't have to set every variable -- its `base`, a built-in theme, is
+// loaded underneath it, in #theme-base-link, with the theme's own file on top in #theme-link. A
+// built-in theme is its own base, so both links just point at the same file.
+const _CUSTOM_THEMES = %%EZCONF_CUSTOM_THEMES%%;
+// A theme name remembered by the browser that no longer exists (renamed or removed since) would
+// otherwise load a stylesheet that isn't there and leave the page unstyled.
+const _THEMES = ['nixos', 'dark', 'osx-light', 'gruvbox', 'osx-dark', ...Object.keys(_CUSTOM_THEMES)];
+function _currentTheme() {
+  const t = localStorage.getItem('ezconf-theme');
+  return _THEMES.includes(t) ? t : _DEFAULT_THEME;
+}
+function _themeBase(t) { return _CUSTOM_THEMES[t] ? _CUSTOM_THEMES[t].base : t; }
 (function(){
-  const t = localStorage.getItem('ezconf-theme') || _DEFAULT_THEME;
-  const l = document.createElement('link');
-  l.id = 'theme-link'; l.rel = 'stylesheet';
-  l.href = 'theme-' + t + '.css';
-  document.currentScript.parentNode.insertBefore(l, document.currentScript.nextSibling);
+  const t = _currentTheme();
+  let after = document.currentScript;
+  for (const [id, name] of [['theme-base-link', _themeBase(t)], ['theme-link', t]]) {
+    const l = document.createElement('link');
+    l.id = id; l.rel = 'stylesheet';
+    l.href = 'theme-' + name + '.css';
+    after.parentNode.insertBefore(l, after.nextSibling);
+    after = l;
+  }
 })();
 </script>
 <link rel="stylesheet" href="style.css">
@@ -132,10 +149,11 @@ const _DEFAULT_THEME = '%%EZCONF_THEME%%';
   <div class="statusbar-right">
     <span id="status-version" data-tooltip="ezconf version"></span>
     <span class="theme-switcher">
-      <button class="theme-swatch theme-swatch-nixos" onclick="setTheme('nixos')" data-tooltip="NixOS theme"></button>
-      <button class="theme-swatch theme-swatch-dark"  onclick="setTheme('dark')"  data-tooltip="Dark theme"></button>
-      <button class="theme-swatch theme-swatch-light" onclick="setTheme('light')" data-tooltip="Light theme"></button>
-      <button class="theme-swatch theme-swatch-gruvbox" onclick="setTheme('gruvbox')" data-tooltip="Gruvbox theme"></button>
+      <button class="theme-swatch theme-swatch-dark"  data-theme="dark" onclick="setTheme('dark')"  data-tooltip="Dark theme"></button>
+      <button class="theme-swatch theme-swatch-nixos" data-theme="nixos" onclick="setTheme('nixos')" data-tooltip="NixOS theme"></button>
+      <button class="theme-swatch theme-swatch-osx-dark" data-theme="osx-dark" onclick="setTheme('osx-dark')" data-tooltip="OS X Dark theme"></button>
+      <button class="theme-swatch theme-swatch-gruvbox" data-theme="gruvbox" onclick="setTheme('gruvbox')" data-tooltip="Gruvbox theme"></button>
+      <button class="theme-swatch theme-swatch-osx-light" data-theme="osx-light" onclick="setTheme('osx-light')" data-tooltip="OS X Light theme"></button>
     </span>
   </div>
 </div>
@@ -205,12 +223,22 @@ function _buildTermTheme() {
 
 function setTheme(name) {
   localStorage.setItem('ezconf-theme', name);
-  const link = document.getElementById('theme-link');
-  link.href = 'theme-' + name + '.css';
-  document.querySelectorAll('.theme-swatch').forEach(b =>
-    b.classList.toggle('active', b.classList.contains('theme-swatch-' + name))
-  );
-  link.addEventListener('load', () => {
+  // Both sheets (see _CUSTOM_THEMES) have to be in before the terminal reads its colours back
+  // out of the page. Only a link whose file actually changes fires 'load' at all -- two user
+  // themes sharing a base swap just the top one.
+  const pending = [];
+  for (const [id, file] of [['theme-base-link', _themeBase(name)], ['theme-link', name]]) {
+    const link = document.getElementById(id);
+    const href = 'theme-' + file + '.css';
+    if (link.getAttribute('href') === href) continue;
+    pending.push(new Promise(done => {
+      link.addEventListener('load', done, { once: true });
+      link.addEventListener('error', done, { once: true });
+    }));
+    link.href = href;
+  }
+  _markActiveTheme(name);
+  Promise.all(pending).then(() => {
     if (_term) _term.options.theme = _buildTermTheme();
     // A theme swap can also change --term-padding, which affects #term-output's content box
     // without changing its own outer size — the ResizeObserver that normally drives fit() only
@@ -218,13 +246,35 @@ function setTheme(name) {
     // rendering at its old (pre-swap) size/position until something else forces a fresh fit(),
     // e.g. a full page reload.
     if (_termFit) _termFit.fit();
-  }, { once: true });
+  });
 }
-function _applyInitialTheme() {
-  const t = localStorage.getItem('ezconf-theme') || _DEFAULT_THEME;
+function _markActiveTheme(name) {
   document.querySelectorAll('.theme-swatch').forEach(b =>
-    b.classList.toggle('active', b.classList.contains('theme-swatch-' + t))
+    b.classList.toggle('active', b.dataset.theme === name)
   );
+}
+// The built-in swatches are markup; one more is added here per user theme, painted with that
+// theme's own --bg and --accent where its file sets them (neutral greys otherwise).
+function _applyInitialTheme() {
+  const switcher = document.querySelector('.theme-switcher');
+  for (const [name, t] of Object.entries(_CUSTOM_THEMES)) {
+    const b = document.createElement('button');
+    b.className = 'theme-swatch theme-swatch-custom';
+    b.dataset.theme = name;
+    if (t.bg) b.style.background = t.bg;
+    if (t.border) b.style.borderColor = t.border;
+    b.onclick = () => setTheme(name);
+    _wireHoverTooltip(b, name + ' theme');
+    switcher.appendChild(b);
+  }
+  // Darkest background first. The built-in ones are already in that order in the markup; this
+  // is what slots a user theme in among them instead of leaving it at the end.
+  const lum = b => {
+    const [r, g, bl] = (getComputedStyle(b).backgroundColor.match(/[\d.]+/g) || [128, 128, 128]).map(Number);
+    return 0.2126 * r + 0.7152 * g + 0.0722 * bl;
+  };
+  [...switcher.children].map(b => [lum(b), b]).sort((x, y) => x[0] - y[0]).forEach(([, b]) => switcher.appendChild(b));
+  _markActiveTheme(_currentTheme());
 }
 
 // CURRENT_VERSION is baked into the page server-side (see server.py's EZCONF_VERSION/
@@ -232,7 +282,7 @@ function _applyInitialTheme() {
 // its own async fetch of the VERSION static file, reasoned to need nothing from
 // initRestartWatcher() since "it can only change via a process restart, which the existing
 // restart-detection/reload logic already handles" — false in practice: a backend-only upgrade
-// (e.g. bin/generate-nixos-data.py, bin/server.py) never touches index.html/style.css/the theme
+// (e.g. bin/autocomplete-data.py, bin/server.py) never touches index.html/style.css/the theme
 // files, so WEBROOT_HASH stays identical and no reload was ever triggered, leaving this stuck on
 // the old value until something else forced a reload. See initRestartWatcher() for the fix.
 function initVersion() {
@@ -243,6 +293,8 @@ function initVersion() {
 let config = {};
 let packages = [];
 let kernels = [];
+let brews = [];     // Homebrew formula / cask names (nix-darwin only) — see nameListFor()
+let casks = [];
 let options = [];
 let customOptions = [];
 let files = [];
@@ -1716,7 +1768,7 @@ function doAdd() {
     // For empty arrays, always add one blank item so the user can start filling in immediately
     // (skip for pkg arrays and enum-typed arrays — both manage their own items via a dedicated
     // add-dropdown, where a blank/invalid placeholder item has nothing useful to seed)
-    const isEnumArray = matchedOpt && parseEnumOptions(matchedOpt.type);
+    const isEnumArray = (matchedOpt && parseEnumOptions(matchedOpt.type)) || nameListFor(parts, []);
     if (Array.isArray(initialVal) && initialVal.length === 0 && !isPkgArrayPath(parts) && !isEnumArray) {
       const blank = blankObjectFromOptions(parts);
       if (blank !== null) {
@@ -3128,7 +3180,7 @@ function renderArrayField(container, key, arr, path) {
   // "list of (one of "a", "b", ...)" — parseEnumOptions doesn't care about the "list of"
   // wrapper, it just pulls quoted values out of any type string containing "one of", so it
   // works unchanged here even though every other caller passes it a scalar field's type.
-  const enumOpts = opt ? parseEnumOptions(opt.type) : null;
+  const enumOpts = (opt ? parseEnumOptions(opt.type) : null) || nameListFor(path, arr);
 
   const valEl = document.createElement('div');
   valEl.className = 'field-value';
@@ -3169,6 +3221,21 @@ function renderArrayField(container, key, arr, path) {
   row.appendChild(valEl);
   makeDraggable(row, path[path.length - 1], path.slice(0, -1), keyEl);
   container.appendChild(row);
+}
+
+// Lists of names picked from a known set that isn't an enum in the option's own type: Homebrew
+// formulas and casks (homebrew.brews / homebrew.casks, nix-darwin), from brews.json/casks.json.
+// Same chip list as an enum array (renderEnumArray), with two differences `freeText` switches on
+// there: the set is far too large to show unfiltered, and it isn't the whole truth (a tap that
+// isn't installed yet, a name newer than the generated data), so anything typed can be added.
+// An entry can also be written as an attribute set ({ name, args, ... }), which a chip has no
+// way to show or edit — a list holding one of those stays an ordinary list.
+function nameListFor(path, arr) {
+  if (path.length !== 2 || path[0] !== 'homebrew') return null;
+  const values = path[1] === 'brews' ? brews : path[1] === 'casks' ? casks : null;
+  if (!values || !values.length) return null;
+  if (!Array.isArray(arr) || !arr.every(v => typeof v === 'string')) return null;
+  return { values, freeText: true };
 }
 
 // Parse enum values from NixOS type strings like:
@@ -3732,14 +3799,24 @@ function renderEnumArray(container, arr, path, enumOpts) {
     const cur = getAtPath(config, path);
     const have = new Set(Array.isArray(cur) ? cur.filter(v => typeof v === 'string') : []);
     const q = inp.value.trim().toLowerCase();
-    const pool = enumOpts.values.filter(v => !have.has(v));
-    const hits = (q ? pool.filter(v => v.toLowerCase().includes(q)) : pool).slice(0, 30);
     acList.innerHTML = ''; acIdx = -1;
+    // A free-text list (see nameListFor()) is thousands of names: nothing to show until
+    // something's typed, and names starting with it come before ones merely containing it.
+    if (enumOpts.freeText && !q) { acList.classList.add('hidden'); return; }
+    const pool = enumOpts.values.filter(v => !have.has(v));
+    let hits = q ? pool.filter(v => v.toLowerCase().includes(q)) : pool;
+    if (enumOpts.freeText) {
+      const rank = v => { const l = v.toLowerCase(); return l === q ? 0 : l.startsWith(q) ? 1 : 2; };
+      hits = hits.map(v => [rank(v), v]).sort((a, b) => a[0] - b[0]).map(p => p[1]);
+    }
+    hits = hits.slice(0, 30);
     if (!hits.length) { acList.classList.add('hidden'); return; }
     hits.forEach(v => {
       const it = document.createElement('div');
       it.className = 'autocomplete-item';
-      it.innerHTML = `<span class="ac-name">${v}</span>`;
+      const name = document.createElement('span');
+      name.className = 'ac-name'; name.textContent = v;
+      it.appendChild(name);
       it.addEventListener('mousedown', e => { e.preventDefault(); addValue(v); });
       acList.appendChild(it);
     });
@@ -3779,8 +3856,13 @@ function renderEnumArray(container, arr, path, enumOpts) {
     if (e.key === 'ArrowDown') { acIdx = Math.min(acIdx + 1, its.length - 1); its.forEach((el, i) => el.classList.toggle('active', i === acIdx)); its[acIdx]?.scrollIntoView({ block: 'nearest' }); e.preventDefault(); }
     else if (e.key === 'ArrowUp') { acIdx = Math.max(acIdx - 1, -1); its.forEach((el, i) => el.classList.toggle('active', i === acIdx)); if (acIdx >= 0) its[acIdx].scrollIntoView({ block: 'nearest' }); e.preventDefault(); }
     // Unlike packages, Enter with nothing selected doesn't free-text add — every value here
-    // must be one of the known enum values, which is the whole point of this picker.
-    else if (e.key === 'Enter') { if (acIdx >= 0) its[acIdx].dispatchEvent(new MouseEvent('mousedown')); e.preventDefault(); }
+    // must be one of the known enum values, which is the whole point of this picker. (A
+    // free-text list is the exception: see nameListFor().)
+    else if (e.key === 'Enter') {
+      if (acIdx >= 0) its[acIdx].dispatchEvent(new MouseEvent('mousedown'));
+      else if (enumOpts.freeText && inp.value.trim()) addValue(inp.value.trim());
+      e.preventDefault();
+    }
     else if (e.key === 'Escape') acList.classList.add('hidden');
   });
   inp.addEventListener('blur', () => setTimeout(() => acList.classList.add('hidden'), 150));
@@ -6096,14 +6178,18 @@ async function updateAutocomplete() {
     const res = await apiFetch('/autocomplete/update', { method: 'POST' });
     const data = await res.json().catch(() => ({}));
     if (res.ok) {
-      const [pkgRes, optRes, kernelRes] = await Promise.all([
+      const [pkgRes, optRes, kernelRes, brewRes, caskRes] = await Promise.all([
         fetch('autocomplete/packages.json?' + Date.now()).then(r => r.json()),
         fetch('autocomplete/options.json?' + Date.now()).then(r => r.json()),
         fetch('autocomplete/kernels.json?' + Date.now()).then(r => r.json()).catch(() => null),
+        fetch('autocomplete/brews.json?' + Date.now()).then(r => r.json()).catch(() => null),
+        fetch('autocomplete/casks.json?' + Date.now()).then(r => r.json()).catch(() => null),
       ]);
       packages = pkgRes;
       options = optRes;
       if (kernelRes) kernels = kernelRes;
+      if (brewRes) brews = brewRes;
+      if (caskRes) casks = caskRes;
       // renderField() bakes each field's option object into its hover-tooltip listener as a
       // closure (see _wireTooltipAnchor()) rather than looking it up fresh on every hover --
       // without a re-render here, every already-rendered row keeps showing whatever `options`
@@ -6307,10 +6393,12 @@ async function loadSiblingFiles() {
     config = {};
   }
 
-  const [pkgResult, optResult, kernelResult, customOptResult] = await Promise.allSettled([
+  const [pkgResult, optResult, kernelResult, brewResult, caskResult, customOptResult] = await Promise.allSettled([
     fetch('autocomplete/packages.json').then(r => { if (!r.ok) throw r.status; return r.json(); }),
     fetch('autocomplete/options.json').then(r => { if (!r.ok) throw r.status; return r.json(); }),
     fetch('autocomplete/kernels.json').then(r => { if (!r.ok) throw r.status; return r.json(); }),
+    fetch('autocomplete/brews.json').then(r => { if (!r.ok) throw r.status; return r.json(); }),
+    fetch('autocomplete/casks.json').then(r => { if (!r.ok) throw r.status; return r.json(); }),
     fetch('custom-options.json').then(r => { if (!r.ok) throw r.status; return r.json(); }),
   ]);
 
@@ -6332,6 +6420,8 @@ async function loadSiblingFiles() {
   if (optResult.status === 'fulfilled') options = optResult.value;
   else setStatus('options.json not found', 4000, 'err');
   if (kernelResult.status === 'fulfilled') kernels = kernelResult.value;
+  if (brewResult.status === 'fulfilled') brews = brewResult.value;
+  if (caskResult.status === 'fulfilled') casks = caskResult.value;
   if (customOptResult.status === 'fulfilled') {
     customOptions = customOptResult.value;
     options = [...options, ...customOptions.map(o => ({ ...o, custom: true }))];

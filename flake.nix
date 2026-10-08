@@ -1,5 +1,5 @@
 {
-  description = "ezconf — NixOS configuration editor";
+  description = "ezconf — NixOS and nix-darwin configuration editor";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
@@ -50,5 +50,6 @@
       devShells = builtins.mapAttrs (_: s: s.devShells) perSystem;
 
       nixosModules.default = import ./modules/ezconf.nix self;
+      darwinModules.default = import ./modules/ezconf-darwin.nix self;
     };
 }

@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
-"""Generate options.json, packages.json, and kernels.json from a NixOS flake."""
+"""Generate options.json, packages.json, and kernels.json from a NixOS or nix-darwin flake."""
 
 import argparse
 import json
 import os
+import pwd
 import re
+import shutil
 import socket
 import subprocess
 import sys
@@ -22,6 +24,15 @@ def error(msg): print(f"{RED}Error: {msg}{NC}", file=sys.stderr); sys.exit(1)
 
 VERBOSE = False
 OUTPUT_DIR = "."
+
+IS_DARWIN = sys.platform == "darwin"
+DEFAULT_TARGET = "/etc/nix-darwin" if IS_DARWIN else "/etc/nixos"
+
+# The flake output the hosts live under, by --type. Everything below reads the same things from
+# either one (.options, .pkgs) -- nix-darwin's darwinSystem returns the same shape nixosSystem
+# does -- so which one is in use is just this name.
+CONFIG_ATTRS = {"nixos": "nixosConfigurations", "darwin": "darwinConfigurations"}
+CONFIG_ATTR = "nixosConfigurations"
 
 NIX_EVAL_TIMEOUT = 600  # seconds — a third-party module's option defaults can trigger an
                         # import-from-derivation build or a slow fetch; this bounds how long any
@@ -52,9 +63,24 @@ def nix_eval(args_list, extra_env=None):
     return json.loads(r.stdout)
 
 
-def get_hosts(target):
-    result = nix_eval([f"{target}#nixosConfigurations", "--apply", "builtins.attrNames", "--impure"])
+def get_hosts(target, attr):
+    result = nix_eval([f"{target}#{attr}", "--apply", "builtins.attrNames", "--impure"])
     return result or []
+
+
+def local_hostname():
+    """This machine's name as the rebuild tool would look it up in the flake. darwin-rebuild uses
+    macOS's LocalHostName, which can differ from what gethostname() returns there (that one can
+    follow whatever name the network handed out)."""
+    if IS_DARWIN:
+        try:
+            r = subprocess.run(["scutil", "--get", "LocalHostName"],
+                               capture_output=True, text=True, timeout=10)
+            if r.returncode == 0 and r.stdout.strip():
+                return r.stdout.strip()
+        except (OSError, subprocess.TimeoutExpired):
+            pass
+    return socket.gethostname().split(".")[0]
 
 
 # --- packages ---
@@ -172,6 +198,86 @@ def generate_kernels(flake_ref):
     info(f"  {len(result)} kernels")
 
 
+# --- homebrew ---
+
+def _brew_command():
+    """How to invoke brew, or None when it isn't installed. Homebrew refuses to run as root, which
+    is what this runs as under ezconf's own service -- there it's called as whoever owns the
+    Homebrew installation instead."""
+    brew = shutil.which("brew") or next(
+        (p for p in ("/opt/homebrew/bin/brew", "/usr/local/bin/brew") if os.path.exists(p)), None)
+    if not brew:
+        return None
+    if os.geteuid() != 0:
+        return [brew]
+    try:
+        owner = pwd.getpwuid(os.stat(os.path.realpath(brew)).st_uid).pw_name
+    except (OSError, KeyError):
+        return None
+    if owner == "root":
+        return None
+    return ["sudo", "-H", "-u", owner, "--", brew]
+
+
+def _brew(brew, args):
+    """Run one brew command; its stdout, or None on any failure."""
+    env = {**os.environ, "HOMEBREW_NO_AUTO_UPDATE": "1", "HOMEBREW_NO_ANALYTICS": "1"}
+    try:
+        r = subprocess.run(brew + args, capture_output=True, text=True, env=env, timeout=120)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        warn(f"brew {' '.join(args)}: {e}")
+        return None
+    if r.returncode != 0:
+        if VERBOSE:
+            for line in r.stderr.strip().splitlines():
+                print(f"  {line}", file=sys.stderr)
+        return None
+    return r.stdout
+
+
+def generate_homebrew(flake_ref):
+    """brews.json / casks.json: the names homebrew.brews and homebrew.casks can be filled in from.
+    Everything comes from the local brew -- its own lists for the core formulas and casks, plus
+    what each tap named in the configuration's homebrew.taps provides (asked for tap by tap:
+    brew leaves a tap it doesn't consider trusted out of its combined list). A tap's entries are
+    written as tap/name, the form that's unambiguous in a Brewfile. Only an installed tap can be
+    listed, so one that was just added to the configuration shows up after the next rebuild.
+
+    Writes nothing at all without a working brew, leaving whatever was generated before."""
+    brew = _brew_command()
+    if not brew:
+        info("Homebrew not found — skipping brews.json/casks.json")
+        return []
+    info("Generating brews.json and casks.json...")
+    formulae = _brew(brew, ["formulae"])
+    casks = _brew(brew, ["casks"])
+    if not formulae or casks is None:
+        warn("could not list Homebrew formulas/casks — leaving brews.json/casks.json as they were "
+             "(rerun with -v for details)")
+        return []
+    brews = set(formulae.split())
+    casks = set(casks.split())
+
+    taps = nix_eval([f"{flake_ref}.config.homebrew.taps", "--apply", "map (t: t.name or t)"])
+    if taps:
+        out = _brew(brew, ["tap-info", "--json"] + taps)
+        try:
+            tap_info = json.loads(out) if out else []
+        except ValueError:
+            tap_info = []
+        for t in tap_info:
+            if not t.get("installed"):
+                info(f"  tap {t.get('name')} is not installed yet — its formulas appear after a rebuild")
+                continue
+            brews.update(t.get("formula_names") or [])
+            casks.update(t.get("cask_tokens") or [])
+
+    Path(OUTPUT_DIR, "brews.json").write_text(json.dumps(sorted(brews)))
+    Path(OUTPUT_DIR, "casks.json").write_text(json.dumps(sorted(casks)))
+    info(f"  {len(brews)} formulas, {len(casks)} casks")
+    return ["brews.json", "casks.json"]
+
+
 # --- home-manager options ---
 
 def generate_home_options(target, host):
@@ -198,7 +304,7 @@ def generate_home_options(target, host):
     expr = f"""
 let
     target = builtins.getFlake "path:{target}";
-    cfg = target.nixosConfigurations.{host};
+    cfg = target.{CONFIG_ATTR}.{host};
     hmInput = target.inputs.home-manager or null;
 in if hmInput == null then [] else
 let
@@ -214,7 +320,7 @@ let
         # any of these three values, so their exact content doesn't matter, only that they exist.
         modules = [ {{
             home.username = "ezconf";
-            home.homeDirectory = "/home/ezconf";
+            home.homeDirectory = (if cfg.pkgs.stdenv.hostPlatform.isDarwin then "/Users" else "/home") + "/ezconf";
             home.stateVersion = lib.trivial.release;
         }} ];
     }};
@@ -254,7 +360,7 @@ def generate_options(target, host):
     expr = f"""
 let
     target = builtins.getFlake "path:{target}";
-    cfg = target.nixosConfigurations.{host};
+    cfg = target.{CONFIG_ATTR}.{host};
     opts = cfg.options;
     lib = target.inputs.nixpkgs.lib;
     unwrapValue = v:
@@ -319,19 +425,23 @@ def print_summary(files):
 # --- main ---
 
 def main():
-    target = os.environ.get("TARGET", "/etc/nixos")
+    target = os.environ.get("TARGET", DEFAULT_TARGET)
 
     parser = argparse.ArgumentParser(
-        description="Generate NixOS data files from a flake",
+        description="Generate NixOS / nix-darwin data files from a flake",
         formatter_class=argparse.RawTextHelpFormatter,
     )
     parser.add_argument(
         "command", nargs="?", default="all",
-        choices=["options", "packages", "kernels", "all"],
+        choices=["options", "packages", "kernels", "homebrew", "all"],
         help="What to generate (default: all)",
     )
     parser.add_argument("hostname", nargs="?", default="",
-                        help="NixOS configuration host name")
+                        help="Configuration host name")
+    parser.add_argument("-t", "--type", choices=["auto", "nixos", "darwin"], default="auto",
+                        help=("Which of the flake's outputs to read: nixosConfigurations or\n"
+                              "darwinConfigurations. auto (default) tries the one matching this\n"
+                              "machine first, then the other"))
     parser.add_argument("-e", "--exclude",
                         help="Nested package sets to skip (comma/space separated)")
     parser.add_argument("-i", "--include",
@@ -355,7 +465,7 @@ def main():
                         help="Top-level packages only (default)")
     args = parser.parse_args()
 
-    global VERBOSE, OUTPUT_DIR
+    global VERBOSE, OUTPUT_DIR, CONFIG_ATTR
     VERBOSE = args.verbose
     OUTPUT_DIR = args.output
     Path(OUTPUT_DIR).mkdir(parents=True, exist_ok=True)
@@ -368,10 +478,21 @@ def main():
 
     info(f"Using flake: {target}")
 
-    hosts = get_hosts(target)
+    # auto: whichever kind this machine itself is comes first, but a flake that only has the other
+    # kind is still usable (e.g. editing a NixOS machine's flake from a Mac).
+    if args.type == "auto":
+        types = ["darwin", "nixos"] if IS_DARWIN else ["nixos", "darwin"]
+    else:
+        types = [args.type]
+    hosts = []
+    for t in types:
+        CONFIG_ATTR = CONFIG_ATTRS[t]
+        hosts = get_hosts(target, CONFIG_ATTR)
+        if hosts:
+            break
     if not hosts:
-        error("No nixosConfigurations found")
-    info(f"Available hosts: {' '.join(hosts)}")
+        error(f"No {' or '.join(CONFIG_ATTRS[t] for t in types)} found")
+    info(f"Using {CONFIG_ATTR}. Available hosts: {' '.join(hosts)}")
 
     host = args.hostname
     if not host:
@@ -379,7 +500,7 @@ def main():
         # reliable way to pick the right nixosConfigurations entry without being told explicitly —
         # matters once a flake defines more than one host (e.g. a shared flake for several
         # machines), where picking hosts[0] could silently generate data for the wrong one.
-        system_hostname = socket.gethostname().split(".")[0]
+        system_hostname = local_hostname()
         if system_hostname in hosts:
             host = system_hostname
             info(f"Using: {host} (matches this machine's hostname)")
@@ -392,7 +513,7 @@ def main():
         error(f"Host '{host}' not found. Available: {' '.join(hosts)}")
 
     info(f"Using host: {host}")
-    flake_ref = f"{target}#nixosConfigurations.{host}"
+    flake_ref = f"{target}#{CONFIG_ATTR}.{host}"
 
     generated = []
     if args.command in ("packages", "all"):
@@ -401,7 +522,14 @@ def main():
     if args.command in ("options", "all"):
         generate_options(target, host)
         generated.append("options.json")
-    if args.command in ("kernels", "all"):
+    # A nix-darwin system has no kernel to choose. Nothing is written for it at all rather than
+    # an empty list: server.py treats an empty output file as a failed run.
+    if CONFIG_ATTR == "darwinConfigurations":
+        if args.command == "kernels":
+            info("No kernels to list for a nix-darwin configuration")
+        if args.command in ("homebrew", "all"):
+            generated += generate_homebrew(flake_ref)
+    elif args.command in ("kernels", "all"):
         generate_kernels(flake_ref)
         generated.append("kernels.json")
 

@@ -7,13 +7,14 @@ Graphical editor for nix configurations. Zero dependencies, no build step, no fr
 ## ✨ Features
 
 - Edit NixOS configuration through a clean web UI with option autocomplete
+- Works on macOS too, for a [nix-darwin](https://github.com/nix-darwin/nix-darwin) configuration — see [macOS](#-macos-nix-darwin)
 - Search (Ctrl+F or the 🔍 button) across every open file for an option path or a value, jumping straight to it
 - Split config across multiple files and folders — organize however you like, merged only at Nix-eval time
 - Inline terminal panel with configurable shortcut buttons
 - Browse any `.md` files anywhere in the system config (e.g. `README.md`), rendered in a side panel
 - PAM auth (system credentials) or custom username/password
 - HTTPS with automatic local CA generation and browser trust store installation
-- Four themes: NixOS blue, dark, light, gruvbox
+- Five themes — NixOS blue, dark, gruvbox, OS X Dark, OS X Light — or bring your own
 
 ## 🚀 Quick Start
 
@@ -73,6 +74,45 @@ Each key gets its own start-menu entry (labeled "ezconf (homelab)", "ezconf (vm2
 4. Rebuild — your config is now managed through the editor
 
 > **Note:** Any `imports` you had in `configuration.nix` should be moved to your `flake.nix` after migrating — the JSON-based config does not support `imports`.
+
+## 🍎 macOS (nix-darwin)
+
+The same flake provides a nix-darwin module, with the same `services.ezconf.*` options:
+
+```nix
+darwinConfigurations.mymac = nix-darwin.lib.darwinSystem {
+  modules = [
+    inputs.ezconf.darwinModules.default
+    ./configuration.nix
+    ./ezconf   # created automatically on first activation
+  ];
+};
+```
+
+```nix
+{ ... }: {
+  services.ezconf = {
+    enable = true;
+    auth.allowedUsers = [ "alice" ];   # your macOS account; root has no password to log in with
+    buttons = [
+      { label = "Rebuild"; command = "sudo darwin-rebuild switch --flake /etc/nix-darwin"; save_first = true; }
+    ];
+  };
+}
+```
+
+What's different from NixOS:
+
+- `configDir` and `nixosTarget` default to `/etc/nix-darwin/ezconf` and `/etc/nix-darwin`, `group` to `wheel`.
+- The two services are launchd daemons (`org.nixos.ezconf`, `org.nixos.ezconf-terminal`), logging to `/var/log/ezconf.log` and `/var/log/ezconf-terminal.log`. As on NixOS, a rebuild never restarts the terminal one by itself.
+- **Trusting the certificate is one manual step.** Chrome and Safari use the system keychain, which nothing unattended is allowed to add a trusted root to, so run this once (it asks for your password):
+  ```sh
+  sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain /var/lib/ezconf/ca.pem
+  ```
+  Firefox profiles of each user in `certUsers` still get the CA installed automatically.
+- `openFirewall`/`interfaces` open nothing (macOS has no port firewall to configure here); `interfaces` still changes the `listen`/`trustedHosts` defaults.
+- There's no `programs.ezconf` shortcut, and no kernel autocomplete.
+- `homebrew.brews` and `homebrew.casks` suggest names as you type, taken from the Homebrew installed on the machine (its own formulas and casks, plus those of every tap in `homebrew.taps`). A tap you've only just added shows up after the next rebuild and a `↻ Autocomplete`. Anything not in the list can still be typed in and added with Enter.
 
 ## 📑 Multiple Config Files
 
@@ -338,6 +378,8 @@ services.ezconf = {
 
 The editor loads NixOS option, package, and kernel data from `autocomplete_dir` if set in the config, otherwise `autocomplete/` under the webroot. The NixOS module sets `autocomplete_dir` to `/var/lib/ezconf/autocomplete/` and generates the data on first start, unless `generateAutocomplete = false`. To regenerate from the UI, the `↻ Autocomplete` button appears automatically when `mkoptions` is configured (the module sets this up) — this is also how to populate it the first time if `generateAutocomplete` was turned off. If the run fails, or completes with warnings (e.g. an option that failed to evaluate and was skipped), the full output is shown in a popup — no need for the terminal panel to see what went wrong.
 
+On macOS the data comes from the flake's `darwinConfigurations` instead of `nixosConfigurations` (`ezconf-mkoptions --type nixos|darwin` to choose explicitly, e.g. for a NixOS machine's flake edited from a Mac), and there are no kernels to list.
+
 If your flake has a `home-manager` input, `home-manager.users.<name>.*` options get autocomplete too — automatically, with nothing else to configure.
 
 For standalone use:
@@ -370,9 +412,38 @@ The whole-`nixos_target` backups work the same way, just manual instead of on-sa
 ```nix
 services.ezconf = {
   enable = true;
-  theme  = "dark";  # nixos (default) | dark | light | gruvbox
+  theme  = "dark";  # nixos (default) | dark | gruvbox | osx-dark | osx-light
 };
 ```
+
+The swatches in the header switch theme for that browser only; `theme` is what everyone starts with.
+
+### Your own themes
+
+A theme is a CSS file of variables. Yours only needs the ones it changes — a built-in theme is loaded underneath it:
+
+```css
+/* base: osx-dark */
+:root {
+  --bg:     #1b1622;
+  --bg2:    #261f30;
+  --accent: #c792ea;
+}
+```
+
+```nix
+services.ezconf = {
+  themes.plum = ./plum.css;   # adds a "plum" swatch to the header
+  theme       = "plum";       # optional: also make it the default
+};
+```
+
+- The `base` comment picks the built-in theme underneath (`nixos` when left out). Start from a light one for a light theme.
+- [THEMES.md](THEMES.md) has the rules of thumb for making a theme that holds together.
+- Every variable there is to set is in the built-in files, e.g. [`webroot/theme-dark.css`](webroot/theme-dark.css): colours, fonts, corner radii, spacing, and the terminal's colours.
+- The swatch is painted with the file's own `--bg` and `--accent`.
+- Names are lowercase letters, digits, `-` and `_`.
+- Standalone: put the files in a folder as `<name>.css` and set `themes_dir` in `ezconf.toml` (or `--themes-dir`). The folder is read when the server starts.
 
 ## ⚙️ NixOS Module Options
 
@@ -388,7 +459,8 @@ services.ezconf = {
 | `auth.password` | str or null | `null` | Password for `custom` auth (stored in Nix store — prefer `passwordFile`) |
 | `auth.passwordFile` | path or null | `null` | File containing the password for `custom` auth |
 | `auth.allowedUsers` | list of str | `[]` | Users allowed to log in (PAM mode); defaults to the service user |
-| `theme` | str | `"nixos"` | `nixos`, `dark`, `light`, or `gruvbox` |
+| `theme` | str | `"nixos"` | `nixos`, `dark`, `gruvbox`, `osx-dark`, `osx-light`, or a name from `themes` |
+| `themes` | attrs of path | `{}` | Your own themes, name → CSS file — see [Your own themes](#your-own-themes) |
 | `mode` | null or `"install"` | `null` | Set to `"install"` to show `mode = "install"` buttons in their own row and grey out ordinary ones, from page load — deploy-time only, no in-GUI toggle |
 | `terminal` | bool | `true` | Enable terminal panel and `ezconf-terminal.service`. The shared shell always persists across a dropped/closed connection (browser closed, network drop, logout) — reconnecting reattaches instead of starting fresh |
 | `terminalAutoHide` | bool | `true` | Hide the open terminal panel when clicking anywhere outside it; `false` keeps it open until hidden with its own button |

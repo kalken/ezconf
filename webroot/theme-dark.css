@@ -12,7 +12,7 @@
   --green:  #4dcb6b;
   --green2: #3aa655;
   --red:    #ef4444;
-  --purple: var(--text2);
+  --purple: #a78bfa;
 
   /* ── Typography & shape ── */
   --font: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', ui-monospace, monospace;
@@ -38,7 +38,7 @@
   /* ── Selection / highlight ── */
   --selected-bg:   #262626;
   --toggle-on-bg:  #484848;
-  --toggle-on-knob:   var(--text);
+  --toggle-on-knob:   #ffffff;
   --toggle-on-border: #585858;
   --input-focus-border: var(--text);
 
@@ -68,7 +68,8 @@
   --list-key-width: 160px; /* key column inside an object that is a list item */
   --indent-step:    2ch;   /* indent per nesting level (1ch = one letter) */
   --row-height:     28px;  /* minimum height of an option row */
-  --section-gap:    20px;  /* between top-level blocks */
+  --page-margin:    20px;  /* around the top-level blocks, on every side */
+  --section-gap:    16px;  /* between top-level blocks */
   --card-gap:       12px;   /* around a bordered sub-section */
   --nested-section-gap: 10px; /* below a section nested inside a sub-section */
   --list-item-gap:  1ch;   /* space around each object in a list (1ch = one letter) */

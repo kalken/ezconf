@@ -1,0 +1,396 @@
+# Everything the NixOS module (ezconf.nix) and the nix-darwin module (ezconf-darwin.nix) have in
+# common: the services.ezconf options, the generated ezconf.toml, the pre-start script, and the
+# option defaults/assertions that don't depend on how the services themselves are run. Each
+# platform module calls this with its own paths and adds only the service wiring (systemd vs
+# launchd) on top.
+#
+#   stateDir / runDir  where persistent state (certs, session key, autocomplete, backups) and
+#                      the runtime ezconf.toml live
+#   defaults           platform defaults for the group, configDir and nixosTarget options
+#   shell              resolved path of the terminal's shell, or null to let terminal.py pick
+#   extraToml          extra top-level lines for ezconf.toml (a list of strings)
+{ self, config, lib, pkgs, stateDir, runDir, defaults, shell, extraToml ? [ ] }:
+let
+  cfg       = config.services.ezconf;
+  p         = import ./ezconf-packages.nix { inherit pkgs; version = self.shortRev or "dev"; };
+  package   = p.ezconf;
+  termPkg   = p."ezconf-terminal";
+  mkoptions = p."ezconf-mkoptions";
+
+  builtinThemes = [ "nixos" "dark" "osx-light" "gruvbox" "osx-dark" ];
+  # "light" is what osx-light used to be called; server.py still takes it.
+  themeNames    = builtinThemes ++ [ "light" ];
+  themesDir     = pkgs.linkFarm "ezconf-themes"
+    (lib.mapAttrsToList (name: path: { name = "${name}.css"; inherit path; }) cfg.themes);
+
+  esc       = s: lib.replaceStrings [ ''"'' "\\" ] [ ''\"'' "\\\\" ] s;
+  str       = s: ''"${esc s}"'';
+  toml-list = xs: "[${lib.concatMapStringsSep ", " str xs}]";
+
+  preStartScript = p.mkPrestart { inherit cfg staticToml mkoptions package stateDir runDir; };
+
+  staticToml = pkgs.writeText "ezconf.toml" (lib.concatLines (lib.flatten [
+    "file = ${str cfg.configDir}"
+    "default_file = ${str cfg.defaultFile}"
+    "webroot = ${str cfg.webroot}"
+    "autocomplete_dir = ${str "${stateDir}/autocomplete"}"
+    "mkoptions = ${str "${mkoptions}/bin/ezconf-mkoptions"}"
+    "nixos_target = ${str cfg.nixosTarget}"
+    "system_export_exclude_dotfiles = ${lib.boolToString cfg.systemExportExcludeDotfiles}"
+    "system_export_exclude = ${toml-list cfg.systemExportExclude}"
+    "auth = ${str cfg.auth.method}"
+    "theme = ${str cfg.theme}"
+    (lib.optional (cfg.themes != { }) "themes_dir = ${str "${themesDir}"}")
+    (lib.optional (cfg.mode != null) "mode = ${str cfg.mode}")
+    "terminal_auto_hide = ${lib.boolToString cfg.terminalAutoHide}"
+    "sections_default = ${str cfg.sectionsDefault}"
+    "session_key_file = ${str "${stateDir}/session.key"}"
+    "backup_dir = ${str cfg.backupDir}"
+    "backup_count = ${toString cfg.backupCount}"
+    "system_backup_dir = ${str cfg.systemBackupDir}"
+    "system_backup_count = ${toString cfg.systemBackupCount}"
+    (lib.optional cfg.terminal "terminal_port = ${toString cfg.ports.terminal}")
+    # Lets server.py hash the terminal.py that's actually on disk right now (see
+    # TERMINAL_CURRENT_HASH) -- ezconf.service restarts on every rebuild so this is always fresh
+    # as of the last one, unlike ezconf-terminal.service itself, which deliberately doesn't.
+    (lib.optional cfg.terminal "terminal_script = ${str "${termPkg}/share/ezconf-terminal/terminal.py"}")
+    (lib.optional (cfg.auth.username     != null) "username = ${str cfg.auth.username}")
+    (lib.optional (cfg.auth.password     != null) "password = ${str cfg.auth.password}")
+    (lib.optional (cfg.auth.allowedUsers != [])   "allowed_users = ${toml-list cfg.auth.allowedUsers}")
+    (lib.optionalString cfg.https
+      (if cfg.generateCert then "cert = ${str "${stateDir}/localhost.pem"}"
+       else lib.optionalString (cfg.cert != null) "cert = ${str cfg.cert}"))
+    (lib.optionalString cfg.https
+      (if cfg.generateCert then "key = ${str "${stateDir}/localhost-key.pem"}"
+       else lib.optionalString (cfg.key != null) "key = ${str cfg.key}"))
+    (lib.optional cfg.generateCert "ca_file = ${str "${stateDir}/ca.pem"}")
+    (lib.optional (shell                 != null) "shell = ${str shell}")
+    (lib.optional (cfg.listen           != null) "listen = ${str cfg.listen}")
+    (let allTrusted = cfg.trustedHosts ++ cfg.certNames;
+     in lib.optional (allTrusted != []) "trusted_hosts = ${toml-list allTrusted}")
+    extraToml
+    ""
+    "[ports]"
+    "web = ${toString cfg.ports.web}"
+    # clear_first is always emitted explicitly (true or false), unlike the other optionalString
+    # booleans here -- its Nix-side default is true (not false), so omitting it when false would
+    # make that false indistinguishable from "unset" once read back as plain JSON/TOML by
+    # server.py/index.html, which have no access to this option's own default to fall back to.
+    (map (btn: "\n[[buttons]]\nlabel = ${str btn.label}\ncommand = ${str btn.command}${lib.optionalString btn.save_first "\nsave_first = true"}\nclear_first = ${lib.boolToString btn.clear_first}${lib.optionalString (btn.menu != "") "\nmenu = ${str btn.menu}"}${lib.optionalString (btn.mode != null) "\nmode = ${str btn.mode}"}${lib.optionalString btn.static "\nstatic = true"}") cfg.buttons)
+  ]));
+in
+{
+  inherit package termPkg mkoptions preStartScript;
+
+  options = {
+    enable = lib.mkEnableOption "ezconf NixOS configuration editor";
+
+    user = lib.mkOption {
+      type        = lib.types.str;
+      default     = "root";
+      description = "User to run the services as.";
+    };
+
+    group = lib.mkOption {
+      type        = lib.types.str;
+      default     = defaults.group;
+      description = "Group to run the services as.";
+    };
+
+    configDir = lib.mkOption {
+      type        = lib.types.str;
+      default     = defaults.configDir;
+      description = "Directory for the *.json config files (tabs) plus default.nix. Starts empty — the editor's UI is used to create the first file. Should be inside the system flake so pure evaluation can read it. Any *.json file here (besides custom-options.json) is an independently editable tab in the UI, merged at eval time.";
+    };
+
+    defaultFile = lib.mkOption {
+      type        = lib.types.str;
+      default     = "configuration.json";
+      description = "File (relative to configDir) to prefer as the initially-selected tab when the editor opens and no file has been picked before in that browser. Purely a hint — nothing creates this file automatically; configDir starts empty and the editor explains how to create the first file.";
+    };
+
+    webroot = lib.mkOption {
+      type        = lib.types.str;
+      default     = "${package}/share/ezconf";
+      description = "Directory to serve static assets from.";
+    };
+
+    nixosTarget = lib.mkOption {
+      type        = lib.types.str;
+      default     = defaults.nixosTarget;
+      description = "Flake path passed as TARGET to ezconf-mkoptions when generating autocomplete data.";
+    };
+
+    generateAutocomplete = lib.mkOption {
+      type        = lib.types.bool;
+      default     = true;
+      description = "Run ezconf-mkoptions automatically the first time the service starts (whenever /var/lib/ezconf/autocomplete doesn't exist yet), evaluating nixosTarget to populate the editor's option/package/kernel autocomplete. Set to false to skip this -- the editor still works fully without it (just without autocomplete suggestions) until the \"Refresh Autocomplete\" button is used manually, e.g. if the eval is slow enough to be worth not doing unconditionally on every fresh boot/state wipe.";
+    };
+
+    systemExportExcludeDotfiles = lib.mkOption {
+      type        = lib.types.bool;
+      default     = true;
+      description = "Exclude dotfiles/dotdirs (.git, .ssh, age/sops keys, etc.) from the \"Export system\" zip.";
+    };
+
+    systemExportExclude = lib.mkOption {
+      type        = lib.types.listOf lib.types.str;
+      default     = [ ];
+      description = "Basenames to exclude from the \"Export system\" zip, anywhere in the tree. E.g. hardware-configuration.nix, which is machine-specific and might not be wanted in a config meant to be reused elsewhere.";
+    };
+
+    backupDir = lib.mkOption {
+      type        = lib.types.str;
+      default     = "${stateDir}/backups";
+      description = "Directory to store configuration.json backups.";
+    };
+
+    backupCount = lib.mkOption {
+      type        = lib.types.ints.unsigned;
+      default     = 5;
+      description = "Number of backups to keep, made on every save. 0 disables backups.";
+    };
+
+    systemBackupDir = lib.mkOption {
+      type        = lib.types.str;
+      default     = "${stateDir}/system-backups";
+      description = "Directory to store whole-nixosTarget zip backups. Unlike backupDir, there's no manual \"back up now\" action -- a backup is made automatically, right before a system import or a system-backup restore overwrites anything, so it always reflects the state just before the most recent such write.";
+    };
+
+    systemBackupCount = lib.mkOption {
+      type        = lib.types.ints.unsigned;
+      default     = 5;
+      description = "Number of system backups to keep. 0 disables the feature (hides the Restore button's System submenu, and skips the automatic pre-import/restore backup).";
+    };
+
+    auth = {
+      method = lib.mkOption {
+        type        = lib.types.enum [ "auto" "pam" "custom" ];
+        default     = "auto";
+        description = "Authentication method. \"auto\" uses PAM if available, else custom. \"pam\" uses system credentials. \"custom\" uses username/password from config.";
+      };
+
+      username = lib.mkOption {
+        type        = lib.types.nullOr lib.types.str;
+        default     = null;
+        description = "Username for auth.method = \"custom\".";
+      };
+
+      password = lib.mkOption {
+        type        = lib.types.nullOr lib.types.str;
+        default     = null;
+        description = "Password for auth.method = \"custom\". Stored in the Nix store — use passwordFile for secrets.";
+      };
+
+      passwordFile = lib.mkOption {
+        type        = lib.types.nullOr lib.types.path;
+        default     = null;
+        description = "File containing the password for auth.method = \"custom\". Read at service start.";
+      };
+
+      allowedUsers = lib.mkOption {
+        type        = lib.types.listOf lib.types.str;
+        default     = [];
+        description = "Users allowed to log in (PAM mode only). Defaults to the user running the service.";
+      };
+    };
+
+    theme = lib.mkOption {
+      type        = lib.types.str;
+      default     = "nixos";
+      description = "UI theme. \"nixos\" (dark blue), \"dark\" (black), \"gruvbox\" (Gruvbox Dark), \"osx-dark\" and \"osx-light\" (the macOS dark and light appearances), or the name of one of your own from themes.";
+    };
+
+    themes = lib.mkOption {
+      type        = lib.types.attrsOf lib.types.path;
+      default     = { };
+      example     = lib.literalExpression "{ mine = ./mine.css; }";
+      description = "Your own themes, name -> CSS file. Each one gets a swatch in the header next to the built-in themes, and its name can be used as theme. A file sets the same variables a built-in theme does (see webroot/theme-*.css), but only the ones it wants to change: a built-in theme is loaded underneath it -- \"nixos\", or another named in a comment near the top of the file, e.g. /* base: osx-light */. Names are lowercase letters, digits, - and _.";
+    };
+
+    mode = lib.mkOption {
+      type        = lib.types.nullOr (lib.types.enum [ "install" ]);
+      default     = null;
+      description = "Set to \"install\" to show buttons with mode = \"install\" (see the buttons option) in their own row, with ordinary buttons shown too but greyed out. Deploy-time only, baked into index.html on load — not a runtime toggle, so it's meant for a dedicated install image rather than something to flip on an already-running instance.";
+    };
+
+    terminal = lib.mkOption {
+      type    = lib.types.bool;
+      default = true;
+    };
+
+    terminalAutoHide = lib.mkOption {
+      type        = lib.types.bool;
+      default     = true;
+      description = "Hide the open terminal panel when clicking anywhere outside it. Set to false to keep it open until hidden with its own button.";
+    };
+
+    sectionsDefault = lib.mkOption {
+      type        = lib.types.enum [ "collapsed" "expanded" ];
+      default     = "collapsed";
+      description = "How the editor's foldable sections (the third level down and below) start out on page load: \"collapsed\" (hidden until opened) or \"expanded\" (shown until folded).";
+    };
+
+    https = lib.mkOption {
+      type        = lib.types.bool;
+      default     = true;
+      description = "Enable HTTPS. When neither cert nor key are set, a local CA and certificate are generated automatically.";
+    };
+
+    generateCert = lib.mkOption {
+      type        = lib.types.bool;
+      default     = false;
+      description = "Generate a local CA and TLS certificate in /var/lib/ezconf/. Set automatically when https = true and no cert/key are provided; override to false to disable.";
+    };
+
+    certNames = lib.mkOption {
+      type        = lib.types.listOf lib.types.str;
+      default     = [];
+      description = "Extra hostnames or IP addresses to include in the generated TLS certificate SANs. Only applies when generateCert = true. localhost and 127.0.0.1 are always included; listen is included automatically.";
+    };
+
+    installCerts = lib.mkOption {
+      type        = lib.types.bool;
+      default     = true;
+      description = "Install the generated CA certificate into ~/.pki/nssdb (Chrome/Chromium-family browsers) and each detected Firefox profile's own certificate database, for each user in certUsers, so browsers trust it. Only has effect when generateCert = true. Defaults to false once listen resolves to a non-localhost address (installing into local browser profiles doesn't help other devices on the network -- see the Download CA certificate link on the login page for those instead).";
+    };
+
+    certUsers = lib.mkOption {
+      type        = lib.types.listOf lib.types.str;
+      default     = [];
+      description = "OS user accounts to install the generated CA certificate for (see installCerts). An empty list (the default) falls back to auth.allowedUsers at cert-install time; set this explicitly when that's not the right list -- e.g. you might log into ezconf as root over PAM while browsing as your own normal user account, in which case set this to that username instead. Kept as a real option default (rather than defaultText referencing auth.allowedUsers) specifically so the editor's own GUI can pre-fill a freshly-added certUsers field with a plain, editable [] instead of an unparseable Nix expression string.";
+    };
+
+    cert = lib.mkOption {
+      type        = lib.types.nullOr lib.types.str;
+      default     = null;
+      description = "Path to TLS certificate (PEM). Requires https = true. Ignored when generateCert = true.";
+    };
+
+    key = lib.mkOption {
+      type        = lib.types.nullOr lib.types.str;
+      default     = null;
+      description = "Path to TLS private key (PEM). Requires https = true. Ignored when generateCert = true.";
+    };
+
+    listen = lib.mkOption {
+      type        = lib.types.nullOr lib.types.str;
+      default     = null;
+      description = "IP address to listen on. Defaults to 127.0.0.1, or to 0.0.0.0 automatically when interfaces is set (a real IP is fragile on a DHCP machine; interfaces scopes actual reachability via the firewall instead). Set explicitly to override either default, e.g. to a fixed LAN IP or to 0.0.0.0 for all interfaces with no interfaces restriction.";
+    };
+
+    openFirewall = lib.mkOption {
+      type        = lib.types.bool;
+      default     = false;
+      description = "Open the firewall port for the web service. Enabled automatically when listen is set to a non-localhost address. The terminal service's own port is never opened -- it only ever binds 127.0.0.1 and is reached through the web service's own port (see bin/server.py's terminal proxy), so a browser only ever needs to trust one certificate.";
+    };
+
+    interfaces = lib.mkOption {
+      type        = lib.types.listOf lib.types.str;
+      default     = [];
+      description = "Network interfaces to open firewall ports on (e.g. [ \"eth0\" \"wg0\" ]), same naming convention as networking.firewall.interfaces. When set, ports are opened only on those interfaces; when empty (the default), ports are opened on all interfaces. Setting this also changes the defaults for listen (to 0.0.0.0, so the socket actually accepts what the firewall now lets through) and trustedHosts (to [ \"*\" ], since there's usually no fixed address to trust on the DHCP-configured machines this is meant for) -- see those options' own descriptions.";
+    };
+
+    trustedHosts = lib.mkOption {
+      type        = lib.types.listOf lib.types.str;
+      default     = [];
+      description = "Hostnames trusted for CSRF check. Required when ezconf is behind a reverse proxy — add your nginx server_name here. Set to [ \"*\" ] to disable the check entirely (accept any Host header) when the reachable address can't be known ahead of time, e.g. an installer ISO getting a DHCP lease. Defaults to [ \"*\" ] automatically when interfaces is set and neither this nor certNames is -- give certNames a real hostname or IP instead to keep the check meaningful. listen, when it's a real address (not 0.0.0.0/::), is always trusted automatically regardless of this option.";
+    };
+
+    ports = {
+      web      = lib.mkOption { type = lib.types.port; default = 9090; };
+      terminal = lib.mkOption {
+        type        = lib.types.port;
+        default     = 9091;
+        description = "Internal-only port terminal.py binds on 127.0.0.1. Never reached directly -- the browser always connects through ports.web instead, proxied over loopback (see openFirewall).";
+      };
+    };
+
+    buttons = lib.mkOption {
+      type = lib.types.listOf (lib.types.submodule {
+        options = {
+          label       = lib.mkOption { type = lib.types.str;  description = "Button label shown in the UI."; };
+          command     = lib.mkOption { type = lib.types.str;  description = "Shell command to run in the terminal."; };
+          save_first  = lib.mkOption { type = lib.types.bool; default = false; description = "Disable the button while there are unsaved changes."; };
+          clear_first = lib.mkOption { type = lib.types.bool; default = true; description = "Clear the terminal before running this button's command. Set to false to instead run it in whatever's already there."; };
+          menu        = lib.mkOption { type = lib.types.str;  default = "";    description = "Group this button into a dropdown menu with this name, instead of giving it its own slot in the button bar. Every button sharing the same menu name appears as one item in that dropdown. Use \"/\" to nest further, e.g. \"Disk/Advanced\" adds an \"Advanced\" submenu inside the \"Disk\" dropdown."; };
+          mode        = lib.mkOption { type = lib.types.nullOr (lib.types.enum [ "install" ]); default = null; description = "Set to \"install\" to move this button into its own row, shown only when services.ezconf.mode = \"install\"."; };
+          static      = lib.mkOption { type = lib.types.bool; default = false; description = "Show this deploy-time button unconditionally. Only meaningful for a button declared directly in Nix (not through an ezconf-managed *.json file): the terminal panel otherwise only shows deploy-time buttons that are also currently present in a loaded *.json file (so editing that file's buttons is a live preview with no stale duplicates), and shows every *.json-declared button regardless of this option."; };
+        };
+      });
+      default     = [];
+      description = "Buttons shown in the terminal panel. Requires terminal = true.";
+    };
+  };
+
+  config = {
+    # Setting interfaces alone, with listen left at its own default, would otherwise silently do
+    # nothing: the firewall would open the port on that interface, but the socket would still
+    # only be bound to 127.0.0.1, so nothing arriving via that interface could ever reach it.
+    # interfaces is exactly the right signal that LAN reachability is wanted without needing a
+    # specific IP -- the common case is a DHCP-configured machine, where hardcoding listen to a
+    # LAN IP is fragile (interface names are stable across DHCP renewals, addresses aren't).
+    services.ezconf.listen        = lib.mkDefault (if cfg.interfaces != [] then "0.0.0.0" else null);
+    services.ezconf.generateCert  = lib.mkDefault (cfg.https && cfg.cert == null && cfg.key == null);
+    services.ezconf.openFirewall  = lib.mkDefault (!builtins.elem cfg.listen [ null "127.0.0.1" "::1" ]);
+    services.ezconf.installCerts  = lib.mkDefault (builtins.elem cfg.listen [ null "127.0.0.1" "::1" ]);
+    # server.py's own _valid_host() auto-trusts BIND_ADDR whenever it's a real address (not
+    # 0.0.0.0/::) -- so once listen becomes 0.0.0.0 (via the default just above), nothing
+    # auto-populates trusted_hosts, and every POST (login excepted) would 403 until you set
+    # trustedHosts or certNames yourself. On a DHCP machine there's usually no stable hostname
+    # or IP to give it in the first place -- and the address can drift on every lease renewal
+    # regardless -- so unless certNames gives us something concrete to trust, fall back to "*"
+    # (disabling the Host check entirely) rather than making interfaces alone silently half-work
+    # until you find out the hard way. If listen is *also* a real address (set explicitly
+    # alongside interfaces, e.g. to scope the firewall to one NIC while still pinning a fixed
+    # IP), that same server.py auto-trust already covers it -- no need for the wildcard then.
+    # Explicitly setting trustedHosts or certNames still wins over this either way, same
+    # mkDefault-yields-to-a-real-assignment behavior as listen above.
+    services.ezconf.trustedHosts  = lib.mkDefault (
+      if cfg.interfaces != [] && cfg.certNames == []
+         && (cfg.listen == null || builtins.elem cfg.listen [ "0.0.0.0" "::" ])
+      then [ "*" ]
+      else []
+    );
+
+    assertions = [
+      {
+        assertion = builtins.elem cfg.theme themeNames || cfg.themes ? ${cfg.theme};
+        message   = "services.ezconf: theme = \"${cfg.theme}\" is neither a built-in theme (${lib.concatStringsSep ", " builtinThemes}) nor a name in services.ezconf.themes.";
+      }
+      {
+        assertion = lib.all (n: builtins.match "[a-z0-9][a-z0-9_-]*" n != null && !builtins.elem n builtinThemes) (lib.attrNames cfg.themes);
+        message   = "services.ezconf: themes names must be lowercase letters, digits, - and _, and can't reuse a built-in theme's name.";
+      }
+      {
+        assertion = cfg.auth.method != "custom" || (cfg.auth.username != null && (cfg.auth.password != null || cfg.auth.passwordFile != null));
+        message   = "services.ezconf: auth.method = \"custom\" requires auth.username and auth.password (or auth.passwordFile).";
+      }
+      {
+        assertion = !(cfg.auth.password != null && cfg.auth.passwordFile != null);
+        message   = "services.ezconf: set either auth.password or auth.passwordFile, not both.";
+      }
+      {
+        assertion = (cfg.cert == null) == (cfg.key == null);
+        message   = "services.ezconf: cert and key must be set together.";
+      }
+      {
+        assertion = !cfg.https || cfg.generateCert || (cfg.cert != null && cfg.key != null);
+        message   = "services.ezconf: https = true requires either cert+key or generateCert = true.";
+      }
+    ];
+  };
+
+  # Deliberately does not seed defaultFile — doing so on every activation fought the editor's own
+  # rename/move features: renaming defaultFile away just made the next rebuild/reboot recreate
+  # it, which could then collide with a later rename back to that name. An empty configDir is a
+  # valid, if inert, state — the editor's UI explains how to create the first file when there
+  # are none.
+  configDirScript = ''
+    mkdir -p ${cfg.configDir}
+    cp ${./json2nix.nix} ${cfg.configDir}/default.nix
+    chmod 644 ${cfg.configDir}/default.nix
+    chown ${cfg.user}:${cfg.group} ${cfg.configDir}
+    chown ${cfg.user}:${cfg.group} ${cfg.configDir}/default.nix
+  '';
+}
