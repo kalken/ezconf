@@ -548,11 +548,11 @@ body {
    inside it. */
 .section.nest.nest-card:not(.nest-top)::before { content: none; }
 /* Everything at the top level of the file is framed -- a section, or an option set at the root
-   (.nest-root) on its own -- with the same hairline and soft shadow the panels and the file's
-   own card are edged with. */
+   (.nest-root) on its own -- with a plain border in the hairline colour, the same line a
+   second-level section has above it, and no shadow around it. */
 .section.nest-top, .field-row.nest-root {
   border-radius: var(--radius);
-  box-shadow: 0 0 0 1px var(--panel-hairline), 0 0 var(--panel-shadow-size) var(--panel-shadow);
+  border: 1px solid var(--panel-hairline);
 }
 .section.nest-top { padding: 8px 0; }
 .field-row.nest-root { padding-top: 8px; padding-bottom: 8px; margin-bottom: var(--section-gap); }
