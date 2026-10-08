@@ -6,6 +6,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Do not add Claude as co-author in commit messages.
 
+Do not push unless the user explicitly says so in that turn. Committing is not a go-ahead to push.
+
 All changes must be committed to `develop` first. Only merge `develop` into `master` — never commit directly to `master`.
 
 ## Workflow
