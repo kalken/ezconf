@@ -6,7 +6,7 @@
 #
 #   stateDir / runDir  where persistent state (certs, session key, autocomplete, backups) and
 #                      the runtime ezconf.toml live
-#   defaults           platform defaults for the group, configDir and nixosTarget options
+#   defaults           platform defaults for the user, group, configDir, nixosTarget and theme options
 #   shell              resolved path of the terminal's shell, or null to let terminal.py pick
 #   extraToml          extra top-level lines for ezconf.toml (a list of strings)
 { self, config, lib, pkgs, stateDir, runDir, defaults, shell, extraToml ? [ ] }:
@@ -18,8 +18,9 @@ let
   mkoptions = p."ezconf-mkoptions";
 
   builtinThemes = [ "nixos" "dark" "osx-light" "gruvbox" "osx-dark" ];
-  # "light" is what osx-light used to be called; server.py still takes it.
-  themeNames    = builtinThemes ++ [ "light" ];
+  # "osx" picks osx-light or osx-dark by the browser's system appearance; "light" is what
+  # osx-light used to be called, and server.py still takes it.
+  themeNames    = builtinThemes ++ [ "osx" "light" ];
   themesDir     = pkgs.linkFarm "ezconf-themes"
     (lib.mapAttrsToList (name: path: { name = "${name}.css"; inherit path; }) cfg.themes);
 
@@ -81,13 +82,14 @@ let
 in
 {
   inherit package termPkg mkoptions preStartScript;
+  generateCaScript = p.mkGenerateCa { inherit cfg package stateDir; };
 
   options = {
     enable = lib.mkEnableOption "ezconf NixOS configuration editor";
 
     user = lib.mkOption {
       type        = lib.types.str;
-      default     = "root";
+      default     = defaults.user;
       description = "User to run the services as.";
     };
 
@@ -197,8 +199,8 @@ in
 
     theme = lib.mkOption {
       type        = lib.types.str;
-      default     = "nixos";
-      description = "UI theme. \"nixos\" (dark blue), \"dark\" (black), \"gruvbox\" (Gruvbox Dark), \"osx-dark\" and \"osx-light\" (the macOS dark and light appearances), or the name of one of your own from themes.";
+      default     = defaults.theme;
+      description = "UI theme. \"nixos\" (dark blue), \"dark\" (black), \"gruvbox\" (Gruvbox Dark), \"osx-dark\" and \"osx-light\" (the macOS dark and light appearances), \"osx\" (whichever of those two the system the browser runs on is set to, following it when it changes), or the name of one of your own from themes.";
     };
 
     themes = lib.mkOption {
@@ -359,7 +361,7 @@ in
         message   = "services.ezconf: theme = \"${cfg.theme}\" is neither a built-in theme (${lib.concatStringsSep ", " builtinThemes}) nor a name in services.ezconf.themes.";
       }
       {
-        assertion = lib.all (n: builtins.match "[a-z0-9][a-z0-9_-]*" n != null && !builtins.elem n builtinThemes) (lib.attrNames cfg.themes);
+        assertion = lib.all (n: builtins.match "[a-z0-9][a-z0-9_-]*" n != null && !builtins.elem n themeNames) (lib.attrNames cfg.themes);
         message   = "services.ezconf: themes names must be lowercase letters, digits, - and _, and can't reuse a built-in theme's name.";
       }
       {

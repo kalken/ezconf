@@ -195,12 +195,18 @@ TERMINAL_PORT    = None          # port the terminal WebSocket service is runnin
 TERMINAL_SCRIPT  = None          # path to the terminal.py currently on disk; set by terminal_script in TOML
 TERMINAL_LAUNCHD_LABEL = 'org.nixos.ezconf-terminal'  # macOS: the launchd job "Restart Terminal"
                                  # restarts; set by terminal_launchd_label in TOML
+TERMINAL_LAUNCHD_USER  = None    # macOS: set when the terminal is an agent in that user's login session
+                                 # rather than a system daemon (terminal_launchd_user in TOML)
 TERMINAL_CURRENT_HASH = ''       # hash of TERMINAL_SCRIPT, computed once at startup — see _ping_payload()
 TERMINAL_CONFIG_HASH = ''        # hash of the config values terminal.py itself reads, computed once at
                                   # startup from this process's own cfg — see _ping_payload() and
                                   # terminal.py's own CONFIG_HASH (must use the identical key list/formula)
-THEME            = 'nixos'       # ui theme: one of BUILTIN_THEMES, or the name of a file in THEMES_DIR
+DEFAULT_THEME    = 'osx' if sys.platform == 'darwin' else 'nixos'
+THEME            = DEFAULT_THEME # ui theme: one of BUILTIN_THEMES or AUTO_THEMES, or the name of a file in THEMES_DIR
 BUILTIN_THEMES   = ('nixos', 'dark', 'osx-light', 'gruvbox', 'osx-dark')
+# Not a stylesheet but a choice between two, by the browser's system appearance: name -> (light, dark).
+# index.html resolves it (_AUTO_THEMES there); the login page gets both, each behind a media query.
+AUTO_THEMES      = {'osx': ('osx-light', 'osx-dark')}
 THEME_ALIASES    = {'light': 'osx-light'}   # former names, still accepted for `theme` and a user theme's base
 THEMES_DIR       = None          # folder of user themes (<name>.css); set by themes_dir in TOML
 CUSTOM_THEMES    = {}            # name -> {path, base, bg, border}, scanned once at startup --
@@ -935,7 +941,7 @@ def _scan_custom_themes(themes_dir):
         name, ext = os.path.splitext(fname)
         if ext != '.css' or not _THEME_NAME_RE.match(name):
             continue
-        if name in BUILTIN_THEMES:
+        if name in BUILTIN_THEMES or name in AUTO_THEMES:
             print(f'themes_dir: {fname} skipped ("{name}" is a built-in theme)', file=sys.stderr)
             continue
         path = os.path.join(themes_dir, fname)
@@ -959,6 +965,10 @@ def _scan_custom_themes(themes_dir):
 def _theme_links(theme):
     """The stylesheet link(s) for a theme, for login.html: a custom theme is its base plus its
     own file on top (see _scan_custom_themes())."""
+    if theme in AUTO_THEMES:
+        light, dark = AUTO_THEMES[theme]
+        return ('<link rel="stylesheet" href="theme-%s.css" media="(prefers-color-scheme: light)">\n'
+                '<link rel="stylesheet" href="theme-%s.css" media="(prefers-color-scheme: dark)">' % (light, dark))
     link = '<link rel="stylesheet" href="theme-%s.css">'
     custom = CUSTOM_THEMES.get(theme)
     return (link % custom['base'] + '\n' if custom else '') + link % theme
@@ -1498,7 +1508,16 @@ class StaticHandler(http.server.SimpleHTTPRequestHandler):
             if sys.platform.startswith('linux'):
                 restart_cmd = ['systemctl', 'restart', 'ezconf-terminal.service']
             elif sys.platform == 'darwin':
-                restart_cmd = ['launchctl', 'kickstart', '-k', f'system/{TERMINAL_LAUNCHD_LABEL}']
+                # A system daemon, or an agent in one user's login session (gui/<uid>) -- which
+                # only exists while that user is logged in.
+                domain = 'system'
+                if TERMINAL_LAUNCHD_USER:
+                    import pwd
+                    try:
+                        domain = f'gui/{pwd.getpwnam(TERMINAL_LAUNCHD_USER).pw_uid}'
+                    except KeyError:
+                        pass
+                restart_cmd = ['launchctl', 'kickstart', '-k', f'{domain}/{TERMINAL_LAUNCHD_LABEL}']
             else:
                 resp = b'{"error":"restarting the terminal service is only supported on Linux and macOS"}'
                 self.send_response(501)
@@ -2029,7 +2048,7 @@ if __name__ == '__main__':
     ap.add_argument('--themes-dir', metavar='DIR', default=None,
                     help='folder of user themes, one <name>.css each (see README, "Theme")')
     ap.add_argument('--theme', default=None,
-                    help='UI theme (default: nixos)')
+                    help='UI theme (default: nixos, or osx on macOS)')
     ap.add_argument('--terminal-port', type=int, default=None,
                     help='port the terminal.py WebSocket service is running on (enables terminal panel)')
     ap.add_argument('--session-key-file', metavar='FILE', default=None,
@@ -2070,10 +2089,10 @@ if __name__ == '__main__':
     AUTH_MODE = _resolve(args.auth, cfg.get('auth'), None, 'auto')
     THEMES_DIR    = _resolve(args.themes_dir, cfg.get('themes_dir'), None, None)
     CUSTOM_THEMES = _scan_custom_themes(THEMES_DIR)
-    THEME     = _resolve(args.theme, cfg.get('theme'), None, 'nixos')
+    THEME     = _resolve(args.theme, cfg.get('theme'), None, DEFAULT_THEME)
     THEME     = THEME_ALIASES.get(THEME, THEME)
-    if THEME not in BUILTIN_THEMES and THEME not in CUSTOM_THEMES:
-        ap.error(f'theme "{THEME}" is neither a built-in theme ({", ".join(BUILTIN_THEMES)}) '
+    if THEME not in BUILTIN_THEMES and THEME not in AUTO_THEMES and THEME not in CUSTOM_THEMES:
+        ap.error(f'theme "{THEME}" is neither a built-in theme ({", ".join(BUILTIN_THEMES + tuple(AUTO_THEMES))}) '
                  f'nor a <name>.css file in themes_dir')
     EZCONF_MODE = cfg.get('mode') or None
     if 'terminal_auto_hide' in cfg:
@@ -2086,6 +2105,7 @@ if __name__ == '__main__':
         TERMINAL_ENABLED = True
     TERMINAL_SCRIPT = cfg.get('terminal_script')
     TERMINAL_LAUNCHD_LABEL = cfg.get('terminal_launchd_label') or TERMINAL_LAUNCHD_LABEL
+    TERMINAL_LAUNCHD_USER  = cfg.get('terminal_launchd_user')
     TERMINAL_CURRENT_HASH = _compute_file_hash(TERMINAL_SCRIPT)
     # Raw values, not resolved/fallback-applied -- must match terminal.py's own CONFIG_HASH
     # formula exactly, key for key, since these are compared directly (see _ping_payload()).

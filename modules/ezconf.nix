@@ -95,7 +95,7 @@ let
     inherit self config lib pkgs;
     stateDir = "/var/lib/ezconf";
     runDir   = "/run/ezconf";
-    defaults = { group = "root"; configDir = "/etc/nixos/ezconf"; nixosTarget = "/etc/nixos"; };
+    defaults = { user = "root"; group = "root"; configDir = "/etc/nixos/ezconf"; nixosTarget = "/etc/nixos"; theme = "nixos"; };
     shell    = if shell == null then null else shellPath shell;
   };
   inherit (common) package termPkg preStartScript;

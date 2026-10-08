@@ -21,7 +21,8 @@ file = "example/configuration.json"
 # username = "admin"
 # password = "changeme"
 
-# UI theme: nixos, dark, gruvbox, osx-dark, osx-light (default: nixos), or one of your own
+# UI theme: nixos, dark, gruvbox, osx-dark, osx-light, osx (light or dark, following the
+# system), or one of your own. Default: nixos, or osx on macOS
 # theme = "nixos"
 
 # Folder of your own themes, one <name>.css each (see README, "Your own themes")

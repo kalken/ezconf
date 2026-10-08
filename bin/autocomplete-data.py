@@ -476,6 +476,12 @@ def main():
     if not Path(f"{target}/flake.nix").exists():
         error(f"No flake.nix found at {target}")
 
+    # builtins.getFlake "path:..." refuses a path with a symlink anywhere in it ("path '//etc' is a
+    # symlink"), and on macOS /etc itself is one (to /private/etc) -- so /etc/nix-darwin, the
+    # default there, failed every options evaluation while the package list, which goes through
+    # an ordinary flake reference instead, came out fine.
+    target = os.path.realpath(target)
+
     info(f"Using flake: {target}")
 
     # auto: whichever kind this machine itself is comes first, but a flake that only has the other

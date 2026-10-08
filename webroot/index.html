@@ -23,14 +23,23 @@ const _DEFAULT_THEME = '%%EZCONF_THEME%%';
 const _CUSTOM_THEMES = %%EZCONF_CUSTOM_THEMES%%;
 // A theme name remembered by the browser that no longer exists (renamed or removed since) would
 // otherwise load a stylesheet that isn't there and leave the page unstyled.
-const _THEMES = ['nixos', 'dark', 'osx-light', 'gruvbox', 'osx-dark', ...Object.keys(_CUSTOM_THEMES)];
+// A theme that isn't a stylesheet of its own but a choice between two, by whether the system
+// the browser runs on is set to its light or its dark appearance: name -> [light, dark]. It
+// follows a change while the page is open (macOS switching at sunset, say) -- see the listener
+// next to setTheme().
+const _AUTO_THEMES = { osx: ['osx-light', 'osx-dark'] };
+const _darkQuery = window.matchMedia('(prefers-color-scheme: dark)');
+const _THEMES = ['nixos', 'dark', 'osx-light', 'gruvbox', 'osx-dark', ...Object.keys(_AUTO_THEMES), ...Object.keys(_CUSTOM_THEMES)];
+// The theme that was chosen (what's stored, and which swatch is marked)...
 function _currentTheme() {
   const t = localStorage.getItem('ezconf-theme');
   return _THEMES.includes(t) ? t : _DEFAULT_THEME;
 }
+// ...and the stylesheet that choice comes down to right now.
+function _resolveTheme(t) { return _AUTO_THEMES[t] ? _AUTO_THEMES[t][_darkQuery.matches ? 1 : 0] : t; }
 function _themeBase(t) { return _CUSTOM_THEMES[t] ? _CUSTOM_THEMES[t].base : t; }
 (function(){
-  const t = _currentTheme();
+  const t = _resolveTheme(_currentTheme());
   let after = document.currentScript;
   for (const [id, name] of [['theme-base-link', _themeBase(t)], ['theme-link', t]]) {
     const l = document.createElement('link');
@@ -153,6 +162,7 @@ function _themeBase(t) { return _CUSTOM_THEMES[t] ? _CUSTOM_THEMES[t].base : t; 
       <button class="theme-swatch theme-swatch-nixos" data-theme="nixos" onclick="setTheme('nixos')" data-tooltip="NixOS theme"></button>
       <button class="theme-swatch theme-swatch-osx-dark" data-theme="osx-dark" onclick="setTheme('osx-dark')" data-tooltip="OS X Dark theme"></button>
       <button class="theme-swatch theme-swatch-gruvbox" data-theme="gruvbox" onclick="setTheme('gruvbox')" data-tooltip="Gruvbox theme"></button>
+      <button class="theme-swatch theme-swatch-osx" data-theme="osx" onclick="setTheme('osx')" data-tooltip="OS X theme: light or dark, following the system"></button>
       <button class="theme-swatch theme-swatch-osx-light" data-theme="osx-light" onclick="setTheme('osx-light')" data-tooltip="OS X Light theme"></button>
     </span>
   </div>
@@ -223,6 +233,15 @@ function _buildTermTheme() {
 
 function setTheme(name) {
   localStorage.setItem('ezconf-theme', name);
+  _markActiveTheme(name);
+  _loadTheme(_resolveTheme(name));
+}
+// The system flipped between light and dark: only matters while an automatic theme is chosen.
+_darkQuery.addEventListener('change', () => {
+  const t = _currentTheme();
+  if (_AUTO_THEMES[t]) _loadTheme(_resolveTheme(t));
+});
+function _loadTheme(name) {
   // Both sheets (see _CUSTOM_THEMES) have to be in before the terminal reads its colours back
   // out of the page. Only a link whose file actually changes fires 'load' at all -- two user
   // themes sharing a base swap just the top one.
@@ -237,7 +256,6 @@ function setTheme(name) {
     }));
     link.href = href;
   }
-  _markActiveTheme(name);
   Promise.all(pending).then(() => {
     if (_term) _term.options.theme = _buildTermTheme();
     // A theme swap can also change --term-padding, which affects #term-output's content box
@@ -1851,7 +1869,7 @@ function _collectSearchMatches(query) {
       const pathMatch = pathKey.toLowerCase().includes(q);
       const valueMatch = _searchMatchText(v).toLowerCase().includes(q);
       if (pathMatch || valueMatch) {
-        results.push({ file, pathKey, value: v });
+        results.push({ file, pathKey, path: childPath, value: v });
         if (results.length >= SEARCH_MAX_RESULTS) { truncated = true; return; }
       }
     }
@@ -1908,13 +1926,22 @@ function toggleSearchPanel() {
       list.classList.remove('hidden');
       return;
     }
-    const multiFile = Object.keys(fileConfigs).length > 1;
     results.forEach(r => {
       const item = document.createElement('div');
       item.className = 'autocomplete-item';
       item._match = r;
-      const fileTag = multiFile ? `<span class="ac-type">${r.file}</span>` : '';
-      item.innerHTML = `<span class="ac-name">${r.pathKey}</span><span class="ac-desc">${_searchValuePreview(r.value)}</span>${fileTag}`;
+      // Which of the editor's value colours this one has there (see .search-results-list).
+      const inner = isDisabled(r.value) ? r.value._value : r.value;
+      const kind = (isDisabled(r.value) ? 'is-off ' : '')
+        + (isExprPkg(inner) ? 'is-expr'
+          : Array.isArray(inner) && inner.length && inner.every(isExprPkg) && isPkgArrayPath(r.path) ? 'is-pkgs' : '');
+      // Built as text, never as markup: an expression previews as <pkgs.foo>, which set through
+      // innerHTML is an unknown tag and simply doesn't show.
+      const name = document.createElement('span');
+      name.className = 'ac-name'; name.textContent = r.pathKey;
+      const val = document.createElement('span');
+      val.className = ('ac-desc ' + kind).trim(); val.textContent = _searchValuePreview(r.value);
+      item.append(name, val);
       item.addEventListener('mousedown', e => { e.preventDefault(); _jumpToSearchResult(r); });
       list.appendChild(item);
     });

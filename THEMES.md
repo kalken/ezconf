@@ -10,7 +10,8 @@ One CSS file with a single `:root` block of variables. Nothing else: no selector
 change colours, fonts, corner radii and spacing, and nothing structural.
 
 The built-in themes are `webroot/theme-<name>.css`: `nixos`, `dark`, `gruvbox`, `osx-dark`,
-`osx-light`. Any of them is a complete list of the variables there are, grouped under the same
+`osx-light`. (`osx` is not a file: it stands for whichever of the two `osx-*` themes matches the
+light or dark appearance of the system the browser runs on.) Any of them is a complete list of the variables there are, grouped under the same
 headings in the same order.
 
 ## Choosing colours
@@ -39,7 +40,7 @@ has, which is what makes them noticeable.
 
 | Colour | Variable | Means |
 |---|---|---|
-| Green | `--green`, `--green2` | fine: saved, valid — and the colour of a *value* wherever one is quoted: a Nix expression, a default or example in an option's documentation popup, a match in the search results |
+| Green | `--green`, `--green2` | fine: saved, valid — and the colour of a *value* wherever one is quoted: a Nix expression, a default or example in an option's documentation popup |
 | Red | `--red` | wrong or destructive: a missing required option, an error, delete |
 | Yellow / orange | `--dirty-color` | unsaved changes |
 | Purple | `--purple` | reference text: types, wildcards and existing paths in autocomplete, inline code in documents |

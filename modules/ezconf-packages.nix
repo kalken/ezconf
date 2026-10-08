@@ -82,6 +82,20 @@ rec {
     '';
   };
 
+  # Creating the local CA and the server certificate (a no-op when they exist and the names in
+  # them still match). Its own piece so the nix-darwin module can also run it at activation --
+  # see ezconf-darwin.nix for why that's where the CA has to be trusted on macOS.
+  mkGenerateCa = { cfg, package, stateDir }: pkgs.lib.optionalString cfg.generateCert ''
+    ${package}/bin/ezconf --generate-ca ${stateDir} \
+      ${pkgs.lib.optionalString (cfg.listen != null && !builtins.elem cfg.listen ["0.0.0.0" "::"]) "--san ${cfg.listen}"} \
+      ${pkgs.lib.concatMapStringsSep " " (san: "--san ${pkgs.lib.escapeShellArg san}") cfg.certNames}
+    chmod 600 ${stateDir}/ca-key.pem ${stateDir}/localhost-key.pem
+    chmod 644 ${stateDir}/ca.pem ${stateDir}/localhost.pem
+    chown ${cfg.user}:${cfg.group} ${stateDir}/ca.pem \
+      ${stateDir}/ca-key.pem ${stateDir}/localhost.pem \
+      ${stateDir}/localhost-key.pem
+  '';
+
   mkPrestart = { cfg, staticToml, mkoptions, package, stateDir, runDir }:
     # certUsers' own option default stays a plain [] (rather than defaultText referencing
     # auth.allowedUsers) so the editor's GUI can pre-fill a freshly-added certUsers field with a
@@ -98,22 +112,13 @@ rec {
       # Chrome and Safari on macOS take their trust from the system keychain, not an NSS
       # database, and nothing running unattended is allowed to add a trusted root there (it
       # needs an interactive authorization) -- so on macOS only Firefox's own per-profile
-      # databases are handled here; see README for the one-time keychain command.
+      # databases are handled here; the keychain is done at activation, in ezconf-darwin.nix.
       firefoxProfiles = home:
         if isDarwin then ''"${home}/Library/Application Support/Firefox/Profiles"/*/''
         else ''"${home}"/.mozilla/firefox/*/ "${home}"/.config/mozilla/firefox/*/'';
     in
     pkgs.writeShellScript "ezconf-prestart" ''
-      ${pkgs.lib.optionalString cfg.generateCert ''
-        ${package}/bin/ezconf --generate-ca ${stateDir} \
-          ${pkgs.lib.optionalString (cfg.listen != null && !builtins.elem cfg.listen ["0.0.0.0" "::"]) "--san ${cfg.listen}"} \
-          ${pkgs.lib.concatMapStringsSep " " (san: "--san ${pkgs.lib.escapeShellArg san}") cfg.certNames}
-        chmod 600 ${stateDir}/ca-key.pem ${stateDir}/localhost-key.pem
-        chmod 644 ${stateDir}/ca.pem ${stateDir}/localhost.pem
-        chown ${cfg.user}:${cfg.group} ${stateDir}/ca.pem \
-          ${stateDir}/ca-key.pem ${stateDir}/localhost.pem \
-          ${stateDir}/localhost-key.pem
-      ''}
+      ${mkGenerateCa { inherit cfg package stateDir; }}
       ${pkgs.lib.optionalString (cfg.generateCert && cfg.installCerts && certUsers != []) ''
         # Runs on every activation, not just when the CA is freshly generated -- this is what lets
         # a user added to certUsers *after* the CA already existed still get the cert installed on

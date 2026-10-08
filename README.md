@@ -6,8 +6,7 @@ Graphical editor for nix configurations. Zero dependencies, no build step, no fr
 
 ## ✨ Features
 
-- Edit NixOS configuration through a clean web UI with option autocomplete
-- Works on macOS too, for a [nix-darwin](https://github.com/nix-darwin/nix-darwin) configuration — see [macOS](#-macos-nix-darwin)
+- Edit a NixOS or [nix-darwin](https://github.com/nix-darwin/nix-darwin) (macOS) configuration through a clean web UI with option autocomplete
 - Search (Ctrl+F or the 🔍 button) across every open file for an option path or a value, jumping straight to it
 - Split config across multiple files and folders — organize however you like, merged only at Nix-eval time
 - Inline terminal panel with configurable shortcut buttons
@@ -18,7 +17,9 @@ Graphical editor for nix configurations. Zero dependencies, no build step, no fr
 
 ## 🚀 Quick Start
 
-Add to your flake inputs:
+The steps are the same on NixOS and on macOS with [nix-darwin](https://github.com/nix-darwin/nix-darwin); where they differ, both are shown.
+
+Add ezconf to your flake inputs:
 
 ```nix
 inputs.ezconf.url = "github:kalken/ezconf";
@@ -28,6 +29,7 @@ inputs.ezconf.inputs.nixpkgs.follows = "nixpkgs";
 Add the module import to your `flake.nix`'s module list — it defines the `services.ezconf.*` options, so it needs to live somewhere that survives migrating away from `configuration.nix` (see below), unlike the option values themselves:
 
 ```nix
+# NixOS
 nixosConfigurations.myhostname = nixpkgs.lib.nixosSystem {
   modules = [
     inputs.ezconf.nixosModules.default
@@ -35,27 +37,37 @@ nixosConfigurations.myhostname = nixpkgs.lib.nixosSystem {
     ./ezconf   # created automatically on first start
   ];
 };
+
+# macOS
+darwinConfigurations.mymac = nix-darwin.lib.darwinSystem {
+  modules = [
+    inputs.ezconf.darwinModules.default
+    ./configuration.nix
+    ./ezconf   # created automatically on first activation
+  ];
+};
 ```
 
-Then enable the service in your NixOS configuration (e.g. `configuration.nix`), same as any other option:
+Then enable the service in your configuration (e.g. `configuration.nix`), same as any other option:
 
 ```nix
 { ... }: {
   services.ezconf = {
     enable = true;
-    auth.allowedUsers = [ "alice" ];
+    auth.allowedUsers = [ "alice" ];   # on macOS: your own account; root has no password to log in with
     buttons = [
       { label = "Rebuild"; command = "nixos-rebuild switch --flake /etc/nixos"; save_first = true; }
+      # macOS: command = "sudo darwin-rebuild switch --flake /etc/nix-darwin";  (the terminal isn't root there)
     ];
   };
 }
 ```
 
-After `nixos-rebuild switch` the editor is at `https://localhost:9090`. A local CA and certificate are generated automatically, and installed into the browser trust store for each user in `allowedUsers` (set `certUsers` separately if you log in as a different user than the one whose browser needs to trust it).
+After a rebuild (`nixos-rebuild switch` / `darwin-rebuild switch`) the editor is at `https://localhost:9090`. A local CA and certificate are generated automatically. On NixOS the CA is also installed into the browser trust store for each user in `allowedUsers` (set `certUsers` separately if you log in as a different user than the one whose browser needs to trust it); on macOS it asks for your password once, see [On macOS](#-on-macos).
 
 > **Tip:** In Chrome or any Chromium-based browser, open the address bar menu and choose *Install page as app* to get a standalone desktop app with no browser chrome.
 
-Or set `programs.ezconf.enable = true;` to add a start-menu shortcut that opens `https://localhost:9090` in your default web browser — set `programs.ezconf.url` to point it at a different/remote ezconf instance instead. Add more shortcuts for other ezconf installations via `programs.ezconf.instances`, e.g.:
+On NixOS, set `programs.ezconf.enable = true;` to add a start-menu shortcut that opens `https://localhost:9090` in your default web browser — set `programs.ezconf.url` to point it at a different/remote ezconf instance instead. Add more shortcuts for other ezconf installations via `programs.ezconf.instances`, e.g.:
 
 ```nix
 programs.ezconf.instances = {
@@ -68,51 +80,36 @@ Each key gets its own start-menu entry (labeled "ezconf (homelab)", "ezconf (vm2
 
 ## 🔁 Migrating from configuration.nix
 
-1. Enable the service and rebuild — this creates `/etc/nixos/ezconf/` (empty; nothing is seeded automatically)
+1. Enable the service and rebuild — this creates `/etc/nixos/ezconf/` (`/etc/nix-darwin/ezconf/` on macOS), empty; nothing is seeded automatically
 2. Open the editor and use the import button to import your existing `configuration.nix` — the "Import into" field accepts any name (e.g. `configuration.json`) and creates that file for you in one step
-3. In your `flake.nix`, comment out `./configuration.nix` in the modules list — `./ezconf` and the `ezconf.nixosModules.default` import are already there from Quick Start and don't depend on it
+3. In your `flake.nix`, comment out `./configuration.nix` in the modules list — `./ezconf` and the ezconf module import are already there from Quick Start and don't depend on it
 4. Rebuild — your config is now managed through the editor
 
 > **Note:** Any `imports` you had in `configuration.nix` should be moved to your `flake.nix` after migrating — the JSON-based config does not support `imports`.
 
-## 🍎 macOS (nix-darwin)
+## 🍎 On macOS
 
-The same flake provides a nix-darwin module, with the same `services.ezconf.*` options:
+Everything in this README applies to both systems. These are the only differences on a Mac:
 
-```nix
-darwinConfigurations.mymac = nix-darwin.lib.darwinSystem {
-  modules = [
-    inputs.ezconf.darwinModules.default
-    ./configuration.nix
-    ./ezconf   # created automatically on first activation
-  ];
-};
-```
-
-```nix
-{ ... }: {
-  services.ezconf = {
-    enable = true;
-    auth.allowedUsers = [ "alice" ];   # your macOS account; root has no password to log in with
-    buttons = [
-      { label = "Rebuild"; command = "sudo darwin-rebuild switch --flake /etc/nix-darwin"; save_first = true; }
-    ];
-  };
-}
-```
-
-What's different from NixOS:
-
-- `configDir` and `nixosTarget` default to `/etc/nix-darwin/ezconf` and `/etc/nix-darwin`, `group` to `wheel`.
-- The two services are launchd daemons (`org.nixos.ezconf`, `org.nixos.ezconf-terminal`), logging to `/var/log/ezconf.log` and `/var/log/ezconf-terminal.log`. As on NixOS, a rebuild never restarts the terminal one by itself.
-- **Trusting the certificate is one manual step.** Chrome and Safari use the system keychain, which nothing unattended is allowed to add a trusted root to, so run this once (it asks for your password):
+- **Defaults:** `configDir` and `nixosTarget` are `/etc/nix-darwin/ezconf` and `/etc/nix-darwin`, `user` is your primary user, `group` is `staff`, and `theme` is `osx`. One option exists only here: `terminalUser`.
+- **Trusting the certificate takes your password once.** Chrome, Brave and Safari use the system keychain, and macOS only adds a trusted root to it with a person's approval. The first `darwin-rebuild switch` you run from a terminal does it for you and macOS shows a password dialog; after that it's trusted and never asked again. If the rebuild was started somewhere that can't show a dialog (ezconf's own Rebuild button, or over SSH), it prints this command to run once instead:
   ```sh
   sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain /var/lib/ezconf/ca.pem
   ```
-  Firefox profiles of each user in `certUsers` still get the CA installed automatically.
-- `openFirewall`/`interfaces` open nothing (macOS has no port firewall to configure here); `interfaces` still changes the `listen`/`trustedHosts` defaults.
-- There's no `programs.ezconf` shortcut, and no kernel autocomplete.
-- `homebrew.brews` and `homebrew.casks` suggest names as you type, taken from the Homebrew installed on the machine (its own formulas and casks, plus those of every tap in `homebrew.taps`). A tap you've only just added shows up after the next rebuild and a `↻ Autocomplete`. Anything not in the list can still be typed in and added with Enter.
+  Firefox profiles of each user in `certUsers` get the CA installed automatically either way. Set `installCerts = false` to skip all of it.
+- **Nothing runs as root.** The editor and the terminal both run as `system.primaryUser`; only a short start-up step that prepares the certificate and key is root. The editor's own files (`configDir`) are made yours on every rebuild. To also use System import and restore, which write the rest of the flake folder, make that yours too: `sudo chown -R $(id -un) /etc/nix-darwin`. Set `user = "root";` to go back to a root service.
+- **The terminal is in your login session.** macOS only lets a program update installed apps, or show a permission or password dialog, from inside a logged-in desktop session, so a root background service can't run `darwin-rebuild` once there are Nix-installed apps. The terminal panel's shell therefore runs in the login session of `terminalUser` (default: `system.primaryUser`), like Terminal.app:
+  - Commands that need root take `sudo`: `sudo darwin-rebuild switch --flake /etc/nix-darwin`. Set `security.pam.services.sudo_local.touchIdAuth = true;` to use Touch ID instead of typing the password.
+  - The first rebuild makes macOS ask once for permission to manage apps; allow it.
+  - It exists only while that user is logged in at the Mac.
+  - Set `terminalUser = null;` for a root background service instead (always there, no `sudo`), for a Mac nobody logs in to and with no Nix-installed apps.
+- **Services:** the editor is a launchd daemon, `org.nixos.ezconf`, logging to `/var/log/ezconf.log`. The terminal is a per-user agent with the label `org.nixos.ezconf-terminal`, logging to `/tmp/ezconf-terminal.log`. To restart the terminal by hand: `launchctl kickstart -k gui/$(id -u)/org.nixos.ezconf-terminal` (on NixOS: `systemctl restart ezconf-terminal`).
+- **Firewall:** `openFirewall`/`interfaces` open nothing (macOS has no port firewall to configure here); `interfaces` still changes the `listen`/`trustedHosts` defaults.
+- **Not available:** the `programs.ezconf` shortcut, and kernel autocomplete.
+- **Which Nix:** both [Determinate Nix](https://determinate.systems/nix-installer/) and the regular Nix installer work; ezconf only uses standard `nix` commands on your flake. Two things differ, in your configuration rather than in ezconf:
+  - Flakes have to be enabled. Determinate has them on by default; with regular Nix, set `experimental-features = nix-command flakes`.
+  - With Determinate, set `nix.enable = false;` so nix-darwin leaves the Nix daemon to it. With regular Nix, leave that option alone.
+- **Homebrew:** `homebrew.brews` and `homebrew.casks` suggest names as you type, taken from the Homebrew installed on the machine (its own formulas and casks, plus those of every tap in `homebrew.taps`). The list is as fresh as your last `brew update`; run that, then `↻ Autocomplete`. A tap you've only just added shows up after the next rebuild. Anything not in the list can still be typed in and added with Enter.
 
 ## 📑 Multiple Config Files
 
@@ -237,7 +234,7 @@ chmod 600 /var/lib/ezconf/password
 
 ## 🖱️ Terminal Panel
 
-The terminal panel runs as a separate service (`ezconf-terminal.service`) and is enabled by default. Configure shortcut buttons to run common commands:
+The terminal panel runs as a separate service and is enabled by default. Its shell starts in the root of your flake (`nixosTarget`), so rebuild and git commands work without a `cd`. Configure shortcut buttons to run common commands:
 
 ```nix
 services.ezconf = {
@@ -412,9 +409,11 @@ The whole-`nixos_target` backups work the same way, just manual instead of on-sa
 ```nix
 services.ezconf = {
   enable = true;
-  theme  = "dark";  # nixos (default) | dark | gruvbox | osx-dark | osx-light
+  theme  = "dark";  # nixos | dark | gruvbox | osx-dark | osx-light | osx
 };
 ```
+
+`osx` is OS X Light or OS X Dark, whichever the system you're browsing from is set to, and it follows along when that changes. It's the default on macOS; on NixOS the default is `nixos`.
 
 The swatches in the header switch theme for that browser only; `theme` is what everyone starts with.
 
@@ -445,13 +444,15 @@ services.ezconf = {
 - Names are lowercase letters, digits, `-` and `_`.
 - Standalone: put the files in a folder as `<name>.css` and set `themes_dir` in `ezconf.toml` (or `--themes-dir`). The folder is read when the server starts.
 
-## ⚙️ NixOS Module Options
+## ⚙️ Module Options
+
+The same on NixOS and macOS. Defaults shown are for NixOS; where macOS differs it's noted in the row.
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `enable` | bool | `false` | Enable ezconf |
-| `user` / `group` | str | `"root"` | User and group for the services |
-| `configDir` | str | `"/etc/nixos/ezconf"` | Directory for the `*.json` tabs and `default.nix`; starts empty — create your first file in the editor |
+| `user` / `group` | str | `"root"` | User and group for the services (macOS: your primary user and `"staff"`) |
+| `configDir` | str | `"/etc/nixos/ezconf"` | Directory for the `*.json` tabs and `default.nix`; starts empty — create your first file in the editor (macOS: `"/etc/nix-darwin/ezconf"`) |
 | `defaultFile` | str | `"configuration.json"` | File (relative to `configDir`) preselected in the editor when a browser has no prior tab remembered; a hint only, nothing creates it automatically |
 | `webroot` | str | `"${package}/share/ezconf"` | Directory to serve static assets from |
 | `auth.method` | str | `"auto"` | `auto`, `pam`, or `custom` |
@@ -459,7 +460,7 @@ services.ezconf = {
 | `auth.password` | str or null | `null` | Password for `custom` auth (stored in Nix store — prefer `passwordFile`) |
 | `auth.passwordFile` | path or null | `null` | File containing the password for `custom` auth |
 | `auth.allowedUsers` | list of str | `[]` | Users allowed to log in (PAM mode); defaults to the service user |
-| `theme` | str | `"nixos"` | `nixos`, `dark`, `gruvbox`, `osx-dark`, `osx-light`, or a name from `themes` |
+| `theme` | str | `"nixos"` | `nixos`, `dark`, `gruvbox`, `osx-dark`, `osx-light`, `osx` (light or dark, following the system), or a name from `themes` (macOS default: `"osx"`) |
 | `themes` | attrs of path | `{}` | Your own themes, name → CSS file — see [Your own themes](#your-own-themes) |
 | `mode` | null or `"install"` | `null` | Set to `"install"` to show `mode = "install"` buttons in their own row and grey out ordinary ones, from page load — deploy-time only, no in-GUI toggle |
 | `terminal` | bool | `true` | Enable terminal panel and `ezconf-terminal.service`. The shared shell always persists across a dropped/closed connection (browser closed, network drop, logout) — reconnecting reattaches instead of starting fresh |
@@ -469,15 +470,15 @@ services.ezconf = {
 | `https` | bool | `true` | Enable HTTPS |
 | `generateCert` | bool | auto | Generate a local CA + cert in `/var/lib/ezconf/` (set automatically when `https = true` and no cert/key provided) |
 | `certNames` | list of str | `[]` | Extra hostnames or IPs to include in the generated cert (e.g. `[ "myserver.local" ]`); `localhost`, `127.0.0.1`, and `listen` are always included |
-| `installCerts` | bool | `true` | Install generated CA into `~/.pki/nssdb` and each Firefox profile's own database, for each user in `certUsers` |
+| `installCerts` | bool | `true` | Install generated CA into `~/.pki/nssdb` and each Firefox profile's own database, for each user in `certUsers` (macOS: Firefox profiles only — see [On macOS](#-on-macos)) |
 | `certUsers` | list of str | `[]` (falls back to `auth.allowedUsers`) | OS users to install the generated CA for; set separately from `allowedUsers` if you log in as a different user than the one browsing |
 | `cert` | str or null | `null` | Path to TLS certificate (PEM) |
 | `key` | str or null | `null` | Path to TLS private key (PEM) |
 | `listen` | str or null | `null` | IP address to listen on (default: `127.0.0.1`, or `0.0.0.0` automatically when `interfaces` is set; use `0.0.0.0` explicitly for all interfaces with no `interfaces` restriction) |
-| `openFirewall` | bool | `false` | Open the web service's firewall port; enabled automatically when `listen` is set to a non-localhost address. The terminal service's port is never opened — it only binds `127.0.0.1` and is reached through the web service's own port |
+| `openFirewall` | bool | `false` | NixOS only. Open the web service's firewall port; enabled automatically when `listen` is set to a non-localhost address. The terminal service's port is never opened — it only binds `127.0.0.1` and is reached through the web service's own port |
 | `interfaces` | list of str | `[]` | Network interfaces to open firewall ports on (e.g. `[ "eth0" "wg0" ]`); when set, ports are opened only on those interfaces instead of all interfaces |
 | `trustedHosts` | list of str | `[]` (or `[ "*" ]` when `interfaces` is set and `certNames` isn't) | Extra hostnames trusted for CSRF check — required when behind a reverse proxy; `listen` and `certNames` are trusted automatically. `[ "*" ]` disables the check entirely (accepts any Host header) — for cases like an installer ISO, or a DHCP machine with no fixed address to trust ahead of time |
-| `nixosTarget` | str | `"/etc/nixos"` | Flake path passed to `ezconf-mkoptions`; also what system export zips up |
+| `nixosTarget` | str | `"/etc/nixos"` | Flake path passed to `ezconf-mkoptions`; also what system export zips up, and where the terminal's shell starts (macOS: `"/etc/nix-darwin"`) |
 | `generateAutocomplete` | bool | `true` | Run `ezconf-mkoptions` automatically the first time the service starts (when `/var/lib/ezconf/autocomplete` doesn't exist yet). Set `false` to skip this and rely on the `↻ Autocomplete` button instead — useful if evaluating `nixosTarget` is slow enough to be worth not doing unconditionally on every fresh boot/state wipe |
 | `systemExportExcludeDotfiles` | bool | `true` | Exclude dotfiles/dotdirs from the system export zip |
 | `systemExportExclude` | list of str | `[]` | Basenames the system export zip always skips, anywhere in the tree (e.g. `["hardware-configuration.nix"]`) |
@@ -490,12 +491,12 @@ services.ezconf = {
 
 ## 📝 Notes
 
-- `configDir` is created automatically with a `default.nix` that applies whatever `*.json` files end up there — it starts with none; create your first one from the editor (right-click the tab bar, or the empty editor area, for "New file"). Add `./ezconf` to your `nixosSystem` modules list in `flake.nix` to wire it in.
+- `configDir` is created automatically with a `default.nix` that applies whatever `*.json` files end up there — it starts with none; create your first one from the editor (right-click the tab bar, or the empty editor area, for "New file"). Add `./ezconf` to your system's modules list in `flake.nix` to wire it in.
 - Autocomplete data is generated on first service start into `/var/lib/ezconf/autocomplete/` (set `generateAutocomplete = false` to skip this) and can be refreshed from the UI.
-- The terminal service has `restartIfChanged = false` — it forks the shell directly as its own child, so restarting it (e.g. `systemctl restart ezconf-terminal` to pick up a package update) kills whatever's running inside it. A rebuild never does this automatically; restart it yourself when you need to pick up a change, via the restart icon next to the terminal panel's own size buttons. A small popup appears right above that button whenever the running terminal service is actually out of date, as a reminder — it disappears again on its own once the terminal's back in sync, however that happened (that button, typing the command in by hand, or a restart triggered entirely outside ezconf).
+- The terminal service has `restartIfChanged = false` — it forks the shell directly as its own child, so restarting it (to pick up a package update) kills whatever's running inside it. A rebuild never does this automatically; restart it yourself when you need to pick up a change, via the restart icon next to the terminal panel's own size buttons. A small popup appears right above that button whenever the running terminal service is actually out of date, as a reminder — it disappears again on its own once the terminal's back in sync, however that happened (that button, typing the command in by hand, or a restart triggered entirely outside ezconf).
 - `auth.password` is stored in the Nix store (world-readable). Use `auth.passwordFile` for anything real.
 - PAM mode defaults `allowedUsers` to the user running the service if the list is empty.
 - The editor always requires authentication — there is no unauthenticated mode.
-- The service runs as `root` by default. This is intentional — it allows the terminal panel to run `nixos-rebuild` and other system commands without additional privilege escalation.
+- On NixOS the service runs as `root` by default. This is intentional — it allows the terminal panel to run `nixos-rebuild` and other system commands without additional privilege escalation. On macOS it runs as you, and those commands take `sudo` (see [On macOS](#-on-macos)).
 
-_Edit your NixOS configuration from a browser — autocompletion and documentation built in._
+_Edit your NixOS or nix-darwin configuration from a browser — autocompletion and documentation built in._
