@@ -119,6 +119,7 @@ import datetime
 import email.utils
 import gzip
 import hashlib
+import html
 import http.client
 import http.server
 import io
@@ -202,6 +203,9 @@ TERMINAL_CONFIG_HASH = ''        # hash of the config values terminal.py itself 
                                   # startup from this process's own cfg — see _ping_payload() and
                                   # terminal.py's own CONFIG_HASH (must use the identical key list/formula)
 DEFAULT_THEME    = 'osx' if sys.platform == 'darwin' else 'nixos'
+# This machine's short name: in the page title and the installed app's name (manifest.json), so
+# several ezconf windows -- one per machine you look after -- can be told apart.
+HOSTNAME         = socket.gethostname().split('.')[0] or 'localhost'
 THEME            = DEFAULT_THEME # ui theme: one of BUILTIN_THEMES or AUTO_THEMES, or the name of a file in THEMES_DIR
 BUILTIN_THEMES   = ('nixos', 'dark', 'osx-light', 'gruvbox', 'osx-dark')
 # Not a stylesheet but a choice between two, by the browser's system appearance: name -> (light, dark).
@@ -1135,6 +1139,7 @@ def _read_login_page(error=''):
         return (open(path).read()
                 .replace('%%EZCONF_ERROR%%', error)
                 .replace('%%EZCONF_THEME_LINKS%%', _theme_links(THEME))
+                .replace('%%EZCONF_HOSTNAME%%', html.escape(HOSTNAME))
                 .replace('%%EZCONF_USERNAME_FIELD%%', username_field)
                 .replace('%%EZCONF_CA_LINK%%', ca_link))
     except FileNotFoundError:
@@ -1669,6 +1674,8 @@ class StaticHandler(http.server.SimpleHTTPRequestHandler):
             # ~46KB, served fresh on every page load since WEBROOT files are no-store.
             custom = CUSTOM_THEMES.get(parsed.path[len('/theme-'):-len('.css')])
             self._serve_static_gzip(parsed.path.lstrip('/'), custom and custom['path']); return
+        if parsed.path == '/manifest.json':
+            self._serve_manifest(); return
         if parsed.path in self._PUBLIC_PATHS:
             super().do_GET()
             return
@@ -1869,6 +1876,23 @@ class StaticHandler(http.server.SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
+    def _serve_manifest(self):
+        """manifest.json with this machine's name in the app's name, so a browser's "Install page
+        as app" makes "ezconf (hostname)" rather than one more identical "ezconf". Everything
+        else comes from the file in WEBROOT as it is."""
+        try:
+            with open(os.path.join(WEBROOT, 'manifest.json'), encoding='utf-8') as f:
+                manifest = json.load(f)
+        except (OSError, ValueError):
+            self.send_error(404); return
+        manifest['name'] = manifest['short_name'] = f'ezconf ({HOSTNAME})'
+        data = json.dumps(manifest).encode()
+        self.send_response(200)
+        self.send_header('Content-Type', 'application/manifest+json')
+        self.send_header('Content-Length', str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
     def _serve_static_gzip(self, rel_path, abs_path=None):
         """Gzip-capable serving for a handful of sizeable static WEBROOT files (style.css,
         theme-*.css, addons/*) that don't go through SimpleHTTPRequestHandler's own static
@@ -1916,6 +1940,7 @@ class StaticHandler(http.server.SimpleHTTPRequestHandler):
                 content = (open(os.path.join(WEBROOT, 'index.html')).read()
                     .replace('%%EZCONF_TERMINAL_SCRIPTS%%', terminal_scripts)
                     .replace('%%EZCONF_TERMINAL%%', 'true' if TERMINAL_PORT else 'false')
+                    .replace('%%EZCONF_HOSTNAME%%', html.escape(HOSTNAME))
                     .replace('%%EZCONF_THEME%%', THEME)
                     .replace('%%EZCONF_CUSTOM_THEMES%%', json.dumps(
                         {n: {k: t[k] for k in ('base', 'bg', 'border')} for n, t in CUSTOM_THEMES.items()}))

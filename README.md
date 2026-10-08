@@ -65,7 +65,7 @@ Then enable the service in your configuration (e.g. `configuration.nix`), same a
 
 After a rebuild (`nixos-rebuild switch` / `darwin-rebuild switch`) the editor is at `https://localhost:9090`. A local CA and certificate are generated automatically. On NixOS the CA is also installed into the browser trust store for each user in `allowedUsers` (set `certUsers` separately if you log in as a different user than the one whose browser needs to trust it); on macOS it asks for your password once, see [On macOS](#-on-macos).
 
-> **Tip:** In Chrome or any Chromium-based browser, open the address bar menu and choose *Install page as app* to get a standalone desktop app with no browser chrome.
+> **Tip:** In Chrome or any Chromium-based browser, open the address bar menu and choose *Install page as app* to get a standalone desktop app with no browser chrome. The app, like the browser tab, is named after the machine — `ezconf (myhostname)` — so several of them can be told apart.
 
 On NixOS, set `programs.ezconf.enable = true;` to add a start-menu shortcut that opens `https://localhost:9090` in your default web browser — set `programs.ezconf.url` to point it at a different/remote ezconf instance instead. Add more shortcuts for other ezconf installations via `programs.ezconf.instances`, e.g.:
 
