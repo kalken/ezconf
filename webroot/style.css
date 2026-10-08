@@ -516,11 +516,9 @@ body {
    and anything deeper keeps .section-key's own dimmed tone. */
 .section.nest-top > .section-header .section-key { color: var(--section-title-color); font-size: var(--section-title-size); }
 .section.nest-card > .section-header .section-key { color: var(--section-key-color); }
-/* Cards: each section directly under a top-level one, set off from whatever is next to them
-   (rows themselves have no gaps between them, in a card or out of one). */
 /* The whole file is one card (.file-card, the wrapper renderEditor() puts around everything):
    the lighter panel colour, edged by the same hairline and soft shadow the panels have. A
-   top-level section is a titled group inside it, set apart from the next only by space. */
+   top-level section is a titled, framed group inside it (see below). */
 .file-card {
   background: var(--card-bg); border-radius: var(--radius); padding: 8px var(--block-pad);
   box-shadow: 0 0 0 1px var(--panel-hairline), 0 0 var(--panel-shadow-size) var(--panel-shadow);
@@ -546,14 +544,23 @@ body {
   top: 4px; bottom: 0; left: calc(var(--depth, 0) * var(--indent-step) - 8px);
   width: 1px; background: var(--panel-hairline); box-shadow: 0 0 var(--panel-shadow-size) var(--panel-shadow);
 }
-/* A second-level section has its frame instead; the line is for the sections nested inside it. */
+/* A second-level section has a line above it instead (below); the bar is for the sections nested
+   inside it. */
 .section.nest.nest-card:not(.nest-top)::before { content: none; }
-/* A second-level section is framed: the same hairline and soft shadow the panels and the file's
+/* Everything at the top level of the file is framed -- a section, or an option set at the root
+   (.nest-root) on its own -- with the same hairline and soft shadow the panels and the file's
    own card are edged with. */
-.section.nest-card {
-  border-radius: var(--radius); padding: 4px var(--block-pad) 8px;
+.section.nest-top, .field-row.nest-root {
+  border-radius: var(--radius);
   box-shadow: 0 0 0 1px var(--panel-hairline), 0 0 var(--panel-shadow-size) var(--panel-shadow);
 }
+.section.nest-top { padding: 8px 0; }
+.field-row.nest-root { padding-top: 8px; padding-bottom: 8px; margin-bottom: var(--section-gap); }
+.field-row.nest-root:last-child { margin-bottom: 0; }
+/* Not part of a strip of rows any more, so its value cell keeps all four corners. */
+.field-row.nest.nest-root > .field-value { border-radius: var(--radius); }
+/* A second-level section is only set off by a line above it, across the frame it sits in. */
+.section.nest-card { padding: 4px var(--block-pad) 8px; border-top: 1px solid var(--panel-hairline); }
 * + .nest-card, .nest-card + * { margin-top: var(--card-gap); }
 /* A section nested deeper than that has no edge or fill, only a little space below it. */
 .section.nest:not(.nest-top):not(.nest-card) { margin-bottom: var(--nested-section-gap); }
