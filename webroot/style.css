@@ -559,15 +559,9 @@ body {
 .field-row.nest-root:last-child { margin-bottom: 0; }
 /* Not part of a strip of rows any more, so its value cell keeps all four corners. */
 .field-row.nest.nest-root > .field-value { border-radius: var(--radius); }
-/* A second-level section is only set off by a line above it, across the frame it sits in,
-   shaded the same way. */
-.section.nest-card { padding: 10px var(--block-pad) 8px; border-top: 1px solid transparent; }
-/* Drawn as its own element rather than a border, so it can carry the same soft shadow the
-   frames have. */
-.section.nest-card::after {
-  content: ''; position: absolute; pointer-events: none; top: -1px; left: 0; right: 0; height: 1px;
-  background: var(--panel-hairline); box-shadow: 0 0 var(--panel-shadow-size) var(--panel-shadow);
-}
+/* A second-level section is only set off by a plain line above it, across the frame it sits
+   in: the frame's hairline colour, without the shadow. */
+.section.nest-card { padding: 10px var(--block-pad) 8px; border-top: 1px solid var(--panel-hairline); }
 * + .nest-card, .nest-card + * { margin-top: var(--card-gap); }
 /* A third-level section (.nest-arrow) has an arrowhead in front of its name, hung in the indent to
    the left of it (out of flow) so the name itself stays exactly where it was. */
