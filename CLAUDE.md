@@ -14,6 +14,16 @@ All changes must be committed to `develop` first. Only merge `develop` into `mas
 
 Don't use subagents for work in this repo. Don't test changes in a real browser (headless Chrome, CDP, etc.) unless the user explicitly asks for it in that turn.
 
+**Local test server**: after any change the user can see (anything under `webroot/`, or `bin/server.py` itself), restart the local test server before reporting back, without being asked — "show me" should never need its own turn. `server.py` reads `index.html`/CSS into memory at startup, so an edit shows nothing until it restarts; an open tab then reloads on its own (see "Restart detection"). This is not the browser testing ruled out above: just restart it, check it answers, and say what to click.
+
+```sh
+pkill -f "bin/server.py --config"; sleep 1
+(nohup python3 bin/server.py --config .claude/test-server/ezconf.toml > .claude/test-server/server.log 2>&1 &)
+sleep 2; curl -s -o /dev/null -w "%{http_code}\n" http://127.0.0.1:9090/api/v1/ping   # 401 = up (not logged in)
+```
+
+Run from the repo root; it serves http://127.0.0.1:9090. `.claude/test-server/` is gitignored and per-machine: `ezconf.toml` (with `webroot` pointing at this checkout's `webroot/`, and `session_key_file`/`backup_dir`/`system_backup_dir` inside that same folder, so a restart doesn't log the browser out), plus `server.log`. If it's missing, build one from `example/ezconf.example.toml` and ask which config directory to point `file` at rather than guessing.
+
 ## Documentation
 
 When a change adds, removes, or changes user-facing behavior, check whether `README.md` needs updating too, not just this file — README documents features/usage for end users, this file documents architecture/implementation for future Claude sessions, and they drift independently. A removed feature (button, endpoint, config option) especially needs its README mention removed, not just its code.

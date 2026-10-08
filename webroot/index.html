@@ -2615,11 +2615,14 @@ function _setSectionOpen(el, open) {
 function _toggleSectionOpen(el) {
   if (el && el.classList.contains('nest-arrow')) _setSectionOpen(el, el.classList.contains('collapsed'));
 }
-// One menu entry that shows or hides every foldable section of the open file at once: "show"
-// while any of them is still hidden, "hide" once they're all open. Nothing when the file has no
-// foldable section at all.
-function _foldAllMenuItems() {
-  const all = [...document.querySelectorAll('#editor-area .section.nest-arrow')];
+// One menu entry that shows or hides every foldable section at once: "show" while any of them
+// is still hidden, "hide" once they're all open. With `scope` (a section) that's the section
+// itself and everything inside it, leaving the rest of the file as it is; without, the whole
+// open file. Nothing when there's no foldable section in reach at all.
+function _foldAllMenuItems(scope) {
+  const root = scope || document.getElementById('editor-area');
+  const all = [...root.querySelectorAll('.section.nest-arrow')];
+  if (scope && scope.classList.contains('nest-arrow')) all.unshift(scope);
   if (!all.length) return [];
   const open = all.some(el => el.classList.contains('collapsed'));
   return [{ label: open ? 'Show all sections' : 'Hide all sections',
@@ -3079,9 +3082,9 @@ function renderSection(container, key, obj, path) {
       ..._addOptionMenuItems(e, path),
       { label: 'Convert to Nix', onclick: () => { setAtPath(config, path, { _expr: jsonToNix(getAtPath(config, path)) }); renderAll(); } },
     ];
-    // The show/hide-all switch is offered here as well as on the editor's own blank-space menu:
-    // it's about the sections, and a section is where one would look for it.
-    const foldAll = _foldAllMenuItems();
+    // The show/hide-all switch is offered here as well as on the editor's own blank-space menu,
+    // but only reaching this section and what's below it -- the blank-space one does the file.
+    const foldAll = _foldAllMenuItems(section);
     showContextMenu(e, [...items, ..._commonMenuItems(path),
       ...(foldAll.length ? [{ separator: true }, ...foldAll] : [])]);
   };
