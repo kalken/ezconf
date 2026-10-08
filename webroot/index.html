@@ -1629,12 +1629,13 @@ function doForceAddWithType(type) {
     const pathKey = raw;
     const row = document.querySelector(`.field-row[data-path="${pathKey}"]`);
     if (row) {
+      _revealEditorEl(row);
       scrollThenFlash(row, 'center');
       const focusable = row.querySelector('input, textarea');
       if (focusable) { focusable.focus(); if (focusable.select) focusable.select(); }
     } else {
       const sectionEl = document.querySelector(`.section[data-path="${pathKey}"]`);
-      if (sectionEl) { scrollThenFlash(sectionEl, 'start'); }
+      if (sectionEl) { _revealEditorEl(sectionEl); scrollThenFlash(sectionEl, 'start'); }
     }
   }, 80);
 }
@@ -1740,6 +1741,7 @@ function doAdd() {
     const pathKey = raw;
     const row = document.querySelector(`.field-row[data-path="${pathKey}"]`);
     if (row) {
+      _revealEditorEl(row);
       scrollThenFlash(row, 'center');
       const focusable = row.querySelector('input, textarea');
       if (focusable) {
@@ -1748,7 +1750,7 @@ function doAdd() {
       }
     } else {
       const sectionEl = document.querySelector(`.section[data-path="${pathKey}"]`);
-      if (sectionEl) { scrollThenFlash(sectionEl, 'start'); }
+      if (sectionEl) { _revealEditorEl(sectionEl); scrollThenFlash(sectionEl, 'start'); }
     }
   }, 80);
 }
@@ -1921,8 +1923,9 @@ async function _jumpToSearchResult(match) {
 
 // ── Tree ──────────────────────────────────────────────────────────────────────
 function findEditorEl(pathKey) {
-  return document.querySelector(`.section[data-path="${pathKey}"]`)
+  const el = document.querySelector(`.section[data-path="${pathKey}"]`)
       || document.querySelector(`.field-row[data-path="${pathKey}"]`);
+  return el && _revealEditorEl(el);
 }
 
 function renderTree() {
@@ -2011,6 +2014,7 @@ function setStatusPath(pathStr) {
 
 // ── Drag-and-drop reorder ────────────────────────────────────────────────────
 let dragState = null;
+let _dragJustEnded = false;
 let dragGhost = null;
 
 function reorderKey(parentPath, fromKey, toKey) {
@@ -2062,20 +2066,28 @@ function makeDraggable(el, key, parentPath, handle) {
     const rect = el.getBoundingClientRect();
     const offsetY = e.clientY - rect.top;
     const offsetX = e.clientX - rect.left;
+    const startX = e.clientX, startY = e.clientY;
 
-    // Create ghost
-    dragGhost = el.cloneNode(true);
-    dragGhost.className += ' drag-ghost';
-    dragGhost.style.width = rect.width + 'px';
-    dragGhost.style.left = rect.left + 'px';
-    dragGhost.style.top = rect.top + 'px';
-    document.body.appendChild(dragGhost);
+    // Nothing is lifted until the pointer has actually moved a little (same 5px the tab bar's
+    // own drag uses): the handle is a whole heading line or key column, so a plain click on it
+    // -- including the one that folds a section -- must not flash a ghost or count as a drag.
+    const start = () => {
+      dragGhost = el.cloneNode(true);
+      dragGhost.className += ' drag-ghost';
+      dragGhost.style.width = rect.width + 'px';
+      dragGhost.style.left = rect.left + 'px';
+      dragGhost.style.top = rect.top + 'px';
+      document.body.appendChild(dragGhost);
 
-    el.classList.add('is-dragging');
-    dragState = { key, parentPath, parentKey, el, offsetX, offsetY };
+      el.classList.add('is-dragging');
+      dragState = { key, parentPath, parentKey, el, offsetX, offsetY };
+    };
 
     const onMove = e => {
-      if (!dragState) return;
+      if (!dragState) {
+        if (Math.hypot(e.clientX - startX, e.clientY - startY) < 5) return;
+        start();
+      }
       dragGhost.style.left = (e.clientX - offsetX) + 'px';
       dragGhost.style.top  = (e.clientY - offsetY) + 'px';
 
@@ -2115,6 +2127,11 @@ function makeDraggable(el, key, parentPath, handle) {
     const onUp = () => {
       document.removeEventListener('mousemove', onMove);
       document.removeEventListener('mouseup', onUp);
+      if (!dragState) return;
+      // The click that follows this mouseup belongs to the drag, not to whatever it ended on
+      // (see the fold-on-click handler in makeSectionHeader()).
+      _dragJustEnded = true;
+      setTimeout(() => { _dragJustEnded = false; }, 0);
 
       if (dragGhost) { dragGhost.remove(); dragGhost = null; }
       document.querySelectorAll('.drag-over').forEach(x => x.classList.remove('drag-over'));
@@ -2562,7 +2579,7 @@ function renderEditor() {
     e.stopPropagation();
     const items = [{ label: 'Add option…', onclick: () => showAddOptionMenu(e, []) }];
     if (_clipboard) items.push({ label: 'Paste', onclick: pastePath });
-    items.push({ label: _nestLinesShown() ? 'Hide section lines' : 'Show section lines', onclick: toggleNestLines });
+    items.push(..._foldAllMenuItems());
     items.push({ separator: true }, ...await _fileMenuItems(activeFile));
     showContextMenu(e, items);
   };
@@ -2579,19 +2596,43 @@ function renderEditor() {
 // .nest-top on a top-level section (framed), .nest-card on a section directly under one (a line
 // above it), .nest-loose on an option with no such section around it (padded to line up with
 // the ones that have), .nest-root on an option at the root of the file (framed on its own,
-// like a top-level section), and .nest-arrow on a section two levels below a top-level one
-// (an arrowhead in front of its name). Classes
+// like a top-level section), and .nest-arrow on every section two or more levels below a
+// top-level one (foldable: an arrowhead in front of its name shows or hides it, and .collapsed
+// marks it hidden). Classes
 // on the row itself rather than selectors written against its ancestors, so a drag ghost (a
 // clone appended to <body>, see makeDraggable()) carries its whole look along with it.
-// The vertical line beside each section nested below the second level ("Option rows" in
-// style.css) is optional and off unless switched on -- a per-browser view preference like the
-// tree sidebar's own, so it lives in localStorage, and as a class on <body> rather than
-// #editor-area so a drag ghost (appended to <body>) follows it too.
-function _nestLinesShown() { return localStorage.getItem('ezconf-nest-lines') === 'true'; }
-function _applyNestLines() { document.body.classList.toggle('nest-lines', _nestLinesShown()); }
-function toggleNestLines() {
-  localStorage.setItem('ezconf-nest-lines', _nestLinesShown() ? 'false' : 'true');
-  _applyNestLines();
+
+// Which foldable sections are currently shown, as "file\0path" -- everything else is hidden,
+// which is how one starts out. Kept here rather than read back from the DOM since every edit
+// rebuilds the editor from scratch (renderAll()); in memory only, so a page reload folds
+// everything again.
+const _openSections = new Set();
+function _sectionOpenKey(el) { return activeFile + '\x00' + el.dataset.path; }
+function _setSectionOpen(el, open) {
+  if (open) _openSections.add(_sectionOpenKey(el)); else _openSections.delete(_sectionOpenKey(el));
+  el.classList.toggle('collapsed', !open);
+}
+function _toggleSectionOpen(el) {
+  if (el && el.classList.contains('nest-arrow')) _setSectionOpen(el, el.classList.contains('collapsed'));
+}
+// One menu entry that shows or hides every foldable section of the open file at once: "show"
+// while any of them is still hidden, "hide" once they're all open. Nothing when the file has no
+// foldable section at all.
+function _foldAllMenuItems() {
+  const all = [...document.querySelectorAll('#editor-area .section.nest-arrow')];
+  if (!all.length) return [];
+  const open = all.some(el => el.classList.contains('collapsed'));
+  return [{ label: open ? 'Show all sections' : 'Hide all sections',
+            onclick: () => all.forEach(el => _setSectionOpen(el, open)) }];
+}
+// Shows every hidden section around `el` (and `el` itself, if it is one), so something about to
+// be scrolled to and flashed -- a search result, a tree click, a just-added option -- is
+// actually on screen: scrollIntoView() does nothing for an element inside a hidden one.
+function _revealEditorEl(el) {
+  for (let s = el.closest('.section.collapsed'); s; s = s.parentElement.closest('.section.collapsed')) {
+    _setSectionOpen(s, true);
+  }
+  return el;
 }
 
 function _setNestDepths(root) {
@@ -2606,7 +2647,9 @@ function _setNestDepths(root) {
     el.classList.add('nest');
     el.classList.toggle('nest-top', !inArrayObj && isSection && depth === 0);
     el.classList.toggle('nest-card', !inArrayObj && isSection && depth === 1);
-    el.classList.toggle('nest-arrow', !inArrayObj && isSection && depth === 2);
+    const foldable = !inArrayObj && isSection && depth >= 2;
+    el.classList.toggle('nest-arrow', foldable);
+    el.classList.toggle('collapsed', foldable && !_openSections.has(_sectionOpenKey(el)));
     el.classList.toggle('nest-loose', !inArrayObj && !isSection && depth <= 1);
     el.classList.toggle('nest-root', !inArrayObj && !isSection && depth === 0);
   }
@@ -2730,6 +2773,7 @@ function _showFieldTooltip(anchor, opt, typeLabel) {
   _fieldTooltipEl.style.top = top + 'px';
 }
 function _hideFieldTooltip() {
+  if (_fieldTooltipTimer) { clearTimeout(_fieldTooltipTimer); _fieldTooltipTimer = null; }
   if (_fieldTooltipEl) _fieldTooltipEl.classList.remove('tt-visible');
 }
 
@@ -2737,9 +2781,18 @@ function _hideFieldTooltip() {
 // :hover — `anchor` (the tight-fit .tt-anchor span wrapping just the title text) sits inside
 // .key-label, which has overflow:hidden for ellipsis truncation of long names; a :hover-only
 // rule would have an absolutely-positioned child clipped right along with the truncated text.
+// Shown after the same 1000ms pause the plain hover hints have (_wireHoverTooltip()), not the
+// instant the pointer crosses a name: a name is also what gets clicked to fold a section and
+// pressed to drag a row, so an immediate popup got in the way of both. Pressing the mouse
+// cancels a pending one (and hides a shown one) for the same reason a click does there.
+let _fieldTooltipTimer = null;
 function _wireTooltipAnchor(anchor, opt, typeLabel) {
-  anchor.addEventListener('mouseenter', () => _showFieldTooltip(anchor, opt, typeLabel));
+  anchor.addEventListener('mouseenter', () => {
+    _hideFieldTooltip();
+    _fieldTooltipTimer = setTimeout(() => { _fieldTooltipTimer = null; _showFieldTooltip(anchor, opt, typeLabel); }, 1000);
+  });
   anchor.addEventListener('mouseleave', _hideFieldTooltip);
+  anchor.addEventListener('mousedown', _hideFieldTooltip);
   // The tooltip sits near the anchor, not under it, so scrolling while still hovering the
   // anchor text (rather than having moved onto the tooltip itself) would otherwise scroll
   // whatever's actually under the cursor — the editor area — instead. Forward the wheel delta
@@ -2944,9 +2997,20 @@ function makeSectionHeader(key, path, extraType) {
 
   const keyText = document.createElement('span');
   keyText.className = 'section-key-text';
+  // The show/hide arrow of a foldable section (see _setNestDepths()); CSS keeps it hidden on
+  // every other one. Clicking the name does the same (below).
+  const toggle = document.createElement('span');
+  toggle.className = 'section-toggle';
+  keyText.appendChild(toggle);
   const keyTextInner = document.createElement('span');
   keyTextInner.className = 'tt-anchor'; keyTextInner.textContent = key;
   keyText.appendChild(keyTextInner);
+  // The name is the switch as much as the arrow is. Not after a drag that happened to end back
+  // on it, and not while it's being renamed (the name is a live <input> then).
+  keyText.onclick = e => {
+    if (_dragJustEnded || e.target.closest('input')) return;
+    _toggleSectionOpen(header.parentElement);
+  };
   keyEl.appendChild(keyText);
 
   const typeEl = document.createElement('span');
@@ -3015,11 +3079,11 @@ function renderSection(container, key, obj, path) {
       ..._addOptionMenuItems(e, path),
       { label: 'Convert to Nix', onclick: () => { setAtPath(config, path, { _expr: jsonToNix(getAtPath(config, path)) }); renderAll(); } },
     ];
-    // The section-lines switch is offered here as well as on the editor's own blank-space menu:
-    // it's about how sections are drawn, and a section is where one would look for it.
+    // The show/hide-all switch is offered here as well as on the editor's own blank-space menu:
+    // it's about the sections, and a section is where one would look for it.
+    const foldAll = _foldAllMenuItems();
     showContextMenu(e, [...items, ..._commonMenuItems(path),
-      { separator: true },
-      { label: _nestLinesShown() ? 'Hide section lines' : 'Show section lines', onclick: toggleNestLines }]);
+      ...(foldAll.length ? [{ separator: true }, ...foldAll] : [])]);
   };
 
   section.appendChild(header);
@@ -3028,9 +3092,9 @@ function renderSection(container, key, obj, path) {
   body.className = 'section-body';
   renderObj(body, obj, path);
   section.appendChild(body);
-  // Only the key's own text starts a drag, not the whole header row (which spans the full width
-  // of the section) -- so pressing anywhere else on that line can't lift the section by accident.
-  makeDraggable(section, key, path.slice(0, -1), header.querySelector('.tt-anchor'));
+  // The whole heading line is the drag handle; a drag only starts once the pointer has moved
+  // (see makeDraggable()), so a plain click on it is still just a click.
+  makeDraggable(section, key, path.slice(0, -1), header);
   container.appendChild(section);
 }
 
@@ -3098,7 +3162,7 @@ function renderArrayField(container, key, arr, path) {
 
   row.appendChild(keyEl);
   row.appendChild(valEl);
-  makeDraggable(row, path[path.length - 1], path.slice(0, -1), keyLabelInner);
+  makeDraggable(row, path[path.length - 1], path.slice(0, -1), keyEl);
   container.appendChild(row);
 }
 
@@ -3449,7 +3513,7 @@ function renderField(container, key, val, path) {
 
   row.appendChild(keyEl);
   row.appendChild(valEl);
-  makeDraggable(row, path[path.length - 1], path.slice(0, -1), keyLabelInner);
+  makeDraggable(row, path[path.length - 1], path.slice(0, -1), keyEl);
   container.appendChild(row);
 }
 
@@ -6321,7 +6385,6 @@ async function loadSiblingFiles() {
   initRestartWatcher();
   initMarkdownMenu();
   initVersion();
-  _applyNestLines();
   const treeVisible = localStorage.getItem('ezconf-tree-visible') === 'true';
   document.getElementById('sidebar').classList.toggle('hidden', !treeVisible);
   document.getElementById('tree-toggle-btn').classList.toggle('active', treeVisible);

@@ -83,10 +83,10 @@ There's no "+" button anywhere — file and folder management is entirely right-
 - Right-click empty space in the tab bar (or the empty editor area, if there are no files yet) for **New file** / **New folder**.
 - Right-click a folder for **New file here** or **Delete folder** (removes everything inside it).
 - Right-click a tab for that file's menu: **Import** (merge pasted or loaded Nix/JSON into it), **Export**, **Delete**, or **Reload** to discard that one file's unsaved edits and reread it from disk (the header's own reload icon reloads every file plus the folder list in one go — the file list itself can change on disk too, e.g. from an external edit).
-- Right-click empty space in the editor for the same menu for the open file, below **Add option…**. **Show section lines** / **Hide section lines** there (and on any section's own right-click menu) turns on or off a thin vertical line beside each deeply nested section (off by default, remembered per browser).
+- Right-click empty space in the editor for the same menu for the open file, below **Add option…**. Deeply nested sections (the third level down and below) start out folded, with an arrow in front of the name: click the arrow or the name to show or hide one. **Show all sections** / **Hide all sections** there (and on any section's own right-click menu) does it for every folded section in the file at once. Jumping to something inside a folded section (a search result, the tree sidebar, a newly added option) opens it for you. What you've opened is forgotten on a page reload.
 - Double-click a tab to rename it inline.
 - Drag a tab into a folder (or back out to the root) to move it.
-- Drag a section or option by its name to reorder it, or onto a different file's tab to move it there — or use **Copy** / **Cut** / **Paste** (also right-click) to duplicate or relocate a section or option to the same path in another file.
+- Drag a section by its heading line, or an option by its name column, to reorder it, or onto a different file's tab to move it there — or use **Copy** / **Cut** / **Paste** (also right-click) to duplicate or relocate a section or option to the same path in another file.
 
 None of this touches disk until you hit **Save** — creating, deleting, renaming, moving, or disabling/enabling a file or folder all stay purely in the browser (the tab bar updates immediately) until then, applied to the actual `*.json` files in one batch when you save. Delete has no confirmation prompt for the same reason: it isn't real until Save applies it.
 

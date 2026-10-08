@@ -525,28 +525,6 @@ body {
 }
 .file-card:empty { display: none; }
 .file-card > .section:last-child { margin-bottom: 0; }
-/* A vertical bar down the left side of every section below the second level, for as long as the
-   section runs (the layout before the redesign had this as each nested section's own left
-   border). A pseudo-element placed at the section's own indent rather than a border, since a
-   section's box isn't inset (indentation lives inside the key column): it sits 8px in front of
-   the name, --depth being the section's own. */
-/* Not on a drag ghost: this rule is more specific than .drag-ghost's own `position: fixed`, and
-   would otherwise stop a dragged section following the pointer (a fixed element anchors the
-   line just as well). */
-.section.nest:not(.nest-top):not(.drag-ghost) { position: relative; }
-/* Off unless switched on from the editor's right-click menu (toggleNestLines(), which puts
-   .nest-lines on <body>). */
-.nest-lines .section.nest:not(.nest-top)::before {
-  content: ''; position: absolute; pointer-events: none; font-size: 12px;
-  /* A plain straight line drawn like the borders are -- the dark hairline with the same soft
-     shadow around it -- 8px in front of the name, from
-     the top of the name (the heading's 4px of padding down) to the end of the section. */
-  top: 4px; bottom: 0; left: calc(var(--depth, 0) * var(--indent-step) - 8px);
-  width: 1px; background: var(--panel-hairline); box-shadow: 0 0 var(--panel-shadow-size) var(--panel-shadow);
-}
-/* A second-level section has a line above it instead (below); the bar is for the sections nested
-   inside it. */
-.section.nest.nest-card:not(.nest-top)::before { content: none; }
 /* Everything at the top level of the file is framed -- a section, or an option set at the root
    (.nest-root) on its own -- with the same hairline and soft shadow the panels and the file's
    own card are edged with. */
@@ -563,11 +541,17 @@ body {
    in: the frame's hairline colour, without the shadow. */
 .section.nest-card { padding: 10px var(--block-pad) 8px; border-top: 1px solid var(--panel-hairline); }
 * + .nest-card, .nest-card + * { margin-top: var(--card-gap); }
-/* A third-level section (.nest-arrow) has an arrowhead in front of its name, hung in the indent to
-   the left of it (out of flow) so the name itself stays exactly where it was. */
-.section.nest-arrow > .section-header .section-key-text::before {
-  content: '▸'; position: absolute; right: 100%; margin-right: 0.5ch; pointer-events: none;
+/* Every section from the third level down (.nest-arrow) can be folded away, and starts out
+   folded (.collapsed, see _setNestDepths()): the arrowhead in front of its name is the switch,
+   pointing right while the section is hidden and down while it's shown. It hangs in the indent
+   to the left of the name (out of flow), so the name itself stays exactly where it was. */
+.section-toggle { display: none; }
+.section.nest-arrow > .section-header .section-toggle {
+  display: block; position: absolute; right: 100%; padding: 0 0.5ch; cursor: pointer; user-select: none;
 }
+.section.nest-arrow > .section-header .section-toggle::before { content: '▾'; }
+.section.nest-arrow.collapsed > .section-header .section-toggle::before { content: '▸'; }
+.section.collapsed > .section-body { display: none; }
 /* A section nested deeper than that has no edge or fill, only a little space below it. */
 .section.nest:not(.nest-top):not(.nest-card) { margin-bottom: var(--nested-section-gap); }
 /* An option with no such section around it (set straight on a top-level section, or at the root
@@ -594,8 +578,10 @@ body {
 /* ...and the same space between the items and the edges of the value cell holding them, so every
    object item has it on all four sides. */
 .field-row.nest > .field-value:has(> .array-obj-item) { padding: var(--list-item-gap); }
-/* Only the key's own text starts a drag (see makeDraggable()'s callers), so only it shows it. */
-.nest > .section-header .tt-anchor, .field-row.nest > .field-key .tt-anchor { cursor: grab; }
+/* A section's whole heading line and an option's whole key column start a drag (see
+   makeDraggable()'s callers), with no cursor change to say so; the name of a foldable section
+   is a switch on top of that, and does show it. */
+.section.nest-arrow > .section-header .section-key-text { cursor: pointer; }
 /* A dragged row keeps exactly the look it had in place: no translucency, and the fill of the
    top-level block it was lifted from behind it instead of .drag-ghost's own. */
 .nest.drag-ghost, .array-obj-item.drag-ghost { opacity: 1; background-color: var(--card-bg); }
