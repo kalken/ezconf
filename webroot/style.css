@@ -548,19 +548,26 @@ body {
    inside it. */
 .section.nest.nest-card:not(.nest-top)::before { content: none; }
 /* Everything at the top level of the file is framed -- a section, or an option set at the root
-   (.nest-root) on its own -- with a plain border in the hairline colour, the same line a
-   second-level section has above it, and no shadow around it. */
+   (.nest-root) on its own -- with the same hairline and soft shadow the panels and the file's
+   own card are edged with. */
 .section.nest-top, .field-row.nest-root {
   border-radius: var(--radius);
-  border: 1px solid var(--panel-hairline);
+  box-shadow: 0 0 0 1px var(--panel-hairline), 0 0 var(--panel-shadow-size) var(--panel-shadow);
 }
 .section.nest-top { padding: 8px 0; }
 .field-row.nest-root { padding-top: 8px; padding-bottom: 8px; margin-bottom: var(--section-gap); }
 .field-row.nest-root:last-child { margin-bottom: 0; }
 /* Not part of a strip of rows any more, so its value cell keeps all four corners. */
 .field-row.nest.nest-root > .field-value { border-radius: var(--radius); }
-/* A second-level section is only set off by a line above it, across the frame it sits in. */
-.section.nest-card { padding: 4px var(--block-pad) 8px; border-top: 1px solid var(--panel-hairline); }
+/* A second-level section is only set off by a line above it, across the frame it sits in,
+   shaded the same way. */
+.section.nest-card { padding: 10px var(--block-pad) 8px; border-top: 1px solid transparent; }
+/* Drawn as its own element rather than a border, so it can carry the same soft shadow the
+   frames have. */
+.section.nest-card::after {
+  content: ''; position: absolute; pointer-events: none; top: -1px; left: 0; right: 0; height: 1px;
+  background: var(--panel-hairline); box-shadow: 0 0 var(--panel-shadow-size) var(--panel-shadow);
+}
 * + .nest-card, .nest-card + * { margin-top: var(--card-gap); }
 /* A third-level section (.nest-arrow) has an arrowhead in front of its name, hung in the indent to
    the left of it (out of flow) so the name itself stays exactly where it was. */
