@@ -562,6 +562,15 @@ body {
 /* A second-level section is only set off by a line above it, across the frame it sits in. */
 .section.nest-card { padding: 4px var(--block-pad) 8px; border-top: 1px solid var(--panel-hairline); }
 * + .nest-card, .nest-card + * { margin-top: var(--card-gap); }
+/* A third-level section (.nest-arrow) has an arrowhead in front of its name, hung in the indent to
+   the left of it (out of flow) so the name itself stays exactly where it was. */
+.section.nest-arrow > .section-header .section-key-text::before {
+  content: '▸'; position: absolute; right: 100%; margin-right: 0.5ch; pointer-events: none;
+}
+/* ...and a fourth-level one (.nest-dot) a dot, placed the same way. */
+.section.nest-dot > .section-header .section-key-text::before {
+  content: '•'; position: absolute; right: 100%; margin-right: 0.5ch; pointer-events: none;
+}
 /* A section nested deeper than that has no edge or fill, only a little space below it. */
 .section.nest:not(.nest-top):not(.nest-card) { margin-bottom: var(--nested-section-gap); }
 /* An option with no such section around it (set straight on a top-level section, or at the root

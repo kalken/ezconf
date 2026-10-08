@@ -2578,8 +2578,9 @@ function renderEditor() {
 // Also tags each one with the classes all of the editor's row styling hangs off: .nest on every row,
 // .nest-top on a top-level section (framed), .nest-card on a section directly under one (a line
 // above it), .nest-loose on an option with no such section around it (padded to line up with
-// the ones that have), and .nest-root on an option at the root of the file (framed on its own,
-// like a top-level section). Classes
+// the ones that have), .nest-root on an option at the root of the file (framed on its own,
+// like a top-level section), and .nest-arrow/.nest-dot on a section two/three levels below a
+// top-level one (a small marker in front of its name). Classes
 // on the row itself rather than selectors written against its ancestors, so a drag ghost (a
 // clone appended to <body>, see makeDraggable()) carries its whole look along with it.
 // The vertical line beside each section nested below the second level ("Option rows" in
@@ -2605,6 +2606,8 @@ function _setNestDepths(root) {
     el.classList.add('nest');
     el.classList.toggle('nest-top', !inArrayObj && isSection && depth === 0);
     el.classList.toggle('nest-card', !inArrayObj && isSection && depth === 1);
+    el.classList.toggle('nest-arrow', !inArrayObj && isSection && depth === 2);
+    el.classList.toggle('nest-dot', !inArrayObj && isSection && depth === 3);
     el.classList.toggle('nest-loose', !inArrayObj && !isSection && depth <= 1);
     el.classList.toggle('nest-root', !inArrayObj && !isSection && depth === 0);
   }
