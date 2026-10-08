@@ -16,8 +16,8 @@
 
   /* ── Typography & shape ── */
   --font: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', ui-monospace, monospace;
-  --radius:       5px;
-  --radius-sm:    3px;
+  --radius:       8px;
+  --radius-sm:    5px;
   --input-radius: 6px;
   --term-padding: 4px;
 

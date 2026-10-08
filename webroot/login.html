@@ -44,6 +44,12 @@
     -webkit-text-fill-color: var(--text);
     caret-color: var(--text);
     filter: none;
+    /* The shadow alone still left a thin pale ring: at the rounded edge the browser's fill and
+       the shadow on top of it are both anti-aliased, and the fill shows through that last
+       fraction of a pixel. A transition this long means the browser's fill never actually
+       arrives -- the field keeps the background it already had -- so there is nothing
+       underneath to show through. */
+    transition: background-color 600000s 0s, color 600000s 0s;
   }
   /* The username picker (allowed_users) -- deliberately not a native <datalist>, and deliberately
      not opened by focusing or typing in the field either. Both were tried and both collided with

@@ -128,8 +128,11 @@ These follow the figures Apple has published for window margins and for spacing 
 inside groups. A theme that is only about colour should leave the whole block alone; change it
 in all of them or none.
 
-Corner radii (`--radius`, `--radius-sm`, `--input-radius`) and `--font` are the theme's to
-choose. Keep `--font` monospaced: values are configuration and Nix code.
+Corner radii are the same in every built-in theme too — `--radius` 8px (cards, panels, popups),
+`--radius-sm` 5px (tabs, buttons), `--input-radius` 6px — taken from the `osx-*` themes. They
+stay variables in each theme file so a user theme can still choose its own.
+
+`--font` is the theme's to choose. Keep it monospaced: values are configuration and Nix code.
 
 ## Terminal
 
